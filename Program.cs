@@ -1,21 +1,83 @@
+using System.Text;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.IdentityModel.Tokens;
+using ShippingPortal.Api.Data;
+using ShippingPortal.Api.Models.Identity;
+using ShippingPortal.Api.Services;
+
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Services.AddControllers();
+var connectionString = builder.Configuration["CONNECTION_STRING"]
+    ?? builder.Configuration.GetConnectionString("Default")
+    ?? throw new InvalidOperationException("No database connection string configured.");
 
-// Enable CORS for Angular Frontend
+builder.Services.AddDbContext<ShippingPortalDbContext>(options =>
+    options.UseMySql(connectionString, ServerVersion.AutoDetect(connectionString)));
+
+builder.Services
+    .AddIdentity<ApplicationUser, IdentityRole>(options =>
+    {
+        options.Password.RequiredLength = 10;
+        options.Password.RequireNonAlphanumeric = false;
+        options.Lockout.MaxFailedAccessAttempts = 5;
+    })
+    .AddEntityFrameworkStores<ShippingPortalDbContext>()
+    .AddDefaultTokenProviders();
+
+var jwtKey = builder.Configuration["JWT_SECRET"]
+    ?? throw new InvalidOperationException("JWT_SECRET is not configured.");
+
+builder.Services
+    .AddAuthentication(options =>
+    {
+        options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+        options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+    })
+    .AddJwtBearer(options =>
+    {
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = true,
+            ValidateAudience = true,
+            ValidateLifetime = true,
+            ValidateIssuerSigningKey = true,
+            ValidIssuer = builder.Configuration["JWT_ISSUER"] ?? "ShippingPortal.Api",
+            ValidAudience = builder.Configuration["JWT_AUDIENCE"] ?? "ShippingPortal.Client",
+            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey))
+        };
+    });
+
+builder.Services.AddScoped<TokenService>();
+
+builder.Services.AddControllers();
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen();
+
+var allowedOrigins = (builder.Configuration["ALLOWED_ORIGINS"] ?? "http://localhost:4200")
+    .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
 builder.Services.AddCors(options =>
 {
-    options.AddPolicy("AllowAll", policy =>
-    {
-        policy.AllowAnyOrigin()
+    options.AddPolicy("Frontend", policy =>
+        policy.WithOrigins(allowedOrigins)
               .AllowAnyHeader()
-              .AllowAnyMethod();
-    });
+              .AllowAnyMethod());
 });
 
 var app = builder.Build();
 
-app.UseCors("AllowAll");
+using (var scope = app.Services.CreateScope())
+{
+    await IdentitySeeder.SeedAsync(scope.ServiceProvider, app.Configuration);
+}
+
+app.UseSwagger();
+app.UseSwaggerUI();
+
+app.UseCors("Frontend");
+app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
 
