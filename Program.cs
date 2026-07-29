@@ -72,8 +72,7 @@ using (var scope = app.Services.CreateScope())
     await IdentitySeeder.SeedAsync(scope.ServiceProvider, app.Configuration);
 }
 
-app.UseSwagger();
-app.UseSwaggerUI();
+app.MapOpenApi();
 
 app.UseCors("Frontend");
 app.UseAuthentication();
