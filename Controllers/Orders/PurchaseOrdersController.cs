@@ -6,6 +6,7 @@ using ShippingPortal.Api.Models.Identity;
 using ShippingPortal.Api.Models.Orders;
 using ShippingPortal.Api.Services;
 using System.Security.Claims;
+using ShippingPortal.Api.Models.Shipments;
 
 namespace ShippingPortal.Api.Controllers.Orders;
 
@@ -56,7 +57,50 @@ public class PurchaseOrdersController : ControllerBase
                 p.Status.ToString(), p.LineItems.Count, p.CreatedAt))
             .ToListAsync();
     }
+    [HttpGet("confirmed")]
+    public async Task<ActionResult<IEnumerable<PurchaseOrderSummary>>> GetConfirmed()
+    {
+        return await _db.PurchaseOrders
+            .Where(p => p.Status == OrderStatus.Confirmed)
+            .Include(p => p.BusinessUnit)
+            .Include(p => p.Supplier)
+            .Include(p => p.LineItems)
+            .OrderByDescending(p => p.CreatedAt)
+            .Select(p => new PurchaseOrderSummary(
+                p.Id, p.PoNumber, p.BusinessUnit!.Name, p.Supplier!.Name,
+                p.Status.ToString(), p.LineItems.Count, p.CreatedAt))
+            .ToListAsync();
+    }
 
+    [HttpGet("{id:int}/line-items-remaining")]
+    public async Task<ActionResult<IEnumerable<LineItemRemainingResponse>>> GetLineItemsRemaining(int id)
+    {
+        var po = await _db.PurchaseOrders
+            .Include(p => p.LineItems).ThenInclude(li => li.ProductCategory)
+            .Include(p => p.LineItems).ThenInclude(li => li.ModelProduct)
+            .Include(p => p.LineItems).ThenInclude(li => li.ProductType)
+            .Include(p => p.LineItems).ThenInclude(li => li.UnitOfMeasure)
+            .Include(p => p.LineItems).ThenInclude(li => li.Currency)
+            .FirstOrDefaultAsync(p => p.Id == id);
+
+        if (po is null) return NotFound();
+
+        var lineItemIds = po.LineItems.Select(li => li.Id).ToList();
+
+        var shippedByLineItem = await _db.ShipmentLineItems
+            .Where(sli => lineItemIds.Contains(sli.PurchaseOrderLineItemId) && sli.Shipment!.Status != ShipmentStatus.Cancelled)
+            .GroupBy(sli => sli.PurchaseOrderLineItemId)
+            .Select(g => new { PoLineItemId = g.Key, Shipped = g.Sum(x => x.QtyInBl) })
+            .ToDictionaryAsync(x => x.PoLineItemId, x => x.Shipped);
+
+        return po.LineItems.Select(li =>
+        {
+            var shipped = shippedByLineItem.GetValueOrDefault(li.Id, 0m);
+            return new LineItemRemainingResponse(
+                li.Id, li.ProductCategory!.Name, li.ModelProduct!.Name, li.ProductType!.Name,
+                li.Qty, shipped, li.Qty - shipped, li.UnitOfMeasure!.Code, li.UnitPrice, li.Currency!.Code);
+        }).ToList();
+    }
     [HttpGet("{id:int}")]
     public async Task<ActionResult<PurchaseOrderResponse>> GetById(int id)
     {
