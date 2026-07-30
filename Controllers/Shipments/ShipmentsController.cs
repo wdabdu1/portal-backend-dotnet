@@ -2,242 +2,125 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using ShippingPortal.Api.Data;
+using ShippingPortal.Api.Models.Orders;
 using ShippingPortal.Api.Models.Shipments;
+using System.Security.Claims;
 
 namespace ShippingPortal.Api.Controllers.Shipments;
 
-public record ShipmentForwarderRequest(int? ForwarderId, decimal? ActualShippingCost, int? CurrencyId, decimal? AmountSaved, bool MarineInsurance);
-public record ShipmentAcdRequest(DateOnly? ProcessDate, decimal? CostUsd, DateOnly? CostSettledDate, string? RefNumber);
-public record ShipmentDraftDocumentsRequest(DateOnly? InitialDraftReceivedDate, DateOnly? FinalDraftReceivedDate, DateOnly? FinalDraftConfirmedDate);
-public record ShipmentSsmoRequest(DateOnly? ApplicationDate, decimal? Cost, DateOnly? CostSettledDate, string? RefNumber);
-public record ShipmentMotRequest(DateOnly? ProcessDate, decimal? Cost, DateOnly? CostSettledDate, string? RefNumber, string? OffshoreApprovedPiNumber, DateOnly? OffshoreApprovedPiDate);
-public record ShipmentSupplierFullSetRequest(string? SupplierInvoiceNo, DateOnly? SupplierInvoiceDate, DateOnly? FsDispatchDate, int? FsDispatchedViaId, string? FsTrackingNumber, DateOnly? FsReceivedDate);
-public record ShipmentSupplierPaymentRequest(DateOnly? DueDate, decimal? DueAmount, int? CurrencyId, DateOnly? PaymentExecutedDate, decimal? PaymentExecutedValue, int? PaymentExecutedCurrencyId, string? Remarks);
-public record ShipmentBankingRequest(
-    int? SenderBankId, DateOnly? OsDocDispatchDate, int? OsDocDispatchedViaId, string? OsDocTrackingNumber,
-    int? ReceivingBankId, bool NecessaryGoodType, string? CollectionRefNo, decimal? CollectionValue, int? CollectionCurrencyId,
-    int? TenorId, DateOnly? CollectionDueDate, decimal? CollectionAmountSettled, string? ImFormNo, DateOnly? ImFormDate);
+public record ShipmentLineItemRequest(int PurchaseOrderLineItemId, decimal QtyInBl);
 
-public record ShipmentDetailResponse(
-    int Id, string BlAwbNo, string PoNumber, string Status,
-    ShipmentForwarder? Forwarder, ShipmentAcd? Acd, ShipmentDraftDocuments? DraftDocuments,
-    ShipmentSsmo? Ssmo, ShipmentMot? Mot, ShipmentSupplierFullSet? SupplierFullSet,
-    ShipmentSupplierPayment? SupplierPayment, ShipmentBanking? Banking);
+public record CreateShipmentRequest(
+    string BlAwbNo, int PurchaseOrderId, DateOnly? BlAwbDate, DateOnly? Etd, DateOnly? Eta,
+    int ShippingLineId, int Fcl20Count, int Fcl40Count, bool Soc, int? BlFreeDays,
+    List<ShipmentLineItemRequest> LineItems);
+
+public record ShipmentSummary(int Id, string BlAwbNo, string PoNumber, string ShippingLine, string Status, DateOnly? Eta, int LineItemCount);
 
 [ApiController]
 [Authorize]
-[Route("api/shipments/{shipmentId:int}")]
-public class ShipmentDetailController : ControllerBase
+[Route("api/shipments")]
+public class ShipmentsController : ControllerBase
 {
     private readonly ShippingPortalDbContext _db;
-    public ShipmentDetailController(ShippingPortalDbContext db) => _db = db;
+    public ShipmentsController(ShippingPortalDbContext db) => _db = db;
 
-    [HttpGet("detail")]
-    public async Task<ActionResult<ShipmentDetailResponse>> GetDetail(int shipmentId)
+    [HttpGet]
+    public async Task<ActionResult<IEnumerable<ShipmentSummary>>> GetAll()
     {
-        var shipment = await _db.Shipments.Include(s => s.PurchaseOrder).FirstOrDefaultAsync(s => s.Id == shipmentId);
+        return await _db.Shipments
+            .Include(s => s.PurchaseOrder)
+            .Include(s => s.ShippingLine)
+            .Include(s => s.LineItems)
+            .OrderByDescending(s => s.CreatedAt)
+            .Select(s => new ShipmentSummary(
+                s.Id, s.BlAwbNo, s.PurchaseOrder!.PoNumber, s.ShippingLine!.Name,
+                s.Status.ToString(), s.Eta, s.LineItems.Count))
+            .ToListAsync();
+    }
+
+    [HttpPost]
+    public async Task<ActionResult<ShipmentSummary>> Create(CreateShipmentRequest req)
+    {
+        var po = await _db.PurchaseOrders.Include(p => p.LineItems).FirstOrDefaultAsync(p => p.Id == req.PurchaseOrderId);
+        if (po is null) return NotFound(new { message = "Purchase order not found." });
+        if (po.Status != OrderStatus.Confirmed) return BadRequest(new { message = "Shipments can only be created against confirmed purchase orders." });
+
+        if (await _db.Shipments.AnyAsync(s => s.BlAwbNo == req.BlAwbNo))
+            return Conflict(new { message = $"BL/AWB number '{req.BlAwbNo}' already exists." });
+
+        if (req.LineItems.Count == 0)
+            return BadRequest(new { message = "At least one line item is required." });
+
+        var lineItemIds = req.LineItems.Select(li => li.PurchaseOrderLineItemId).ToList();
+        var poLineItems = po.LineItems.Where(li => lineItemIds.Contains(li.Id)).ToDictionary(li => li.Id);
+
+        var alreadyShipped = await _db.ShipmentLineItems
+            .Where(sli => lineItemIds.Contains(sli.PurchaseOrderLineItemId) && sli.Shipment!.Status != ShipmentStatus.Cancelled)
+            .GroupBy(sli => sli.PurchaseOrderLineItemId)
+            .Select(g => new { PoLineItemId = g.Key, Shipped = g.Sum(x => x.QtyInBl) })
+            .ToDictionaryAsync(x => x.PoLineItemId, x => x.Shipped);
+
+        foreach (var li in req.LineItems)
+        {
+            if (!poLineItems.TryGetValue(li.PurchaseOrderLineItemId, out var poLine))
+                return BadRequest(new { message = $"Line item {li.PurchaseOrderLineItemId} does not belong to this purchase order." });
+
+            var shipped = alreadyShipped.GetValueOrDefault(li.PurchaseOrderLineItemId, 0m);
+            var remaining = poLine.Qty - shipped;
+            if (li.QtyInBl > remaining)
+                return BadRequest(new { message = $"Quantity {li.QtyInBl} exceeds remaining {remaining} for this line item." });
+        }
+
+        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "";
+
+        var shipment = new Shipment
+        {
+            BlAwbNo = req.BlAwbNo,
+            PurchaseOrderId = req.PurchaseOrderId,
+            BlAwbDate = req.BlAwbDate,
+            Etd = req.Etd,
+            Eta = req.Eta,
+            ShippingLineId = req.ShippingLineId,
+            Fcl20Count = req.Fcl20Count,
+            Fcl40Count = req.Fcl40Count,
+            Soc = req.Soc,
+            BlFreeDays = req.BlFreeDays,
+            Status = ShipmentStatus.Draft,
+            CreatedByUserId = userId,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+
+        foreach (var li in req.LineItems)
+        {
+            var poLine = poLineItems[li.PurchaseOrderLineItemId];
+            shipment.LineItems.Add(new ShipmentLineItem
+            {
+                PurchaseOrderLineItemId = li.PurchaseOrderLineItemId,
+                QtyInBl = li.QtyInBl,
+                ItemSubtotal = li.QtyInBl * poLine.UnitPrice
+            });
+        }
+
+        _db.Shipments.Add(shipment);
+        await _db.SaveChangesAsync();
+
+        var shippingLine = await _db.ShippingLines.FindAsync(req.ShippingLineId);
+        return CreatedAtAction(nameof(GetAll), new ShipmentSummary(
+            shipment.Id, shipment.BlAwbNo, po.PoNumber, shippingLine?.Name ?? "", shipment.Status.ToString(), shipment.Eta, shipment.LineItems.Count));
+    }
+
+    [HttpPost("{id:int}/confirm")]
+    public async Task<IActionResult> Confirm(int id)
+    {
+        var shipment = await _db.Shipments.FindAsync(id);
         if (shipment is null) return NotFound();
+        if (shipment.Status != ShipmentStatus.Draft) return BadRequest(new { message = "Only draft shipments can be confirmed." });
 
-        var forwarder = await _db.ShipmentForwarders.FirstOrDefaultAsync(x => x.ShipmentId == shipmentId);
-        var acd = await _db.ShipmentAcds.FirstOrDefaultAsync(x => x.ShipmentId == shipmentId);
-        var draftDocs = await _db.ShipmentDraftDocuments.FirstOrDefaultAsync(x => x.ShipmentId == shipmentId);
-        var ssmo = await _db.ShipmentSsmos.FirstOrDefaultAsync(x => x.ShipmentId == shipmentId);
-        var mot = await _db.ShipmentMots.FirstOrDefaultAsync(x => x.ShipmentId == shipmentId);
-        var fullSet = await _db.ShipmentSupplierFullSets.FirstOrDefaultAsync(x => x.ShipmentId == shipmentId);
-        var payment = await _db.ShipmentSupplierPayments.FirstOrDefaultAsync(x => x.ShipmentId == shipmentId);
-        var banking = await _db.ShipmentBankings.FirstOrDefaultAsync(x => x.ShipmentId == shipmentId);
-
-        return new ShipmentDetailResponse(shipment.Id, shipment.BlAwbNo, shipment.PurchaseOrder!.PoNumber, shipment.Status.ToString(),
-            forwarder, acd, draftDocs, ssmo, mot, fullSet, payment, banking);
-    }
-
-    [HttpPut("forwarder")]
-    public async Task<IActionResult> UpsertForwarder(int shipmentId, ShipmentForwarderRequest req)
-    {
-        if (!await _db.Shipments.AnyAsync(s => s.Id == shipmentId)) return NotFound();
-
-        var entity = await _db.ShipmentForwarders.FirstOrDefaultAsync(x => x.ShipmentId == shipmentId);
-        if (entity is null) { entity = new ShipmentForwarder { ShipmentId = shipmentId }; _db.ShipmentForwarders.Add(entity); }
-
-        entity.ForwarderId = req.ForwarderId;
-        entity.ActualShippingCost = req.ActualShippingCost;
-        entity.CurrencyId = req.CurrencyId;
-        entity.AmountSaved = req.AmountSaved;
-        entity.MarineInsurance = req.MarineInsurance;
-
-        if (req.ActualShippingCost.HasValue && req.CurrencyId.HasValue)
-        {
-            var rate = await _db.FxRates.Where(r => r.CurrencyId == req.CurrencyId).OrderByDescending(r => r.EffectiveDate).FirstOrDefaultAsync();
-            entity.ActualShippingCostUsd = req.ActualShippingCost.Value / (rate?.RateToUsd ?? 1m);
-        }
-
+        shipment.Status = ShipmentStatus.Confirmed;
+        shipment.UpdatedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync();
-        return Ok(entity);
-    }
-
-    [HttpPut("acd")]
-    public async Task<IActionResult> UpsertAcd(int shipmentId, ShipmentAcdRequest req)
-    {
-        if (!await _db.Shipments.AnyAsync(s => s.Id == shipmentId)) return NotFound();
-
-        var entity = await _db.ShipmentAcds.FirstOrDefaultAsync(x => x.ShipmentId == shipmentId);
-        if (entity is null) { entity = new ShipmentAcd { ShipmentId = shipmentId }; _db.ShipmentAcds.Add(entity); }
-
-        entity.ProcessDate = req.ProcessDate;
-        entity.CostUsd = req.CostUsd;
-        entity.CostSettledDate = req.CostSettledDate;
-        entity.RefNumber = req.RefNumber;
-
-        await _db.SaveChangesAsync();
-        return Ok(entity);
-    }
-
-    [HttpPut("draft-documents")]
-    public async Task<IActionResult> UpsertDraftDocuments(int shipmentId, ShipmentDraftDocumentsRequest req)
-    {
-        if (!await _db.Shipments.AnyAsync(s => s.Id == shipmentId)) return NotFound();
-
-        var entity = await _db.ShipmentDraftDocuments.FirstOrDefaultAsync(x => x.ShipmentId == shipmentId);
-        if (entity is null) { entity = new ShipmentDraftDocuments { ShipmentId = shipmentId }; _db.ShipmentDraftDocuments.Add(entity); }
-
-        entity.InitialDraftReceivedDate = req.InitialDraftReceivedDate;
-        entity.FinalDraftReceivedDate = req.FinalDraftReceivedDate;
-        entity.FinalDraftConfirmedDate = req.FinalDraftConfirmedDate;
-
-        await _db.SaveChangesAsync();
-        return Ok(entity);
-    }
-
-    [HttpPut("ssmo")]
-    public async Task<IActionResult> UpsertSsmo(int shipmentId, ShipmentSsmoRequest req)
-    {
-        if (!await _db.Shipments.AnyAsync(s => s.Id == shipmentId)) return NotFound();
-
-        var entity = await _db.ShipmentSsmos.FirstOrDefaultAsync(x => x.ShipmentId == shipmentId);
-        if (entity is null) { entity = new ShipmentSsmo { ShipmentId = shipmentId }; _db.ShipmentSsmos.Add(entity); }
-
-        entity.ApplicationDate = req.ApplicationDate;
-        entity.Cost = req.Cost;
-        entity.CostSettledDate = req.CostSettledDate;
-        entity.RefNumber = req.RefNumber;
-
-        await _db.SaveChangesAsync();
-        return Ok(entity);
-    }
-
-    [HttpPut("mot")]
-    public async Task<IActionResult> UpsertMot(int shipmentId, ShipmentMotRequest req)
-    {
-        if (!await _db.Shipments.AnyAsync(s => s.Id == shipmentId)) return NotFound();
-
-        var entity = await _db.ShipmentMots.FirstOrDefaultAsync(x => x.ShipmentId == shipmentId);
-        if (entity is null) { entity = new ShipmentMot { ShipmentId = shipmentId }; _db.ShipmentMots.Add(entity); }
-
-        entity.ProcessDate = req.ProcessDate;
-        entity.Cost = req.Cost;
-        entity.CostSettledDate = req.CostSettledDate;
-        entity.RefNumber = req.RefNumber;
-        entity.OffshoreApprovedPiNumber = req.OffshoreApprovedPiNumber;
-        entity.OffshoreApprovedPiDate = req.OffshoreApprovedPiDate;
-
-        await _db.SaveChangesAsync();
-        return Ok(entity);
-    }
-
-    [HttpPut("supplier-full-set")]
-    public async Task<IActionResult> UpsertSupplierFullSet(int shipmentId, ShipmentSupplierFullSetRequest req)
-    {
-        if (!await _db.Shipments.AnyAsync(s => s.Id == shipmentId)) return NotFound();
-
-        var entity = await _db.ShipmentSupplierFullSets.FirstOrDefaultAsync(x => x.ShipmentId == shipmentId);
-        if (entity is null) { entity = new ShipmentSupplierFullSet { ShipmentId = shipmentId }; _db.ShipmentSupplierFullSets.Add(entity); }
-
-        entity.SupplierInvoiceNo = req.SupplierInvoiceNo;
-        entity.SupplierInvoiceDate = req.SupplierInvoiceDate;
-        entity.FsDispatchDate = req.FsDispatchDate;
-        entity.FsDispatchedViaId = req.FsDispatchedViaId;
-        entity.FsTrackingNumber = req.FsTrackingNumber;
-        entity.FsReceivedDate = req.FsReceivedDate;
-
-        await _db.SaveChangesAsync();
-        return Ok(entity);
-    }
-
-    [HttpPut("supplier-payment")]
-    public async Task<IActionResult> UpsertSupplierPayment(int shipmentId, ShipmentSupplierPaymentRequest req)
-    {
-        if (!await _db.Shipments.AnyAsync(s => s.Id == shipmentId)) return NotFound();
-
-        var entity = await _db.ShipmentSupplierPayments.FirstOrDefaultAsync(x => x.ShipmentId == shipmentId);
-        if (entity is null) { entity = new ShipmentSupplierPayment { ShipmentId = shipmentId }; _db.ShipmentSupplierPayments.Add(entity); }
-
-        entity.DueDate = req.DueDate;
-        entity.DueAmount = req.DueAmount;
-        entity.CurrencyId = req.CurrencyId;
-        entity.PaymentExecutedDate = req.PaymentExecutedDate;
-        entity.PaymentExecutedValue = req.PaymentExecutedValue;
-        entity.PaymentExecutedCurrencyId = req.PaymentExecutedCurrencyId;
-        entity.Remarks = req.Remarks;
-
-        if (req.DueAmount.HasValue && req.CurrencyId.HasValue)
-        {
-            var rate = await _db.FxRates.Where(r => r.CurrencyId == req.CurrencyId).OrderByDescending(r => r.EffectiveDate).FirstOrDefaultAsync();
-            entity.DueAmountUsd = req.DueAmount.Value / (rate?.RateToUsd ?? 1m);
-        }
-
-        if (req.PaymentExecutedValue.HasValue && req.PaymentExecutedCurrencyId.HasValue)
-        {
-            var rate = await _db.FxRates.Where(r => r.CurrencyId == req.PaymentExecutedCurrencyId).OrderByDescending(r => r.EffectiveDate).FirstOrDefaultAsync();
-            entity.PaymentExecutedUsd = req.PaymentExecutedValue.Value / (rate?.RateToUsd ?? 1m);
-        }
-
-        entity.DueBalanceUsd = (entity.DueAmountUsd ?? 0) - (entity.PaymentExecutedUsd ?? 0);
-
-        await _db.SaveChangesAsync();
-        return Ok(entity);
-    }
-
-    [HttpPut("banking")]
-    public async Task<IActionResult> UpsertBanking(int shipmentId, ShipmentBankingRequest req)
-    {
-        if (!await _db.Shipments.AnyAsync(s => s.Id == shipmentId)) return NotFound();
-
-        var entity = await _db.ShipmentBankings.FirstOrDefaultAsync(x => x.ShipmentId == shipmentId);
-        if (entity is null) { entity = new ShipmentBanking { ShipmentId = shipmentId }; _db.ShipmentBankings.Add(entity); }
-
-        entity.SenderBankId = req.SenderBankId;
-        entity.OsDocDispatchDate = req.OsDocDispatchDate;
-        entity.OsDocDispatchedViaId = req.OsDocDispatchedViaId;
-        entity.OsDocTrackingNumber = req.OsDocTrackingNumber;
-        entity.ReceivingBankId = req.ReceivingBankId;
-        entity.NecessaryGoodType = req.NecessaryGoodType;
-        entity.CollectionRefNo = req.CollectionRefNo;
-        entity.CollectionValue = req.CollectionValue;
-        entity.CollectionCurrencyId = req.CollectionCurrencyId;
-        entity.TenorId = req.TenorId;
-        entity.CollectionDueDate = req.CollectionDueDate;
-        entity.CollectionAmountSettled = req.CollectionAmountSettled;
-        entity.ImFormNo = req.ImFormNo;
-        entity.ImFormDate = req.ImFormDate;
-
-        if (req.CollectionValue.HasValue && req.SenderBankId.HasValue)
-        {
-            var senderBank = await _db.SenderBanks.FindAsync(req.SenderBankId);
-            if (senderBank is not null)
-                entity.SenderBankCharges = Math.Max(req.CollectionValue.Value * senderBank.ChargeRate, senderBank.MinimumChargeAed);
-        }
-
-        if (req.CollectionValue.HasValue && req.ReceivingBankId.HasValue)
-        {
-            var receiverBank = await _db.ReceiverBanks.FindAsync(req.ReceivingBankId);
-            if (receiverBank is not null)
-                entity.ReceiverBankCharges = req.CollectionValue.Value * receiverBank.TotalChargeRate;
-        }
-
-        if (req.CollectionValue.HasValue)
-            entity.RemainingDues = req.CollectionValue.Value - (req.CollectionAmountSettled ?? 0);
-
-        await _db.SaveChangesAsync();
-        return Ok(entity);
+        return NoContent();
     }
 }
