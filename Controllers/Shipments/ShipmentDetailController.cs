@@ -25,7 +25,8 @@ public record ShipmentDetailResponse(
     int Id, string BlAwbNo, string PoNumber, string Status,
     ShipmentForwarder? Forwarder, ShipmentAcd? Acd, ShipmentDraftDocuments? DraftDocuments,
     ShipmentSsmo? Ssmo, ShipmentMot? Mot, ShipmentSupplierFullSet? SupplierFullSet,
-    ShipmentSupplierPayment? SupplierPayment, ShipmentBanking? Banking);
+    ShipmentSupplierPayment? SupplierPayment, ShipmentBanking? Banking,
+    List<string> OffshorePartnerNames);
 
 [ApiController]
 [Authorize]
@@ -50,8 +51,14 @@ public class ShipmentDetailController : ControllerBase
         var payment = await _db.ShipmentSupplierPayments.FirstOrDefaultAsync(x => x.ShipmentId == shipmentId);
         var banking = await _db.ShipmentBankings.FirstOrDefaultAsync(x => x.ShipmentId == shipmentId);
 
+        var offshorePartnerNames = await _db.PurchaseOrderOffshorePartners
+            .Where(op => op.PurchaseOrderId == shipment.PurchaseOrderId)
+            .OrderBy(op => op.SequenceOrder)
+            .Select(op => op.BusinessPartner!.Name)
+            .ToListAsync();
+
         return new ShipmentDetailResponse(shipment.Id, shipment.BlAwbNo, shipment.PurchaseOrder!.PoNumber, shipment.Status.ToString(),
-            forwarder, acd, draftDocs, ssmo, mot, fullSet, payment, banking);
+            forwarder, acd, draftDocs, ssmo, mot, fullSet, payment, banking, offshorePartnerNames);
     }
 
     [HttpPut("forwarder")]
