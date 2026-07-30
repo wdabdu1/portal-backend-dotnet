@@ -42,6 +42,15 @@ public class ShippingPortalDbContext : IdentityDbContext<ApplicationUser>
     public DbSet<PurchaseOrderOffshorePartner> PurchaseOrderOffshorePartners => Set<PurchaseOrderOffshorePartner>();
     public DbSet<Shipment> Shipments => Set<Shipment>();
     public DbSet<ShipmentLineItem> ShipmentLineItems => Set<ShipmentLineItem>();
+    public DbSet<ShipmentLineItem> ShipmentLineItems => Set<ShipmentLineItem>();
+    public DbSet<ShipmentForwarder> ShipmentForwarders => Set<ShipmentForwarder>();
+    public DbSet<ShipmentAcd> ShipmentAcds => Set<ShipmentAcd>();
+    public DbSet<ShipmentDraftDocuments> ShipmentDraftDocuments => Set<ShipmentDraftDocuments>();
+    public DbSet<ShipmentSsmo> ShipmentSsmos => Set<ShipmentSsmo>();
+    public DbSet<ShipmentMot> ShipmentMots => Set<ShipmentMot>();
+    public DbSet<ShipmentSupplierFullSet> ShipmentSupplierFullSets => Set<ShipmentSupplierFullSet>();
+    public DbSet<ShipmentSupplierPayment> ShipmentSupplierPayments => Set<ShipmentSupplierPayment>();
+    public DbSet<ShipmentBanking> ShipmentBankings => Set<ShipmentBanking>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -62,5 +71,15 @@ public class ShippingPortalDbContext : IdentityDbContext<ApplicationUser>
 
         builder.Entity<UserBusinessUnitAccess>().HasOne(a => a.User).WithMany(u => u.BusinessUnitAccess).HasForeignKey(a => a.UserId).OnDelete(DeleteBehavior.Cascade);
         builder.Entity<UserBusinessUnitAccess>().HasIndex(a => new { a.UserId, a.BusinessUnitId }).IsUnique();
+
+        // 1:1 Shipment sub-groups, each independently editable.
+        builder.Entity<ShipmentForwarder>().HasIndex(x => x.ShipmentId).IsUnique();
+        builder.Entity<ShipmentAcd>().HasIndex(x => x.ShipmentId).IsUnique();
+        builder.Entity<ShipmentDraftDocuments>().HasIndex(x => x.ShipmentId).IsUnique();
+        builder.Entity<ShipmentSsmo>().HasIndex(x => x.ShipmentId).IsUnique();
+        builder.Entity<ShipmentMot>().HasIndex(x => x.ShipmentId).IsUnique();
+        builder.Entity<ShipmentSupplierFullSet>().HasIndex(x => x.ShipmentId).IsUnique();
+        builder.Entity<ShipmentSupplierPayment>().HasIndex(x => x.ShipmentId).IsUnique();
+        builder.Entity<ShipmentBanking>().HasIndex(x => x.ShipmentId).IsUnique();
     }
 }
