@@ -28,11 +28,6 @@ public class SenderBanksController : LookupCrudController<SenderBank>
     public SenderBanksController(ShippingPortalDbContext db) : base(db) { }
 }
 
-[Route("api/settings/receiver-banks")]
-public class ReceiverBanksController : LookupCrudController<ReceiverBank>
-{
-    public ReceiverBanksController(ShippingPortalDbContext db) : base(db) { }
-}
 
 [Route("api/settings/shipment-destinations")]
 public class ShipmentDestinationsController : LookupCrudController<ShipmentDestination>
