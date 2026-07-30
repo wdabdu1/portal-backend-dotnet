@@ -93,17 +93,23 @@ public class ShipmentSupplierPayment
     public int ShipmentId { get; set; }
     public Shipment? Shipment { get; set; }
 
-    public DateOnly? DueDate { get; set; }
-    public decimal? DueAmount { get; set; }
     public int? CurrencyId { get; set; }
     public Currency? Currency { get; set; }
-    public decimal? DueAmountUsd { get; set; }
-    public DateOnly? PaymentExecutedDate { get; set; }
-    public decimal? PaymentExecutedValue { get; set; }
-    public int? PaymentExecutedCurrencyId { get; set; }
-    public Currency? PaymentExecutedCurrency { get; set; }
-    public decimal? PaymentExecutedUsd { get; set; }
-    public decimal? DueBalanceUsd { get; set; }
+
+    public decimal? AdvanceValue { get; set; }
+    public DateOnly? AdvanceDueDate { get; set; }
+    public DateOnly? AdvanceActualPaymentDate { get; set; }
+    public decimal? AdvanceValueUsd { get; set; }
+
+    public decimal? RemainingValue { get; set; }
+    public DateOnly? RemainingDueDate { get; set; }
+    public DateOnly? RemainingActualPaymentDate { get; set; }
+    public decimal? RemainingValueUsd { get; set; }
+
+    public decimal? TotalValueUsd { get; set; }
+    public decimal? TotalPaidUsd { get; set; }
+    public decimal? BalanceUsd { get; set; }
+
     public string? Remarks { get; set; }
 }
 
