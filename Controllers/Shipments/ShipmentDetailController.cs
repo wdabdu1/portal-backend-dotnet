@@ -47,7 +47,7 @@ public class ShipmentDetailController : ControllerBase
         var ssmo = await _db.ShipmentSsmos.FirstOrDefaultAsync(x => x.ShipmentId == shipmentId);
         var mot = await _db.ShipmentMots.FirstOrDefaultAsync(x => x.ShipmentId == shipmentId);
         var fullSet = await _db.ShipmentSupplierFullSets.FirstOrDefaultAsync(x => x.ShipmentId == shipmentId);
-        var payment = await _db.Shipmentments.FirstOrDefaultAsync(x => x.ShipmentId == shipmentId);
+        var payment = await _db.ShipmentSupplierPayments.FirstOrDefaultAsync(x => x.ShipmentId == shipmentId);
         var banking = await _db.ShipmentBankings.FirstOrDefaultAsync(x => x.ShipmentId == shipmentId);
 
         return new ShipmentDetailResponse(shipment.Id, shipment.BlAwbNo, shipment.PurchaseOrder!.PoNumber, shipment.Status.ToString(),
@@ -174,27 +174,30 @@ public class ShipmentDetailController : ControllerBase
         var entity = await _db.ShipmentSupplierPayments.FirstOrDefaultAsync(x => x.ShipmentId == shipmentId);
         if (entity is null) { entity = new ShipmentSupplierPayment { ShipmentId = shipmentId }; _db.ShipmentSupplierPayments.Add(entity); }
 
-        entity.DueDate = req.DueDate;
-        entity.DueAmount = req.DueAmount;
         entity.CurrencyId = req.CurrencyId;
-        entity.PaymentExecutedDate = req.PaymentExecutedDate;
-        entity.PaymentExecutedValue = req.PaymentExecutedValue;
-        entity.PaymentExecutedCurrencyId = req.PaymentExecutedCurrencyId;
+        entity.AdvanceValue = req.AdvanceValue;
+        entity.AdvanceDueDate = req.AdvanceDueDate;
+        entity.AdvanceActualPaymentDate = req.AdvanceActualPaymentDate;
+        entity.RemainingValue = req.RemainingValue;
+        entity.RemainingDueDate = req.RemainingDueDate;
+        entity.RemainingActualPaymentDate = req.RemainingActualPaymentDate;
         entity.Remarks = req.Remarks;
 
-        if (req.DueAmount.HasValue && req.CurrencyId.HasValue)
+        decimal rate = 1m;
+        if (req.CurrencyId.HasValue)
         {
-            var rate = await _db.FxRates.Where(r => r.CurrencyId == req.CurrencyId).OrderByDescending(r => r.EffectiveDate).FirstOrDefaultAsync();
-            entity.DueAmountUsd = req.DueAmount.Value / (rate?.RateToUsd ?? 1m);
+            var fxRate = await _db.FxRates.Where(r => r.CurrencyId == req.CurrencyId).OrderByDescending(r => r.EffectiveDate).FirstOrDefaultAsync();
+            rate = fxRate?.RateToUsd ?? 1m;
         }
 
-        if (req.PaymentExecutedValue.HasValue && req.PaymentExecutedCurrencyId.HasValue)
-        {
-            var rate = await _db.FxRates.Where(r => r.CurrencyId == req.PaymentExecutedCurrencyId).OrderByDescending(r => r.EffectiveDate).FirstOrDefaultAsync();
-            entity.PaymentExecutedUsd = req.PaymentExecutedValue.Value / (rate?.RateToUsd ?? 1m);
-        }
+        entity.AdvanceValueUsd = req.AdvanceValue.HasValue ? req.AdvanceValue.Value / rate : null;
+        entity.RemainingValueUsd = req.RemainingValue.HasValue ? req.RemainingValue.Value / rate : null;
+        entity.TotalValueUsd = (entity.AdvanceValueUsd ?? 0) + (entity.RemainingValueUsd ?? 0);
 
-        entity.DueBalanceUsd = (entity.DueAmountUsd ?? 0) - (entity.PaymentExecutedUsd ?? 0);
+        entity.TotalPaidUsd = (req.AdvanceActualPaymentDate.HasValue ? entity.AdvanceValueUsd ?? 0 : 0)
+                             + (req.RemainingActualPaymentDate.HasValue ? entity.RemainingValueUsd ?? 0 : 0);
+
+        entity.BalanceUsd = entity.TotalValueUsd - entity.TotalPaidUsd;
 
         await _db.SaveChangesAsync();
         return Ok(entity);
