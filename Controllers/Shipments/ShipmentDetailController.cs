@@ -12,8 +12,11 @@ public record ShipmentDraftDocumentsRequest(DateOnly? InitialDraftReceivedDate, 
 public record ShipmentSsmoRequest(DateOnly? ApplicationDate, decimal? Cost, DateOnly? CostSettledDate, string? RefNumber);
 public record ShipmentMotRequest(DateOnly? ProcessDate, decimal? Cost, DateOnly? CostSettledDate, string? RefNumber, string? OffshoreApprovedPiNumber, DateOnly? OffshoreApprovedPiDate);
 public record ShipmentSupplierFullSetRequest(string? SupplierInvoiceNo, DateOnly? SupplierInvoiceDate, DateOnly? FsDispatchDate, int? FsDispatchedViaId, string? FsTrackingNumber, DateOnly? FsReceivedDate);
-public record ShipmentSupplierPaymentRequest(DateOnly? DueDate, decimal? DueAmount, int? CurrencyId, DateOnly? PaymentExecutedDate, decimal? PaymentExecutedValue, int? PaymentExecutedCurrencyId, string? Remarks);
-public record ShipmentBankingRequest(
+public record ShipmentSupplierPaymentRequest(
+    int? CurrencyId,
+    decimal? AdvanceValue, DateOnly? AdvanceDueDate, DateOnly? AdvanceActualPaymentDate,
+    decimal? RemainingValue, DateOnly? RemainingDueDate, DateOnly? RemainingActualPaymentDate,
+    string? Remarks);public record ShipmentBankingRequest(
     int? SenderBankId, DateOnly? OsDocDispatchDate, int? OsDocDispatchedViaId, string? OsDocTrackingNumber,
     int? ReceivingBankId, bool NecessaryGoodType, string? CollectionRefNo, decimal? CollectionValue, int? CollectionCurrencyId,
     int? TenorId, DateOnly? CollectionDueDate, decimal? CollectionAmountSettled, string? ImFormNo, DateOnly? ImFormDate);
