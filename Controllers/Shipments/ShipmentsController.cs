@@ -110,4 +110,16 @@ public class ShipmentsController : ControllerBase
         return CreatedAtAction(nameof(GetAll), new ShipmentSummary(
             shipment.Id, shipment.BlAwbNo, po.PoNumber, shippingLine?.Name ?? "", shipment.Status.ToString(), shipment.Eta, shipment.LineItems.Count));
     }
+    [HttpPost("{id:int}/confirm")]
+    public async Task<IActionResult> Confirm(int id)
+    {
+        var shipment = await _db.Shipments.FindAsync(id);
+        if (shipment is null) return NotFound();
+        if (shipment.Status != ShipmentStatus.Draft) return BadRequest(new { message = "Only draft shipments can be confirmed." });
+
+        shipment.Status = ShipmentStatus.Confirmed;
+        shipment.UpdatedAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync();
+        return NoContent();
+    }
 }
