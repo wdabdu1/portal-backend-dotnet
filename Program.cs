@@ -50,6 +50,7 @@ builder.Services
     });
 
 builder.Services.AddScoped<TokenService>();
+builder.Services.AddScoped<FxRateService>();
 
 builder.Services.AddControllers()
     .AddJsonOptions(options =>
