@@ -20,7 +20,7 @@ var connectionString = builder.Configuration["CONNECTION_STRING"]
     ?? throw new InvalidOperationException("No database connection string configured.");
 
 builder.Services.AddDbContext<ShippingPortalDbContext>(options =>
-    options.UseMySql(connectionString, ServerVersion.AutoDetect(connectionString)));
+    options.UseMySql(connectionString, new MySqlServerVersion(new Version(8, 0, 35))));
 
 builder.Services
     .AddIdentity<ApplicationUser, IdentityRole>(options =>
