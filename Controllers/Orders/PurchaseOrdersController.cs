@@ -9,6 +9,7 @@ using System.Security.Claims;
 
 namespace ShippingPortal.Api.Controllers.Orders;
 
+public record LineItemRemainingResponse(int Id, string ProductCategory, string ModelProduct, string ProductType, decimal Qty, decimal QtyShipped, decimal QtyRemaining, string UnitOfMeasure, decimal UnitPrice, string Currency);
 public record LineItemRequest(int ProductCategoryId, int ModelProductId, int ProductTypeId, decimal Qty, int UnitOfMeasureId, decimal UnitPrice, int CurrencyId);
 public record OffshorePartnerRequest(int BusinessPartnerId, int SequenceOrder);
 
