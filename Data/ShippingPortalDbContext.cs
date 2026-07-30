@@ -42,7 +42,14 @@ public class ShippingPortalDbContext : IdentityDbContext<ApplicationUser>
     public DbSet<PurchaseOrderOffshorePartner> PurchaseOrderOffshorePartners => Set<PurchaseOrderOffshorePartner>();
     public DbSet<Shipment> Shipments => Set<Shipment>();
     public DbSet<ShipmentLineItem> ShipmentLineItems => Set<ShipmentLineItem>();
-    public DbSet<ShipmentLineItem> ShipmentLineItems => Set<ShipmentLineItem>();
+    public DbSet<ShipmentForwarder> ShipmentForwarders => Set<ShipmentForwarder>();
+    public DbSet<ShipmentAcd> ShipmentAcds => Set<ShipmentAcd>();
+    public DbSet<ShipmentDraftDocuments> ShipmentDraftDocuments => Set<ShipmentDraftDocuments>();
+    public DbSet<ShipmentSsmo> ShipmentSsmos => Set<ShipmentSsmo>();
+    public DbSet<ShipmentMot> ShipmentMots => Set<ShipmentMot>();
+    public DbSet<ShipmentSupplierFullSet> ShipmentSupplierFullSets => Set<ShipmentSupplierFullSet>();
+    public DbSet<ShipmentSupplierPayment> ShipmentSupplierPayments => Set<ShipmentSupplierPayment>();
+    public DbSet<ShipmentBanking> ShipmentBankings => Set<ShipmentBanking>();
     public DbSet<ShipmentForwarder> ShipmentForwarders => Set<ShipmentForwarder>();
     public DbSet<ShipmentAcd> ShipmentAcds => Set<ShipmentAcd>();
     public DbSet<ShipmentDraftDocuments> ShipmentDraftDocuments => Set<ShipmentDraftDocuments>();
