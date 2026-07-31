@@ -39,12 +39,14 @@ public static class ClearanceSlaSeeder
         using var scope = services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<ShippingPortalDbContext>();
 
-        // Remove the old "General Info" row and any pre-breakdown leftovers —
-        // it's been dropped from the Clearance General division in the
-        // updated spec.
-        var toRemove = await db.ClearanceSlaSettings
-            .Where(s => s.Division == "" || (s.Division == ClearanceDivision.General && s.GroupItem == "General Info"))
-            .ToListAsync();
+        // Self-healing cleanup: remove ANY row whose (Division, GroupItem)
+        // pair isn't in the current Rows list above — catches leftovers from
+        // any previous version of this seeder (old milestone-key rows,
+        // "General Info", "...Total Duration" rows, etc.) without needing to
+        // special-case each one by name.
+        var validKeys = Rows.Select(r => (r.Division, r.GroupItem)).ToHashSet();
+        var existingRows = await db.ClearanceSlaSettings.ToListAsync();
+        var toRemove = existingRows.Where(s => !validKeys.Contains((s.Division, s.GroupItem))).ToList();
         if (toRemove.Count > 0)
         {
             db.ClearanceSlaSettings.RemoveRange(toRemove);
@@ -67,8 +69,6 @@ public static class ClearanceSlaSeeder
             }
             else
             {
-                // Keep sequence in sync with the latest spec even for
-                // existing rows, so display order stays correct.
                 existing.SequenceOrder = sequence;
             }
         }
