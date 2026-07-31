@@ -49,6 +49,6 @@ public class ClearanceSlaSetting
     public string Division { get; set; } = "";
     public string GroupItem { get; set; } = "";
     public int SequenceOrder { get; set; }
-    public int TargetDays { get; set; }
+    public decimal TargetDays { get; set; }
     public bool IsActive { get; set; } = true;
 }
