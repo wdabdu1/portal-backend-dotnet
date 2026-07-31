@@ -62,6 +62,10 @@ public class ShippingPortalDbContext : IdentityDbContext<ApplicationUser>
     public DbSet<ShipmentSupplierPayment> ShipmentSupplierPayments => Set<ShipmentSupplierPayment>();
     public DbSet<ShipmentBanking> ShipmentBankings => Set<ShipmentBanking>();
 
+    // Clearance
+    public DbSet<ShippingPortal.Api.Models.Clearance.Clearance> Clearances => Set<ShippingPortal.Api.Models.Clearance.Clearance>();
+    public DbSet<ShippingPortal.Api.Models.Clearance.ClearanceSlaSetting> ClearanceSlaSettings => Set<ShippingPortal.Api.Models.Clearance.ClearanceSlaSetting>();
+
     protected override void OnModelCreating(ModelBuilder builder)
     {
         base.OnModelCreating(builder);
@@ -132,5 +136,6 @@ public class ShippingPortalDbContext : IdentityDbContext<ApplicationUser>
         builder.Entity<ShipmentSupplierFullSet>().HasIndex(x => x.ShipmentId).IsUnique();
         builder.Entity<ShipmentSupplierPayment>().HasIndex(x => x.ShipmentId).IsUnique();
         builder.Entity<ShipmentBanking>().HasIndex(x => x.ShipmentId).IsUnique();
+        builder.Entity<ShippingPortal.Api.Models.Clearance.Clearance>().HasIndex(x => x.ShipmentId).IsUnique();
     }
 }
