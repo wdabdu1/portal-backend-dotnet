@@ -8,6 +8,7 @@ using ShippingPortal.Api.Models.Identity;
 namespace ShippingPortal.Api.Controllers.Settings;
 
 public record ClearanceSlaUpdateRequest(int TargetDays);
+public record RouteTotalResponse(string Division, int TotalDays);
 
 [ApiController]
 [Authorize]
@@ -19,10 +20,18 @@ public class ClearanceSlaSettingsController : ControllerBase
 
     [HttpGet]
     public async Task<ActionResult<IEnumerable<ClearanceSlaSetting>>> GetAll()
-        => await _db.ClearanceSlaSettings.OrderBy(s => s.Id).ToListAsync();
+        => await _db.ClearanceSlaSettings.OrderBy(s => s.Division).ThenBy(s => s.SequenceOrder).ToListAsync();
 
-    // Only the target-day count is editable — the milestone list itself is
-    // fixed (seeded), not user-defined.
+    [HttpGet("route-totals")]
+    public async Task<ActionResult<IEnumerable<RouteTotalResponse>>> GetRouteTotals()
+    {
+        return await _db.ClearanceSlaSettings
+            .Where(s => s.IsActive)
+            .GroupBy(s => s.Division)
+            .Select(g => new RouteTotalResponse(g.Key, g.Sum(s => s.TargetDays)))
+            .ToListAsync();
+    }
+
     [HttpPut("{id:int}")]
     [Authorize(Roles = AppRoles.Manager + "," + AppRoles.SuperUser)]
     public async Task<IActionResult> UpdateTargetDays(int id, ClearanceSlaUpdateRequest req)
