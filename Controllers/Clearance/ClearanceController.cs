@@ -89,7 +89,11 @@ public class ClearanceController : ControllerBase
                 _ => ShippingPortal.Api.Models.Clearance.ClearanceDivision.Route1
             };
             var routeDays = slaByDivision.GetValueOrDefault(routeDivision, 0);
-            var targetDays = generalDays + routeDays;
+            // Route 3 excludes the General clearance steps — goods are
+            // already cleared into the FZ by that point.
+            var targetDays = routeDivision == ShippingPortal.Api.Models.Clearance.ClearanceDivision.Route3
+                ? routeDays
+                : generalDays + routeDays;
 
             var trafficLight = ComputeTrafficLight(s.Eta, clearance?.ClearanceCompleteDate, targetDays);
             var routeStatus = clearance is null || clearance.Route == 0 ? "Not Started" : clearance.Route.ToString();
