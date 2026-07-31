@@ -7,8 +7,8 @@ using ShippingPortal.Api.Models.Identity;
 
 namespace ShippingPortal.Api.Controllers.Settings;
 
-public record ClearanceSlaUpdateRequest(int TargetDays);
-public record RouteTotalResponse(string Division, int TotalDays);
+public record ClearanceSlaUpdateRequest(decimal TargetDays);
+public record RouteTotalResponse(string Division, decimal TotalDays);
 
 [ApiController]
 [Authorize]
