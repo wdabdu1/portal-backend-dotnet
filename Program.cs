@@ -83,6 +83,8 @@ using (var scope = app.Services.CreateScope())
     await IdentitySeeder.SeedAsync(scope.ServiceProvider, app.Configuration);
 }
 
+await ClearanceSlaSeeder.SeedAsync(app.Services);
+
 app.MapOpenApi();
 
 app.UseCors("Frontend");
