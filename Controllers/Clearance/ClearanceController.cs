@@ -262,7 +262,6 @@ public class ClearanceController : ControllerBase
         }
         return date;
     }
-    }
 
     [HttpPut("{shipmentId:int}/general-info")]
     public async Task<IActionResult> UpsertGeneralInfo(int shipmentId, ClearanceGeneralInfoRequest req)
