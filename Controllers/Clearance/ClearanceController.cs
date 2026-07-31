@@ -35,10 +35,17 @@ public class ClearanceController : ControllerBase
     [HttpGet("shipments")]
     public async Task<ActionResult<IEnumerable<ClearanceShipmentSummary>>> GetShipmentsForClearance([FromQuery] string? search)
     {
-        var defaultTargetDays = await _db.ClearanceSlaSettings
-            .Where(s => s.MilestoneKey == "TotalClearance" && s.IsActive)
-            .Select(s => (int?)s.TargetDays)
-            .FirstOrDefaultAsync() ?? 14;
+        // Total target = General (applies to every shipment) + the specific
+        // route's total once selected. Before a route is chosen, fall back
+        // to Route 1's total as a conservative default so the light isn't
+        // artificially green with no target at all.
+        var slaByDivision = await _db.ClearanceSlaSettings
+            .Where(s => s.IsActive)
+            .GroupBy(s => s.Division)
+            .Select(g => new { Division = g.Key, Total = g.Sum(s => s.TargetDays) })
+            .ToDictionaryAsync(x => x.Division, x => x.Total);
+
+        var generalDays = slaByDivision.GetValueOrDefault(ShippingPortal.Api.Models.Clearance.ClearanceDivision.General, 0);
 
         var query = _db.Shipments
             .Where(s => s.Status == ShipmentStatus.Confirmed)
