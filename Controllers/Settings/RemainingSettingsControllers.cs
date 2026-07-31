@@ -52,3 +52,9 @@ public class AcdCostSettingsController : LookupCrudController<AcdCostSetting>
 {
     public AcdCostSettingsController(ShippingPortalDbContext db) : base(db) { }
 }
+
+[Route("api/settings/fx-rates")]
+public class FxRatesController : LookupCrudController<FxRate>
+{
+    public FxRatesController(ShippingPortalDbContext db) : base(db) { }
+}
