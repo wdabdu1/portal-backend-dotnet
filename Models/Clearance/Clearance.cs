@@ -10,9 +10,6 @@ public enum ClearanceRouteType
     Route3ClearFromFz = 3
 }
 
-// 1:1 with Shipment. General Info fields live directly here; route-specific
-// detail tables (Route1/2/3) follow in a later round, same pattern as the
-// Shipment sub-groups — this table is the entry point + route selector.
 public class Clearance
 {
     public int Id { get; set; }
@@ -32,14 +29,26 @@ public class Clearance
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 }
 
-// Dynamic, Settings-editable SLA targets. Not hardcoded to specific
-// milestones — a flat list of (key, label, target days) rows, so more
-// granular per-route milestones can be added later without a schema change.
+// Fixed division keys — match the "Division within Page" column from the
+// Clearance field spec.
+public static class ClearanceDivision
+{
+    public const string General = "ClearanceGeneral";
+    public const string Route1 = "Route1";
+    public const string Route2 = "Route2";
+    public const string Route3 = "Route3";
+}
+
+// One row per Group Item (not per individual field) — e.g. "SSMO File
+// Process" within Route-1. TargetDays is the only user-editable value;
+// Division/GroupItem/SequenceOrder are fixed by the seeder. A route's total
+// duration is the sum of its Group Items' TargetDays, computed on read.
 public class ClearanceSlaSetting
 {
     public int Id { get; set; }
-    public string MilestoneKey { get; set; } = "";
-    public string Label { get; set; } = "";
+    public string Division { get; set; } = "";
+    public string GroupItem { get; set; } = "";
+    public int SequenceOrder { get; set; }
     public int TargetDays { get; set; }
     public bool IsActive { get; set; } = true;
 }
