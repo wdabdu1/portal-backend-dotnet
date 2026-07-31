@@ -65,6 +65,9 @@ public class ShippingPortalDbContext : IdentityDbContext<ApplicationUser>
     // Clearance
     public DbSet<ShippingPortal.Api.Models.Clearance.Clearance> Clearances => Set<ShippingPortal.Api.Models.Clearance.Clearance>();
     public DbSet<ShippingPortal.Api.Models.Clearance.ClearanceSlaSetting> ClearanceSlaSettings => Set<ShippingPortal.Api.Models.Clearance.ClearanceSlaSetting>();
+    public DbSet<ShippingPortal.Api.Models.Clearance.ClearanceRoute1Details> ClearanceRoute1Details => Set<ShippingPortal.Api.Models.Clearance.ClearanceRoute1Details>();
+    public DbSet<ShippingPortal.Api.Models.Clearance.ClearanceRoute2Details> ClearanceRoute2Details => Set<ShippingPortal.Api.Models.Clearance.ClearanceRoute2Details>();
+    public DbSet<ShippingPortal.Api.Models.Clearance.ClearanceRoute3Details> ClearanceRoute3Details => Set<ShippingPortal.Api.Models.Clearance.ClearanceRoute3Details>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -137,5 +140,8 @@ public class ShippingPortalDbContext : IdentityDbContext<ApplicationUser>
         builder.Entity<ShipmentSupplierPayment>().HasIndex(x => x.ShipmentId).IsUnique();
         builder.Entity<ShipmentBanking>().HasIndex(x => x.ShipmentId).IsUnique();
         builder.Entity<ShippingPortal.Api.Models.Clearance.Clearance>().HasIndex(x => x.ShipmentId).IsUnique();
+        builder.Entity<ShippingPortal.Api.Models.Clearance.ClearanceRoute1Details>().HasIndex(x => x.ClearanceId).IsUnique();
+        builder.Entity<ShippingPortal.Api.Models.Clearance.ClearanceRoute2Details>().HasIndex(x => x.ClearanceId).IsUnique();
+        builder.Entity<ShippingPortal.Api.Models.Clearance.ClearanceRoute3Details>().HasIndex(x => x.ClearanceId).IsUnique();
     }
 }
