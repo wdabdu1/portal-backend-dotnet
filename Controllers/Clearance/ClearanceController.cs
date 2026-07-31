@@ -155,7 +155,7 @@ public class ClearanceController : ControllerBase
         return Ok(clearance);
     }
 
-    // Green: on track. Amber: past 70% of the target window. Red: past the
+    // Green: on track. : past 70% of the target window. Red: past the
     // target entirely. Grey: no ETA to measure against. Once clearance is
     // marked complete, always Green regardless of how long it took —
     // "needs attention" no longer applies to a finished shipment.
@@ -166,7 +166,7 @@ public class ClearanceController : ControllerBase
 
         var daysSinceEta = DateOnly.FromDateTime(DateTime.UtcNow).DayNumber - eta.Value.DayNumber;
         if (daysSinceEta > targetDays) return "Red";
-        if (daysSinceEta > targetDays * 0.7) return "Amber";
+        if (daysSinceEta > targetDays * 0.7m) return "Amber";
         return "Green";
     }
 }
