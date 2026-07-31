@@ -69,8 +69,6 @@ public class ShippingPortalDbContext : IdentityDbContext<ApplicationUser>
     public DbSet<ShippingPortal.Api.Models.Clearance.ClearanceDeliveryOrder> ClearanceDeliveryOrders => Set<ShippingPortal.Api.Models.Clearance.ClearanceDeliveryOrder>();
     public DbSet<ShippingPortal.Api.Models.Clearance.ClearanceCostEstimate> ClearanceCostEstimates => Set<ShippingPortal.Api.Models.Clearance.ClearanceCostEstimate>();
     public DbSet<ShippingPortal.Api.Models.Clearance.ClearanceCertificateEntry> ClearanceCertificateEntries => Set<ShippingPortal.Api.Models.Clearance.ClearanceCertificateEntry>();
-    public DbSet<ShippingPortal.Api.Models.Clearance.ClearanceRoute2Details> ClearanceRoute2Details => Set<ShippingPortal.Api.Models.Clearance.ClearanceRoute2Details>();
-    public DbSet<ShippingPortal.Api.Models.Clearance.ClearanceRoute3Details> ClearanceRoute3Details => Set<ShippingPortal.Api.Models.Clearance.ClearanceRoute3Details>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
