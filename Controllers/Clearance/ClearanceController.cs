@@ -159,7 +159,7 @@ public class ClearanceController : ControllerBase
     // target entirely. Grey: no ETA to measure against. Once clearance is
     // marked complete, always Green regardless of how long it took —
     // "needs attention" no longer applies to a finished shipment.
-    private static string ComputeTrafficLight(DateOnly? eta, DateOnly? clearanceCompleteDate, int targetDays)
+    private static string ComputeTrafficLight(DateOnly? eta, DateOnly? clearanceCompleteDate, decimal targetDays)
     {
         if (clearanceCompleteDate.HasValue) return "Green";
         if (!eta.HasValue) return "Grey";
