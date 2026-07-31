@@ -81,7 +81,17 @@ public class ClearanceController : ControllerBase
             var firstLine = s.LineItems.FirstOrDefault()?.PurchaseOrderLineItem;
             var totalQty = s.LineItems.Sum(li => li.QtyInBl);
 
-            var trafficLight = ComputeTrafficLight(s.Eta, clearance?.ClearanceCompleteDate, defaultTargetDays);
+            var routeDivision = clearance?.Route switch
+            {
+                ShippingPortal.Api.Models.Clearance.ClearanceRouteType.Route1ClearAtPort => ShippingPortal.Api.Models.Clearance.ClearanceDivision.Route1,
+                ShippingPortal.Api.Models.Clearance.ClearanceRouteType.Route2FzDeposit => ShippingPortal.Api.Models.Clearance.ClearanceDivision.Route2,
+                ShippingPortal.Api.Models.Clearance.ClearanceRouteType.Route3ClearFromFz => ShippingPortal.Api.Models.Clearance.ClearanceDivision.Route3,
+                _ => ShippingPortal.Api.Models.Clearance.ClearanceDivision.Route1
+            };
+            var routeDays = slaByDivision.GetValueOrDefault(routeDivision, 0);
+            var targetDays = generalDays + routeDays;
+
+            var trafficLight = ComputeTrafficLight(s.Eta, clearance?.ClearanceCompleteDate, targetDays);
             var routeStatus = clearance is null || clearance.Route == 0 ? "Not Started" : clearance.Route.ToString();
 
             return new ClearanceShipmentSummary(
