@@ -87,32 +87,14 @@ public class ShipmentSupplierFullSet
     public DateOnly? FsReceivedDate { get; set; }
 }
 
-// Invoice header: one per Shipment. Actual payments against it live in
-// ShipmentSupplierPaymentRecord (many per invoice) — TotalPaidUsd/BalanceUsd
-// are always recomputed from that list, never stored as independent input.
-public class ShipmentSupplierPayment
+// Invoice Value/Currency are fully computed (sum of ShipmentLineItem
+// subtotals) — nothing stored here for the invoice header anymore.
+// Only the actual payment records are real data now.
+public class ShipmentSupplierPaymentRecord
 {
     public int Id { get; set; }
     public int ShipmentId { get; set; }
     public Shipment? Shipment { get; set; }
-
-    public string? SupplierInvoiceNo { get; set; }
-    public decimal? InvoiceValue { get; set; }
-    public int? InvoiceCurrencyId { get; set; }
-    public Currency? InvoiceCurrency { get; set; }
-    public decimal? InvoiceValueUsd { get; set; }
-
-    public decimal? TotalPaidUsd { get; set; }
-    public decimal? BalanceUsd { get; set; }
-
-    public string? Remarks { get; set; }
-}
-
-public class ShipmentSupplierPaymentRecord
-{
-    public int Id { get; set; }
-    public int ShipmentSupplierPaymentId { get; set; }
-    public ShipmentSupplierPayment? ShipmentSupplierPayment { get; set; }
 
     public DateOnly PaymentDate { get; set; }
     public int CurrencyId { get; set; }
@@ -120,7 +102,6 @@ public class ShipmentSupplierPaymentRecord
     public decimal Value { get; set; }
     public decimal ValueUsd { get; set; }
 }
-
 public class ShipmentBanking
 {
     public int Id { get; set; }
@@ -144,8 +125,17 @@ public class ShipmentBanking
     public Currency? CollectionCurrency { get; set; }
     public int? TenorId { get; set; }
     public Tenor? Tenor { get; set; }
-    public DateOnly? CollectionDueDate { get; set; }
-    public decimal? CollectionAmountSettled { get; set; }
-    public decimal? RemainingDues { get; set; }
     public decimal? ReceiverBankCharges { get; set; }
+}
+public class ShipmentCollectionRecord
+{
+    public int Id { get; set; }
+    public int ShipmentId { get; set; }
+    public Shipment? Shipment { get; set; }
+
+    public DateOnly PaymentDate { get; set; }
+    public int CurrencyId { get; set; }
+    public Currency? Currency { get; set; }
+    public decimal Value { get; set; }
+    public decimal ValueUsd { get; set; }
 }
