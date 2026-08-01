@@ -49,6 +49,8 @@ public class ClearanceRoute1Details
     // Truck & Containers
     public DateOnly? TruckPortEntryPermitDate { get; set; }
     public DateOnly? ContainersReturnedDate { get; set; }
+    public DateOnly? ShippingLineDepositReturnDate { get; set; }
+    public decimal? DepositValue { get; set; }
     public DateOnly? ClearanceActualCompletedDate { get; set; }
 }
 
@@ -75,6 +77,8 @@ public class ClearanceRoute2Details
     public DateOnly? TruckPortEntryPermitDate { get; set; }
     public DateOnly? ContainersReceivedAtFzDate { get; set; }
     public DateOnly? ContainersReturnedDate { get; set; }
+    public DateOnly? ShippingLineDepositReturnDate { get; set; }
+    public decimal? DepositValue { get; set; }
     public DateOnly? ClearanceActualCompletedDate { get; set; }
 }
 
