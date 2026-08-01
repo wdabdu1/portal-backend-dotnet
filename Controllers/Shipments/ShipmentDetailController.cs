@@ -13,10 +13,10 @@ public record ShipmentSsmoRequest(DateOnly? ApplicationDate, decimal? Cost, Date
 public record ShipmentMotRequest(DateOnly? ProcessDate, decimal? Cost, DateOnly? CostSettledDate, string? RefNumber, string? OffshoreApprovedPiNumber, DateOnly? OffshoreApprovedPiDate);
 public record ShipmentSupplierFullSetRequest(string? SupplierInvoiceNo, DateOnly? SupplierInvoiceDate, DateOnly? FsDispatchDate, int? FsDispatchedViaId, string? FsTrackingNumber, DateOnly? FsReceivedDate);
 public record ShipmentSupplierPaymentRequest(
-    int? CurrencyId,
-    decimal? AdvanceValue, DateOnly? AdvanceDueDate, DateOnly? AdvanceActualPaymentDate,
-    decimal? RemainingValue, DateOnly? RemainingDueDate, DateOnly? RemainingActualPaymentDate,
-    string? Remarks);
+    string? SupplierInvoiceNo, decimal? InvoiceValue, int? InvoiceCurrencyId, string? Remarks);
+
+public record PaymentRecordRequest(DateOnly PaymentDate, int CurrencyId, decimal Value);
+public record PaymentRecordResponse(int Id, DateOnly PaymentDate, int CurrencyId, string CurrencyCode, decimal Value, decimal ValueUsd);
 public record ShipmentBankingRequest(
     int? SenderBankId, DateOnly? OsDocDispatchDate, int? OsDocDispatchedViaId, string? OsDocTrackingNumber,
     int? ReceivingBankId, bool NecessaryGoodType, string? CollectionRefNo, decimal? CollectionValue, int? CollectionCurrencyId,
@@ -197,41 +197,103 @@ public class ShipmentDetailController : ControllerBase
         return Ok(entity);
     }
 
+    private async Task<decimal> GetFxRateAsync(int? currencyId)
+    {
+        if (!currencyId.HasValue) return 1m;
+        var rate = await _db.FxRates.Where(r => r.CurrencyId == currencyId).OrderByDescending(r => r.EffectiveDate).FirstOrDefaultAsync();
+        return rate?.RateToUsd ?? 1m;
+    }
+
+    private async Task RecalculateSupplierPaymentTotalsAsync(ShipmentSupplierPayment entity)
+    {
+        var records = await _db.ShipmentSupplierPaymentRecords.Where(r => r.ShipmentSupplierPaymentId == entity.Id).ToListAsync();
+        entity.TotalPaidUsd = records.Sum(r => r.ValueUsd);
+        entity.BalanceUsd = (entity.InvoiceValueUsd ?? 0) - (entity.TotalPaidUsd ?? 0);
+    }
+
     [HttpPut("supplier-payment")]
     public async Task<IActionResult> UpsertSupplierPayment(int shipmentId, ShipmentSupplierPaymentRequest req)
     {
         if (!await _db.Shipments.AnyAsync(s => s.Id == shipmentId)) return NotFound();
 
         var entity = await _db.ShipmentSupplierPayments.FirstOrDefaultAsync(x => x.ShipmentId == shipmentId);
-        if (entity is null) { entity = new ShipmentSupplierPayment { ShipmentId = shipmentId }; _db.ShipmentSupplierPayments.Add(entity); }
+        if (entity is null) { entity = new ShipmentSupplierPayment { ShipmentId = shipmentId }; _db.ShipmentSupplierPayments.Add(entity); await _db.SaveChangesAsync(); }
 
-        entity.CurrencyId = req.CurrencyId;
-        entity.AdvanceValue = req.AdvanceValue;
-        entity.AdvanceDueDate = req.AdvanceDueDate;
-        entity.AdvanceActualPaymentDate = req.AdvanceActualPaymentDate;
-        entity.RemainingValue = req.RemainingValue;
-        entity.RemainingDueDate = req.RemainingDueDate;
-        entity.RemainingActualPaymentDate = req.RemainingActualPaymentDate;
+        entity.SupplierInvoiceNo = req.SupplierInvoiceNo;
+        entity.InvoiceValue = req.InvoiceValue;
+        entity.InvoiceCurrencyId = req.InvoiceCurrencyId;
         entity.Remarks = req.Remarks;
 
-        decimal rate = 1m;
-        if (req.CurrencyId.HasValue)
-        {
-            var fxRate = await _db.FxRates.Where(r => r.CurrencyId == req.CurrencyId).OrderByDescending(r => r.EffectiveDate).FirstOrDefaultAsync();
-            rate = fxRate?.RateToUsd ?? 1m;
-        }
+        var rate = await GetFxRateAsync(req.InvoiceCurrencyId);
+        entity.InvoiceValueUsd = req.InvoiceValue.HasValue ? req.InvoiceValue.Value / rate : null;
 
-        entity.AdvanceValueUsd = req.AdvanceValue.HasValue ? req.AdvanceValue.Value / rate : null;
-        entity.RemainingValueUsd = req.RemainingValue.HasValue ? req.RemainingValue.Value / rate : null;
-        entity.TotalValueUsd = (entity.AdvanceValueUsd ?? 0) + (entity.RemainingValueUsd ?? 0);
-
-        entity.TotalPaidUsd = (req.AdvanceActualPaymentDate.HasValue ? entity.AdvanceValueUsd ?? 0 : 0)
-                             + (req.RemainingActualPaymentDate.HasValue ? entity.RemainingValueUsd ?? 0 : 0);
-
-        entity.BalanceUsd = entity.TotalValueUsd - entity.TotalPaidUsd;
+        await RecalculateSupplierPaymentTotalsAsync(entity);
 
         await _db.SaveChangesAsync();
         return Ok(entity);
+    }
+
+    [HttpGet("supplier-payment/records")]
+    public async Task<ActionResult<IEnumerable<PaymentRecordResponse>>> GetPaymentRecords(int shipmentId)
+    {
+        var entity = await _db.ShipmentSupplierPayments.FirstOrDefaultAsync(x => x.ShipmentId == shipmentId);
+        if (entity is null) return Ok(new List<PaymentRecordResponse>());
+
+        return await _db.ShipmentSupplierPaymentRecords
+            .Where(r => r.ShipmentSupplierPaymentId == entity.Id)
+            .Include(r => r.Currency)
+            .OrderBy(r => r.PaymentDate)
+            .Select(r => new PaymentRecordResponse(r.Id, r.PaymentDate, r.CurrencyId, r.Currency!.Code, r.Value, r.ValueUsd))
+            .ToListAsync();
+    }
+
+    [HttpPost("supplier-payment/records")]
+    public async Task<ActionResult<PaymentRecordResponse>> AddPaymentRecord(int shipmentId, PaymentRecordRequest req)
+    {
+        var entity = await _db.ShipmentSupplierPayments.FirstOrDefaultAsync(x => x.ShipmentId == shipmentId);
+        if (entity is null)
+        {
+            if (!await _db.Shipments.AnyAsync(s => s.Id == shipmentId)) return NotFound();
+            entity = new ShipmentSupplierPayment { ShipmentId = shipmentId };
+            _db.ShipmentSupplierPayments.Add(entity);
+            await _db.SaveChangesAsync();
+        }
+
+        var rate = await GetFxRateAsync(req.CurrencyId);
+        var record = new ShipmentSupplierPaymentRecord
+        {
+            ShipmentSupplierPaymentId = entity.Id,
+            PaymentDate = req.PaymentDate,
+            CurrencyId = req.CurrencyId,
+            Value = req.Value,
+            ValueUsd = req.Value / rate
+        };
+        _db.ShipmentSupplierPaymentRecords.Add(record);
+        await _db.SaveChangesAsync();
+
+        await RecalculateSupplierPaymentTotalsAsync(entity);
+        await _db.SaveChangesAsync();
+
+        var currency = await _db.Currencies.FindAsync(req.CurrencyId);
+        return Ok(new PaymentRecordResponse(record.Id, record.PaymentDate, record.CurrencyId, currency?.Code ?? "", record.Value, record.ValueUsd));
+    }
+
+    [HttpDelete("supplier-payment/records/{recordId:int}")]
+    public async Task<IActionResult> DeletePaymentRecord(int shipmentId, int recordId)
+    {
+        var entity = await _db.ShipmentSupplierPayments.FirstOrDefaultAsync(x => x.ShipmentId == shipmentId);
+        if (entity is null) return NotFound();
+
+        var record = await _db.ShipmentSupplierPaymentRecords.FirstOrDefaultAsync(r => r.Id == recordId && r.ShipmentSupplierPaymentId == entity.Id);
+        if (record is null) return NotFound();
+
+        _db.ShipmentSupplierPaymentRecords.Remove(record);
+        await _db.SaveChangesAsync();
+
+        await RecalculateSupplierPaymentTotalsAsync(entity);
+        await _db.SaveChangesAsync();
+
+        return NoContent();
     }
 
     [HttpPut("banking")]
