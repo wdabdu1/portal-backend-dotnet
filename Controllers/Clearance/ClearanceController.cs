@@ -21,7 +21,8 @@ public record ClearanceRouteRequest(int Route); // 0=NotSelected,1=Route1,2=Rout
 public record ClearanceDetailResponse(
     int ShipmentId, string BlAwbNo, string PoNumber, DateOnly? Eta, DateOnly? CopyOfBlReceivedDate,
     DateOnly? OriginalShipmentSetReceivedDate, string? LcNo, string? DeclarationNo, string? Notes,
-    int Route, DateOnly? ClearanceCompleteDate, string? ImFormNo, DateOnly? ImFormDate);
+    int Route, DateOnly? ClearanceCompleteDate, string? ImFormNo, DateOnly? ImFormDate,
+    string Consignee, string Category, int FclCount);
 
 public record ScheduleItem(string Division, string GroupItem, decimal TargetDays, DateOnly TargetDate, DateOnly? ActualDate, string Status, string Light);
 public record ClearanceScheduleResponse(DateOnly? EstimatedCompletionDate, List<ScheduleItem> Items);
@@ -117,16 +118,23 @@ public class ClearanceController : ControllerBase
     [HttpGet("{shipmentId:int}/detail")]
     public async Task<ActionResult<ClearanceDetailResponse>> GetDetail(int shipmentId)
     {
-        var shipment = await _db.Shipments.Include(s => s.PurchaseOrder).FirstOrDefaultAsync(s => s.Id == shipmentId);
+        var shipment = await _db.Shipments
+            .Include(s => s.PurchaseOrder).ThenInclude(p => p!.Consignee)
+            .Include(s => s.LineItems).ThenInclude(li => li.PurchaseOrderLineItem).ThenInclude(pli => pli!.ProductCategory)
+            .FirstOrDefaultAsync(s => s.Id == shipmentId);
         if (shipment is null) return NotFound();
 
         var clearance = await _db.Clearances.FirstOrDefaultAsync(c => c.ShipmentId == shipmentId);
+
+        var firstCategory = shipment.LineItems.FirstOrDefault()?.PurchaseOrderLineItem?.ProductCategory?.Name ?? "";
+        var fclCount = shipment.Fcl20Count + shipment.Fcl40Count;
 
         return new ClearanceDetailResponse(
             shipment.Id, shipment.BlAwbNo, shipment.PurchaseOrder!.PoNumber, shipment.Eta,
             clearance?.CopyOfBlReceivedDate, clearance?.OriginalShipmentSetReceivedDate, clearance?.LcNo,
             clearance?.DeclarationNo, clearance?.Notes, (int)(clearance?.Route ?? 0), clearance?.ClearanceCompleteDate,
-            clearance?.ImFormNo, clearance?.ImFormDate);
+            clearance?.ImFormNo, clearance?.ImFormDate,
+            shipment.PurchaseOrder.Consignee?.Name ?? "", firstCategory, fclCount);
     }
 
     // Sequential cascading schedule: each step's target date is calculated
