@@ -42,4 +42,23 @@ public abstract class LookupCrudController<TEntity> : ControllerBase where TEnti
         await Db.SaveChangesAsync();
         return NoContent();
     }
+
+    [HttpDelete("{id:int}")]
+    [Authorize(Roles = AppRoles.Manager + "," + AppRoles.SuperUser)]
+    public async Task<IActionResult> Delete(int id)
+    {
+        var entity = await Db.Set<TEntity>().FindAsync(id);
+        if (entity is null) return NotFound();
+
+        Db.Set<TEntity>().Remove(entity);
+        try
+        {
+            await Db.SaveChangesAsync();
+        }
+        catch (DbUpdateException)
+        {
+            return Conflict(new { message = "This entry is in use and can't be deleted." });
+        }
+        return NoContent();
+    }
 }
