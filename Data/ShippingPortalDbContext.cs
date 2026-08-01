@@ -71,6 +71,8 @@ public class ShippingPortalDbContext : IdentityDbContext<ApplicationUser>
     public DbSet<ShippingPortal.Api.Models.Clearance.ClearanceDeliveryOrder> ClearanceDeliveryOrders => Set<ShippingPortal.Api.Models.Clearance.ClearanceDeliveryOrder>();
     public DbSet<ShippingPortal.Api.Models.Clearance.ClearanceCostEstimate> ClearanceCostEstimates => Set<ShippingPortal.Api.Models.Clearance.ClearanceCostEstimate>();
     public DbSet<ShippingPortal.Api.Models.Clearance.ClearanceCertificateEntry> ClearanceCertificateEntries => Set<ShippingPortal.Api.Models.Clearance.ClearanceCertificateEntry>();
+    public DbSet<ShippingPortal.Api.Models.Clearance.ClearanceChargeType> ClearanceChargeTypes => Set<ShippingPortal.Api.Models.Clearance.ClearanceChargeType>();
+    public DbSet<ShippingPortal.Api.Models.Clearance.ClearanceEstimateLineItem> ClearanceEstimateLineItems => Set<ShippingPortal.Api.Models.Clearance.ClearanceEstimateLineItem>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -151,5 +153,17 @@ public class ShippingPortalDbContext : IdentityDbContext<ApplicationUser>
         builder.Entity<ShippingPortal.Api.Models.Clearance.ClearanceDeliveryOrder>().HasIndex(x => x.ClearanceId).IsUnique();
         builder.Entity<ShippingPortal.Api.Models.Clearance.ClearanceCostEstimate>().HasIndex(x => x.ClearanceId).IsUnique();
         builder.Entity<ShippingPortal.Api.Models.Clearance.ClearanceCertificateEntry>().HasIndex(x => x.ClearanceId).IsUnique();
+
+        // Estimate line items: many per Clearance, restrict-delete on ChargeType
+        // so a Settings row can't vanish out from under existing estimate rows.
+        builder.Entity<ShippingPortal.Api.Models.Clearance.ClearanceEstimateLineItem>()
+            .HasOne(x => x.Clearance)
+            .WithMany()
+            .OnDelete(DeleteBehavior.Cascade);
+
+        builder.Entity<ShippingPortal.Api.Models.Clearance.ClearanceEstimateLineItem>()
+            .HasOne(x => x.ChargeType)
+            .WithMany()
+            .OnDelete(DeleteBehavior.Restrict);
     }
 }
