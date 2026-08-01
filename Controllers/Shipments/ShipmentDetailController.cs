@@ -308,5 +308,7 @@ public class ShipmentDetailController : ControllerBase
                 entity.ReceiverBankCharges = req.CollectionValue.Value * receiverBank.TotalChargeRate;
         }
 
+        await _db.SaveChangesAsync();
+        return Ok(entity);
     }
 }
