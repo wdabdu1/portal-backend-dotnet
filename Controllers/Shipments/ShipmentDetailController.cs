@@ -16,10 +16,11 @@ public record ShipmentSupplierPaymentRequest(
     int? CurrencyId,
     decimal? AdvanceValue, DateOnly? AdvanceDueDate, DateOnly? AdvanceActualPaymentDate,
     decimal? RemainingValue, DateOnly? RemainingDueDate, DateOnly? RemainingActualPaymentDate,
-    string? Remarks);public record ShipmentBankingRequest(
+    string? Remarks);
+public record ShipmentBankingRequest(
     int? SenderBankId, DateOnly? OsDocDispatchDate, int? OsDocDispatchedViaId, string? OsDocTrackingNumber,
     int? ReceivingBankId, bool NecessaryGoodType, string? CollectionRefNo, decimal? CollectionValue, int? CollectionCurrencyId,
-    int? TenorId, DateOnly? CollectionDueDate, decimal? CollectionAmountSettled, string? ImFormNo, DateOnly? ImFormDate);
+    int? TenorId, DateOnly? CollectionDueDate, decimal? CollectionAmountSettled);
 
 public record ShipmentDetailResponse(
     int Id, string BlAwbNo, string PoNumber, string Status,
@@ -230,8 +231,6 @@ public class ShipmentDetailController : ControllerBase
         entity.TenorId = req.TenorId;
         entity.CollectionDueDate = req.CollectionDueDate;
         entity.CollectionAmountSettled = req.CollectionAmountSettled;
-        entity.ImFormNo = req.ImFormNo;
-        entity.ImFormDate = req.ImFormDate;
 
         if (req.CollectionValue.HasValue && req.SenderBankId.HasValue)
         {
