@@ -21,6 +21,8 @@ public class Clearance
     public string? LcNo { get; set; }
     public string? DeclarationNo { get; set; }
     public string? Notes { get; set; }
+    public string? ImFormNo { get; set; }
+    public DateOnly? ImFormDate { get; set; }
 
     public ClearanceRouteType Route { get; set; } = ClearanceRouteType.NotSelected;
     public DateOnly? ClearanceCompleteDate { get; set; }
