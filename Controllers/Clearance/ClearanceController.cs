@@ -13,14 +13,15 @@ public record ClearanceShipmentSummary(
 
 public record ClearanceGeneralInfoRequest(
     DateOnly? CopyOfBlReceivedDate, DateOnly? OriginalShipmentSetReceivedDate, string? LcNo,
-    string? DeclarationNo, string? Notes, DateOnly? ClearanceCompleteDate);
+    string? DeclarationNo, string? Notes, DateOnly? ClearanceCompleteDate,
+    string? ImFormNo, DateOnly? ImFormDate, DateOnly? ShipmentEta);
 
 public record ClearanceRouteRequest(int Route); // 0=NotSelected,1=Route1,2=Route2,3=Route3
 
 public record ClearanceDetailResponse(
     int ShipmentId, string BlAwbNo, string PoNumber, DateOnly? Eta, DateOnly? CopyOfBlReceivedDate,
     DateOnly? OriginalShipmentSetReceivedDate, string? LcNo, string? DeclarationNo, string? Notes,
-    int Route, DateOnly? ClearanceCompleteDate);
+    int Route, DateOnly? ClearanceCompleteDate, string? ImFormNo, DateOnly? ImFormDate);
 
 public record ScheduleItem(string Division, string GroupItem, decimal TargetDays, DateOnly TargetDate, DateOnly? ActualDate, string Status, string Light);
 public record ClearanceScheduleResponse(DateOnly? EstimatedCompletionDate, List<ScheduleItem> Items);
@@ -124,7 +125,8 @@ public class ClearanceController : ControllerBase
         return new ClearanceDetailResponse(
             shipment.Id, shipment.BlAwbNo, shipment.PurchaseOrder!.PoNumber, shipment.Eta,
             clearance?.CopyOfBlReceivedDate, clearance?.OriginalShipmentSetReceivedDate, clearance?.LcNo,
-            clearance?.DeclarationNo, clearance?.Notes, (int)(clearance?.Route ?? 0), clearance?.ClearanceCompleteDate);
+            clearance?.DeclarationNo, clearance?.Notes, (int)(clearance?.Route ?? 0), clearance?.ClearanceCompleteDate,
+            clearance?.ImFormNo, clearance?.ImFormDate);
     }
 
     // Sequential cascading schedule: each step's target date is calculated
@@ -177,17 +179,17 @@ public class ClearanceController : ControllerBase
             string light;
             if (actualDate.HasValue)
             {
-                var diff = actualDate.Value.DayNumber - targetDate.DayNumber;
-                if (diff < 0) { status = $"Completed {-diff} day(s) early"; light = "Green"; }
+                var diff = BusinessDaysBetween(actualDate.Value, targetDate, holidaySet);
+                if (diff < 0) { status = $"Completed {-diff} business day(s) early"; light = "Green"; }
                 else if (diff == 0) { status = "Completed on time"; light = "Green"; }
-                else { status = $"Completed {diff} day(s) late"; light = "Amber"; }
+                else { status = $"Completed {diff} business day(s) late"; light = "Amber"; }
                 chainFrom = actualDate.Value;
             }
             else
             {
-                var diff = today.DayNumber - targetDate.DayNumber;
+                var diff = BusinessDaysBetween(today, targetDate, holidaySet);
                 if (diff <= 0) { status = "Pending — on track"; light = "Green"; }
-                else { status = $"Pending — delayed {diff} day(s)"; light = "Red"; }
+                else { status = $"Pending — delayed {diff} business day(s)"; light = "Red"; }
                 chainFrom = targetDate;
             }
 
@@ -263,6 +265,26 @@ public class ClearanceController : ControllerBase
         return date;
     }
 
+    // Counts business days between two dates (positive = 'to' is later),
+    // skipping Fri/Sat and CLR holidays — used so the "early/late" gap shown
+    // to users matches the same calendar used to compute the target itself.
+    private static int BusinessDaysBetween(DateOnly from, DateOnly to, HashSet<DateOnly> holidays)
+    {
+        if (from == to) return 0;
+        var forward = to > from;
+        var start = forward ? from : to;
+        var end = forward ? to : from;
+        var count = 0;
+        var date = start;
+        while (date < end)
+        {
+            date = date.AddDays(1);
+            if (date.DayOfWeek == DayOfWeek.Friday || date.DayOfWeek == DayOfWeek.Saturday) continue;
+            if (holidays.Contains(date)) continue;
+            count++;
+        }
+        return forward ? count : -count;
+    }
     [HttpPut("{shipmentId:int}/general-info")]
     public async Task<IActionResult> UpsertGeneralInfo(int shipmentId, ClearanceGeneralInfoRequest req)
     {
@@ -277,10 +299,20 @@ public class ClearanceController : ControllerBase
         clearance.DeclarationNo = req.DeclarationNo;
         clearance.Notes = req.Notes;
         clearance.ClearanceCompleteDate = req.ClearanceCompleteDate;
+        clearance.ImFormNo = req.ImFormNo;
+        clearance.ImFormDate = req.ImFormDate;
         clearance.UpdatedAt = DateTime.UtcNow;
+
+        // Same cell as the Shipment's own ETA — editable from either place.
+        if (req.ShipmentEta.HasValue)
+        {
+            var shipment = await _db.Shipments.FindAsync(shipmentId);
+            if (shipment is not null) shipment.Eta = req.ShipmentEta;
+        }
 
         await _db.SaveChangesAsync();
         return Ok(clearance);
+    }
     }
 
     [HttpPut("{shipmentId:int}/route")]
