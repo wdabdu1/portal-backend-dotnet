@@ -60,6 +60,7 @@ public class ShippingPortalDbContext : IdentityDbContext<ApplicationUser>
     public DbSet<ShipmentMot> ShipmentMots => Set<ShipmentMot>();
     public DbSet<ShipmentSupplierFullSet> ShipmentSupplierFullSets => Set<ShipmentSupplierFullSet>();
     public DbSet<ShipmentSupplierPayment> ShipmentSupplierPayments => Set<ShipmentSupplierPayment>();
+    public DbSet<ShipmentSupplierPaymentRecord> ShipmentSupplierPaymentRecords => Set<ShipmentSupplierPaymentRecord>();
     public DbSet<ShipmentBanking> ShipmentBankings => Set<ShipmentBanking>();
 
     // Clearance
@@ -143,6 +144,16 @@ public class ShippingPortalDbContext : IdentityDbContext<ApplicationUser>
         builder.Entity<ShipmentMot>().HasIndex(x => x.ShipmentId).IsUnique();
         builder.Entity<ShipmentSupplierFullSet>().HasIndex(x => x.ShipmentId).IsUnique();
         builder.Entity<ShipmentSupplierPayment>().HasIndex(x => x.ShipmentId).IsUnique();
+
+        builder.Entity<ShipmentSupplierPaymentRecord>()
+            .HasOne(x => x.ShipmentSupplierPayment)
+            .WithMany()
+            .OnDelete(DeleteBehavior.Cascade);
+
+        builder.Entity<ShipmentSupplierPaymentRecord>()
+            .HasOne(x => x.Currency)
+            .WithMany()
+            .OnDelete(DeleteBehavior.Restrict);
         builder.Entity<ShipmentBanking>().HasIndex(x => x.ShipmentId).IsUnique();
 
         // Clearance: 1:1 with Shipment, and each route/sub-section 1:1 with Clearance.
