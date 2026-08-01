@@ -139,7 +139,5 @@ public class ShipmentBanking
     public DateOnly? CollectionDueDate { get; set; }
     public decimal? CollectionAmountSettled { get; set; }
     public decimal? RemainingDues { get; set; }
-    public string? ImFormNo { get; set; }
-    public DateOnly? ImFormDate { get; set; }
     public decimal? ReceiverBankCharges { get; set; }
 }
