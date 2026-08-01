@@ -8,8 +8,8 @@ namespace ShippingPortal.Api.Controllers.SupplierDues;
 
 public record SupplierDueRow(
     int ShipmentId, string BusinessUnit, string SupplierName, string PoNumber, string? SupplierInvoiceNo,
-    string BlAwbNo, DateOnly? Sob, string? PaymentTerm, decimal? InvoiceValue, string? InvoiceCurrency,
-    decimal UnpaidBalance, decimal TotalValueUsd, decimal TotalUnpaidUsd);
+    string BlAwbNo, DateOnly? Sob, string? PaymentTerm, decimal InvoiceValue, string InvoiceCurrency,
+    decimal TotalValueUsd, decimal TotalUnpaidUsd);
 
 [ApiController]
 [Authorize]
@@ -22,33 +22,56 @@ public class SupplierDuesController : ControllerBase
     [HttpGet]
     public async Task<ActionResult<IEnumerable<SupplierDueRow>>> GetOpen()
     {
-        var payments = await _db.ShipmentSupplierPayments
-            .Where(p => (p.BalanceUsd ?? 0) > 0)
-            .Include(p => p.Shipment).ThenInclude(s => s!.PurchaseOrder).ThenInclude(po => po!.BusinessUnit)
-            .Include(p => p.Shipment).ThenInclude(s => s!.PurchaseOrder).ThenInclude(po => po!.Supplier)
-            .Include(p => p.Shipment).ThenInclude(s => s!.PurchaseOrder).ThenInclude(po => po!.SupplierPaymentTerm)
-            .Include(p => p.InvoiceCurrency)
+        var shipments = await _db.Shipments
+            .Where(s => s.Status != ShipmentStatus.Cancelled)
+            .Include(s => s.PurchaseOrder).ThenInclude(po => po!.BusinessUnit)
+            .Include(s => s.PurchaseOrder).ThenInclude(po => po!.Supplier)
+            .Include(s => s.PurchaseOrder).ThenInclude(po => po!.SupplierPaymentTerm)
+            .Include(s => s.LineItems).ThenInclude(li => li.PurchaseOrderLineItem).ThenInclude(pli => pli!.Currency)
             .ToListAsync();
 
-        var rows = payments.Select(p =>
+        var fullSets = await _db.ShipmentSupplierFullSets.ToDictionaryAsync(f => f.ShipmentId);
+        var paymentsByShipment = await _db.ShipmentSupplierPaymentRecords
+            .GroupBy(r => r.ShipmentId)
+            .Select(g => new { ShipmentId = g.Key, TotalPaidUsd = g.Sum(r => r.ValueUsd) })
+            .ToDictionaryAsync(x => x.ShipmentId, x => x.TotalPaidUsd);
+
+        var fxCache = new Dictionary<int, decimal>();
+        async Task<decimal> RateFor(int currencyId)
         {
-            var shipment = p.Shipment!;
+            if (fxCache.TryGetValue(currencyId, out var cached)) return cached;
+            var rate = await _db.FxRates.Where(r => r.CurrencyId == currencyId).OrderByDescending(r => r.EffectiveDate).FirstOrDefaultAsync();
+            var value = rate?.RateToUsd ?? 1m;
+            fxCache[currencyId] = value;
+            return value;
+        }
+
+        var rows = new List<SupplierDueRow>();
+        foreach (var shipment in shipments)
+        {
+            if (shipment.LineItems.Count == 0) continue;
+
+            var invoiceValue = shipment.LineItems.Sum(li => li.ItemSubtotal);
+            var firstLine = shipment.LineItems.First().PurchaseOrderLineItem;
+            var currencyId = firstLine?.CurrencyId ?? 0;
+            var currencyCode = firstLine?.Currency?.Code ?? "";
+            var rate = currencyId > 0 ? await RateFor(currencyId) : 1m;
+            var invoiceValueUsd = invoiceValue / rate;
+
+            var totalPaidUsd = paymentsByShipment.GetValueOrDefault(shipment.Id, 0m);
+            var totalUnpaidUsd = invoiceValueUsd - totalPaidUsd;
+
+            if (totalUnpaidUsd <= 0) continue;
+
+            fullSets.TryGetValue(shipment.Id, out var fullSet);
             var po = shipment.PurchaseOrder!;
-            var invoiceValueUsd = p.InvoiceValueUsd ?? 0;
-            var unpaidUsd = p.BalanceUsd ?? 0;
-            // Unpaid Balance shown in the invoice's own currency, back-derived
-            // from the USD balance using the same rate implied by the invoice.
-            var rate = (p.InvoiceValue.HasValue && invoiceValueUsd > 0) ? p.InvoiceValue.Value / invoiceValueUsd : 1m;
-            var unpaidInInvoiceCurrency = unpaidUsd * rate;
 
-            return new SupplierDueRow(
-                shipment.Id, po.BusinessUnit!.Name, po.Supplier!.Name, po.PoNumber, p.SupplierInvoiceNo,
-                shipment.BlAwbNo, shipment.SobActualDate, po.SupplierPaymentTerm!.Name,
-                p.InvoiceValue, p.InvoiceCurrency?.Code, unpaidInInvoiceCurrency, invoiceValueUsd, unpaidUsd);
-        })
-        .OrderBy(r => r.SupplierName)
-        .ToList();
+            rows.Add(new SupplierDueRow(
+                shipment.Id, po.BusinessUnit!.Name, po.Supplier!.Name, po.PoNumber, fullSet?.SupplierInvoiceNo,
+                shipment.BlAwbNo, shipment.SobActualDate, po.SupplierPaymentTerm?.Name,
+                invoiceValue, currencyCode, invoiceValueUsd, totalUnpaidUsd));
+        }
 
-        return Ok(rows);
+        return Ok(rows.OrderBy(r => r.SupplierName).ToList());
     }
 }
