@@ -57,7 +57,6 @@ public class ShipmentDetailController : ControllerBase
         var ssmo = await _db.ShipmentSsmos.FirstOrDefaultAsync(x => x.ShipmentId == shipmentId);
         var mot = await _db.ShipmentMots.FirstOrDefaultAsync(x => x.ShipmentId == shipmentId);
         var fullSet = await _db.ShipmentSupplierFullSets.FirstOrDefaultAsync(x => x.ShipmentId == shipmentId);
-        var payment = await _db.ShipmentSupplierPayments.FirstOrDefaultAsync(x => x.ShipmentId == shipmentId);
         var banking = await _db.ShipmentBankings.FirstOrDefaultAsync(x => x.ShipmentId == shipmentId);
 
         var offshorePartnerNames = await _db.PurchaseOrderOffshorePartners
@@ -69,7 +68,7 @@ public class ShipmentDetailController : ControllerBase
         var category = shipment.LineItems.FirstOrDefault()?.PurchaseOrderLineItem?.ProductCategory?.Name ?? "";
 
         return new ShipmentDetailResponse(shipment.Id, shipment.BlAwbNo, shipment.PurchaseOrder!.PoNumber, shipment.Status.ToString(),
-            forwarder, acd, draftDocs, ssmo, mot, fullSet, payment, banking, offshorePartnerNames,
+            forwarder, acd, draftDocs, ssmo, mot, fullSet, banking, offshorePartnerNames,
             shipment.PurchaseOrder.BusinessUnit!.Name, shipment.PurchaseOrder.Supplier!.Name, category, shipment.SobActualDate);
     }
 
