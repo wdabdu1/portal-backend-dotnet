@@ -15,13 +15,15 @@ public record Route1Request(
     DateOnly? SsmoExamStartDate, DateOnly? SsmoCertIssuanceDate,
     DateOnly? CustEvaluationDate, decimal? CustomsDutySdg, DateOnly? CustomsSettlementDate, DateOnly? ReleaseExitPassDate,
     DateOnly? SpcBillRequestDate, decimal? SpcBillValueSdg, DateOnly? SpcBillSettlementDate,
-    DateOnly? TruckPortEntryPermitDate, DateOnly? ContainersReturnedDate, DateOnly? ClearanceActualCompletedDate);
+    DateOnly? TruckPortEntryPermitDate, DateOnly? ContainersReturnedDate,
+    DateOnly? ShippingLineDepositReturnDate, decimal? DepositValue, DateOnly? ClearanceActualCompletedDate);
 
 public record Route2Request(
     DateOnly? DepositRequestDate, DateOnly? RequestApprovalDate,
     DateOnly? InspectionDate,
     DateOnly? SpcBillRequestDate, decimal? SpcBillValueSdg, DateOnly? SpcBillSettlementDate, DateOnly? PoliceSecurityAppointedDate,
-    DateOnly? TruckPortEntryPermitDate, DateOnly? ContainersReceivedAtFzDate, DateOnly? ContainersReturnedDate, DateOnly? ClearanceActualCompletedDate);
+    DateOnly? TruckPortEntryPermitDate, DateOnly? ContainersReceivedAtFzDate, DateOnly? ContainersReturnedDate,
+    DateOnly? ShippingLineDepositReturnDate, decimal? DepositValue, DateOnly? ClearanceActualCompletedDate);
 
 public record Route3Request(
     DateOnly? CertificateEntryDate, string? ScudaDeclarationNo,
@@ -95,6 +97,8 @@ public class ClearanceRouteDetailsController : ControllerBase
         entity.SpcBillSettlementDate = req.SpcBillSettlementDate;
         entity.TruckPortEntryPermitDate = req.TruckPortEntryPermitDate;
         entity.ContainersReturnedDate = req.ContainersReturnedDate;
+        entity.ShippingLineDepositReturnDate = req.ShippingLineDepositReturnDate;
+        entity.DepositValue = req.DepositValue;
         entity.ClearanceActualCompletedDate = req.ClearanceActualCompletedDate;
 
         await _db.SaveChangesAsync();
@@ -129,6 +133,8 @@ public class ClearanceRouteDetailsController : ControllerBase
         entity.TruckPortEntryPermitDate = req.TruckPortEntryPermitDate;
         entity.ContainersReceivedAtFzDate = req.ContainersReceivedAtFzDate;
         entity.ContainersReturnedDate = req.ContainersReturnedDate;
+        entity.ShippingLineDepositReturnDate = req.ShippingLineDepositReturnDate;
+        entity.DepositValue = req.DepositValue;
         entity.ClearanceActualCompletedDate = req.ClearanceActualCompletedDate;
 
         await _db.SaveChangesAsync();
