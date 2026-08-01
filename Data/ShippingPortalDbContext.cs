@@ -59,9 +59,9 @@ public class ShippingPortalDbContext : IdentityDbContext<ApplicationUser>
     public DbSet<ShipmentSsmo> ShipmentSsmos => Set<ShipmentSsmo>();
     public DbSet<ShipmentMot> ShipmentMots => Set<ShipmentMot>();
     public DbSet<ShipmentSupplierFullSet> ShipmentSupplierFullSets => Set<ShipmentSupplierFullSet>();
-    public DbSet<ShipmentSupplierPayment> ShipmentSupplierPayments => Set<ShipmentSupplierPayment>();
     public DbSet<ShipmentSupplierPaymentRecord> ShipmentSupplierPaymentRecords => Set<ShipmentSupplierPaymentRecord>();
     public DbSet<ShipmentBanking> ShipmentBankings => Set<ShipmentBanking>();
+    public DbSet<ShipmentCollectionRecord> ShipmentCollectionRecords => Set<ShipmentCollectionRecord>();
 
     // Clearance
     public DbSet<ShippingPortal.Api.Models.Clearance.Clearance> Clearances => Set<ShippingPortal.Api.Models.Clearance.Clearance>();
@@ -143,10 +143,12 @@ public class ShippingPortalDbContext : IdentityDbContext<ApplicationUser>
         builder.Entity<ShipmentSsmo>().HasIndex(x => x.ShipmentId).IsUnique();
         builder.Entity<ShipmentMot>().HasIndex(x => x.ShipmentId).IsUnique();
         builder.Entity<ShipmentSupplierFullSet>().HasIndex(x => x.ShipmentId).IsUnique();
-        builder.Entity<ShipmentSupplierPayment>().HasIndex(x => x.ShipmentId).IsUnique();
+        builder.Entity<ShipmentBanking>().HasIndex(x => x.ShipmentId).IsUnique();
 
+        // Payment/collection records: many per Shipment, restrict-delete on
+        // Currency so a Settings row can't vanish out from under real records.
         builder.Entity<ShipmentSupplierPaymentRecord>()
-            .HasOne(x => x.ShipmentSupplierPayment)
+            .HasOne(x => x.Shipment)
             .WithMany()
             .OnDelete(DeleteBehavior.Cascade);
 
@@ -154,7 +156,16 @@ public class ShippingPortalDbContext : IdentityDbContext<ApplicationUser>
             .HasOne(x => x.Currency)
             .WithMany()
             .OnDelete(DeleteBehavior.Restrict);
-        builder.Entity<ShipmentBanking>().HasIndex(x => x.ShipmentId).IsUnique();
+
+        builder.Entity<ShipmentCollectionRecord>()
+            .HasOne(x => x.Shipment)
+            .WithMany()
+            .OnDelete(DeleteBehavior.Cascade);
+
+        builder.Entity<ShipmentCollectionRecord>()
+            .HasOne(x => x.Currency)
+            .WithMany()
+            .OnDelete(DeleteBehavior.Restrict);
 
         // Clearance: 1:1 with Shipment, and each route/sub-section 1:1 with Clearance.
         builder.Entity<ShippingPortal.Api.Models.Clearance.Clearance>().HasIndex(x => x.ShipmentId).IsUnique();
