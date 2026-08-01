@@ -87,30 +87,38 @@ public class ShipmentSupplierFullSet
     public DateOnly? FsReceivedDate { get; set; }
 }
 
+// Invoice header: one per Shipment. Actual payments against it live in
+// ShipmentSupplierPaymentRecord (many per invoice) — TotalPaidUsd/BalanceUsd
+// are always recomputed from that list, never stored as independent input.
 public class ShipmentSupplierPayment
 {
     public int Id { get; set; }
     public int ShipmentId { get; set; }
     public Shipment? Shipment { get; set; }
 
-    public int? CurrencyId { get; set; }
-    public Currency? Currency { get; set; }
+    public string? SupplierInvoiceNo { get; set; }
+    public decimal? InvoiceValue { get; set; }
+    public int? InvoiceCurrencyId { get; set; }
+    public Currency? InvoiceCurrency { get; set; }
+    public decimal? InvoiceValueUsd { get; set; }
 
-    public decimal? AdvanceValue { get; set; }
-    public DateOnly? AdvanceDueDate { get; set; }
-    public DateOnly? AdvanceActualPaymentDate { get; set; }
-    public decimal? AdvanceValueUsd { get; set; }
-
-    public decimal? RemainingValue { get; set; }
-    public DateOnly? RemainingDueDate { get; set; }
-    public DateOnly? RemainingActualPaymentDate { get; set; }
-    public decimal? RemainingValueUsd { get; set; }
-
-    public decimal? TotalValueUsd { get; set; }
     public decimal? TotalPaidUsd { get; set; }
     public decimal? BalanceUsd { get; set; }
 
     public string? Remarks { get; set; }
+}
+
+public class ShipmentSupplierPaymentRecord
+{
+    public int Id { get; set; }
+    public int ShipmentSupplierPaymentId { get; set; }
+    public ShipmentSupplierPayment? ShipmentSupplierPayment { get; set; }
+
+    public DateOnly PaymentDate { get; set; }
+    public int CurrencyId { get; set; }
+    public Currency? Currency { get; set; }
+    public decimal Value { get; set; }
+    public decimal ValueUsd { get; set; }
 }
 
 public class ShipmentBanking
