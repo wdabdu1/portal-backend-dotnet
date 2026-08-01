@@ -27,7 +27,10 @@ public record ShipmentDetailResponse(
     ShipmentForwarder? Forwarder, ShipmentAcd? Acd, ShipmentDraftDocuments? DraftDocuments,
     ShipmentSsmo? Ssmo, ShipmentMot? Mot, ShipmentSupplierFullSet? SupplierFullSet,
     ShipmentSupplierPayment? SupplierPayment, ShipmentBanking? Banking,
-    List<string> OffshorePartnerNames);
+    List<string> OffshorePartnerNames,
+    string BusinessUnit, string Supplier, string Category, DateOnly? SobActualDate);
+
+public record ShipOnBoardRequest(DateOnly? SobActualDate);
 
 [ApiController]
 [Authorize]
@@ -40,7 +43,11 @@ public class ShipmentDetailController : ControllerBase
     [HttpGet("detail")]
     public async Task<ActionResult<ShipmentDetailResponse>> GetDetail(int shipmentId)
     {
-        var shipment = await _db.Shipments.Include(s => s.PurchaseOrder).FirstOrDefaultAsync(s => s.Id == shipmentId);
+        var shipment = await _db.Shipments
+            .Include(s => s.PurchaseOrder).ThenInclude(p => p!.BusinessUnit)
+            .Include(s => s.PurchaseOrder).ThenInclude(p => p!.Supplier)
+            .Include(s => s.LineItems).ThenInclude(li => li.PurchaseOrderLineItem).ThenInclude(pli => pli!.ProductCategory)
+            .FirstOrDefaultAsync(s => s.Id == shipmentId);
         if (shipment is null) return NotFound();
 
         var forwarder = await _db.ShipmentForwarders.FirstOrDefaultAsync(x => x.ShipmentId == shipmentId);
@@ -58,8 +65,24 @@ public class ShipmentDetailController : ControllerBase
             .Select(op => op.BusinessPartner!.Name)
             .ToListAsync();
 
+        var category = shipment.LineItems.FirstOrDefault()?.PurchaseOrderLineItem?.ProductCategory?.Name ?? "";
+
         return new ShipmentDetailResponse(shipment.Id, shipment.BlAwbNo, shipment.PurchaseOrder!.PoNumber, shipment.Status.ToString(),
-            forwarder, acd, draftDocs, ssmo, mot, fullSet, payment, banking, offshorePartnerNames);
+            forwarder, acd, draftDocs, ssmo, mot, fullSet, payment, banking, offshorePartnerNames,
+            shipment.PurchaseOrder.BusinessUnit!.Name, shipment.PurchaseOrder.Supplier!.Name, category, shipment.SobActualDate);
+    }
+
+    [HttpPut("ship-on-board")]
+    public async Task<IActionResult> SaveShipOnBoard(int shipmentId, ShipOnBoardRequest req)
+    {
+        var shipment = await _db.Shipments.FindAsync(shipmentId);
+        if (shipment is null) return NotFound();
+
+        shipment.SobActualDate = req.SobActualDate;
+        shipment.UpdatedAt = DateTime.UtcNow;
+
+        await _db.SaveChangesAsync();
+        return Ok(new { shipment.SobActualDate });
     }
 
     [HttpPut("forwarder")]
