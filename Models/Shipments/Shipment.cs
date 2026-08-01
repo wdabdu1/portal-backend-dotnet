@@ -26,6 +26,8 @@ public class Shipment
     public int Fcl40Count { get; set; }
     public bool Soc { get; set; }
     public int? BlFreeDays { get; set; }
+    public DateOnly? SobActualDate { get; set; }
+
     public ShipmentStatus Status { get; set; } = ShipmentStatus.Draft;
     public string CreatedByUserId { get; set; } = "";
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
