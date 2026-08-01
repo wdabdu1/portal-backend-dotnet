@@ -27,7 +27,7 @@ public record ShipmentDetailResponse(
     int Id, string BlAwbNo, string PoNumber, string Status,
     ShipmentForwarder? Forwarder, ShipmentAcd? Acd, ShipmentDraftDocuments? DraftDocuments,
     ShipmentSsmo? Ssmo, ShipmentMot? Mot, ShipmentSupplierFullSet? SupplierFullSet,
-    ShipmentSupplierPayment? SupplierPayment, ShipmentBanking? Banking,
+    ShipmentBanking? Banking,
     List<string> OffshorePartnerNames,
     string BusinessUnit, string Supplier, string Category, DateOnly? SobActualDate);
 
