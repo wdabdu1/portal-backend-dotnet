@@ -313,7 +313,6 @@ public class ClearanceController : ControllerBase
         await _db.SaveChangesAsync();
         return Ok(clearance);
     }
-    }
 
     [HttpPut("{shipmentId:int}/route")]
     public async Task<IActionResult> SetRoute(int shipmentId, ClearanceRouteRequest req)
