@@ -115,7 +115,7 @@ public class Forwarder
 public class Tenor
 {
     public int Id { get; set; }
-    [Required, MaxLength(60)] public string Name { get; set; } = "";
+    public int Days { get; set; }
     public bool IsActive { get; set; } = true;
 }
 
