@@ -26,6 +26,19 @@ public class ProductCategory
     public int Id { get; set; }
     [Required, MaxLength(120)] public string Name { get; set; } = "";
     public bool IsActive { get; set; } = true;
+
+    // Drives which Shipping Line demurrage tariff applies — e.g. Chemical
+    // goods vs Standard goods, regardless of which Business Unit ships them.
+    public int? TariffGroupId { get; set; }
+    public TariffGroup? TariffGroup { get; set; }
+}
+
+public class TariffGroup
+{
+    public int Id { get; set; }
+    [Required, MaxLength(60)] public string Name { get; set; } = "";
+    public bool IsActive { get; set; } = true;
+}
 }
 
 public class ProductType
