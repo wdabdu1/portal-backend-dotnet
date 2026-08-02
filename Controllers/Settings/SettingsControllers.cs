@@ -109,7 +109,7 @@ public class ShippingLinesController : ControllerBase
         {
             _db.ShippingLineDemurrageTariffs.Add(new ShippingLineDemurrageTariff
             {
-                ShippingLineId = id,
+                ShippingLineId = line.Id,
                 TariffGroupId = t.TariffGroupId,
                 ContainerSize = t.ContainerSize,
                 FreeDays = t.FreeDays,
@@ -151,7 +151,7 @@ public class ShippingLinesController : ControllerBase
         {
             _db.ShippingLineDemurrageTariffs.Add(new ShippingLineDemurrageTariff
             {
-                ShippingLineId = line.Id,
+                ShippingLineId = id,
                 TariffGroupId = t.TariffGroupId,
                 ContainerSize = t.ContainerSize,
                 FreeDays = t.FreeDays,
