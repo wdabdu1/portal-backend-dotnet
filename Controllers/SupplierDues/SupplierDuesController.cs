@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using ShippingPortal.Api.Data;
 using ShippingPortal.Api.Models.Shipments;
+using ShippingPortal.Api.Services;
 
 namespace ShippingPortal.Api.Controllers.SupplierDues;
 
@@ -20,15 +21,23 @@ public class SupplierDuesController : ControllerBase
     public SupplierDuesController(ShippingPortalDbContext db) => _db = db;
 
     [HttpGet]
-    public async Task<ActionResult<IEnumerable<SupplierDueRow>>> GetOpen()
+    public async Task<ActionResult<IEnumerable<SupplierDueRow>>> GetOpen([FromServices] BuAccessService buAccess)
     {
-        var shipments = await _db.Shipments
+        var query = _db.Shipments
             .Where(s => s.Status != ShipmentStatus.Cancelled)
             .Include(s => s.PurchaseOrder).ThenInclude(po => po!.BusinessUnit)
             .Include(s => s.PurchaseOrder).ThenInclude(po => po!.Supplier)
             .Include(s => s.PurchaseOrder).ThenInclude(po => po!.SupplierPaymentTerm)
             .Include(s => s.LineItems).ThenInclude(li => li.PurchaseOrderLineItem).ThenInclude(pli => pli!.Currency)
-            .ToListAsync();
+            .AsQueryable();
+
+        if (!buAccess.SeesAllBus(User))
+        {
+            var allowedBus = buAccess.GetAllowedBusinessUnitIds(User);
+            query = query.Where(s => allowedBus.Contains(s.PurchaseOrder!.BusinessUnitId));
+        }
+
+        var shipments = await query.ToListAsync();
 
         var fullSets = await _db.ShipmentSupplierFullSets.ToDictionaryAsync(f => f.ShipmentId);
         var paymentsByShipment = await _db.ShipmentSupplierPaymentRecords
