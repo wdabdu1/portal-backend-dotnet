@@ -84,6 +84,7 @@ using (var scope = app.Services.CreateScope())
 }
 
 await ClearanceSlaSeeder.SeedAsync(app.Services);
+await SpcStorageTierSeeder.SeedAsync(app.Services);
 
 app.MapOpenApi();
 
