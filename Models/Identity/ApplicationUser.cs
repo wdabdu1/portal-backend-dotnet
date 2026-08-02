@@ -30,7 +30,9 @@ public class UserBusinessUnitAccess
 public static class AppRoles
 {
     public const string Standard = "Standard";
-    public const string Manager = "Manager";
-    public const string SuperUser = "SuperUser";
-    public static readonly string[] All = { Standard, Manager, SuperUser };
+    public const string Manager = "Manager";       // can edit Settings
+    public const string SuperUser = "SuperUser";   // creates users, can cancel transactions
+    public const string Clearance = "Clearance";   // sees all BUs, but Supplier + non-last-offshore info hidden
+
+    public static readonly string[] All = { Standard, Manager, SuperUser, Clearance };
 }
