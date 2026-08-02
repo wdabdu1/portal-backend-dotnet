@@ -42,4 +42,3 @@ public class ShippingLineDemurrageTariff
     public decimal FirstPeriodRateSdg { get; set; }
     public decimal AfterwardRateSdg { get; set; }
 }
-}
