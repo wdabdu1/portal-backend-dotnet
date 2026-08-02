@@ -5,6 +5,7 @@ using ShippingPortal.Api.Data;
 using ShippingPortal.Api.Models.Orders;
 using ShippingPortal.Api.Models.Shipments;
 using System.Security.Claims;
+using ShippingPortal.Api.Services;
 
 namespace ShippingPortal.Api.Controllers.Shipments;
 
@@ -26,12 +27,21 @@ public class ShipmentsController : ControllerBase
     public ShipmentsController(ShippingPortalDbContext db) => _db = db;
 
     [HttpGet]
-    public async Task<ActionResult<IEnumerable<ShipmentSummary>>> GetAll()
+    public async Task<ActionResult<IEnumerable<ShipmentSummary>>> GetAll([FromServices] BuAccessService buAccess)
     {
-        return await _db.Shipments
-            .Include(s => s.PurchaseOrder)
+        var query = _db.Shipments
+            .Include(s => s.PurchaseOrder).ThenInclude(p => p!.BusinessUnit)
             .Include(s => s.ShippingLine)
             .Include(s => s.LineItems)
+            .AsQueryable();
+
+        if (!buAccess.SeesAllBus(User))
+        {
+            var allowed = buAccess.GetAllowedBusinessUnitIds(User);
+            query = query.Where(s => allowed.Contains(s.PurchaseOrder!.BusinessUnitId));
+        }
+
+        return await query
             .OrderByDescending(s => s.CreatedAt)
             .Select(s => new ShipmentSummary(
                 s.Id, s.BlAwbNo, s.PurchaseOrder!.PoNumber, s.ShippingLine!.Name,
