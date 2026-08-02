@@ -38,6 +38,8 @@ public class ShippingLineDemurrageTariff
     [Required, MaxLength(5)] public string ContainerSize { get; set; } = ""; // "20" or "40"
 
     public int FreeDays { get; set; }
+    public int FirstPeriodDays { get; set; }
     public decimal FirstPeriodRateSdg { get; set; }
     public decimal AfterwardRateSdg { get; set; }
+}
 }
