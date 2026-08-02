@@ -78,7 +78,8 @@ public class PurchaseOrdersController : ControllerBase
             .OrderByDescending(p => p.CreatedAt)
             .Select(p => new PurchaseOrderSummary(
                 p.Id, p.PoNumber, p.BusinessUnit!.Name, p.Supplier!.Name,
-                p.Status.ToString(), p.LineItems.Count, p.CreatedAt))
+                p.Status.ToString(), p.LineItems.Count, p.CreatedAt,
+                p.LineItems.Sum(li => li.TotalUsd)))
             .ToListAsync();
     }
 
