@@ -39,7 +39,6 @@ public class TariffGroup
     [Required, MaxLength(60)] public string Name { get; set; } = "";
     public bool IsActive { get; set; } = true;
 }
-}
 
 public class ProductType
 {
