@@ -62,6 +62,7 @@ public class ShippingPortalDbContext : IdentityDbContext<ApplicationUser>
     public DbSet<ShipmentSupplierPaymentRecord> ShipmentSupplierPaymentRecords => Set<ShipmentSupplierPaymentRecord>();
     public DbSet<ShipmentBanking> ShipmentBankings => Set<ShipmentBanking>();
     public DbSet<ShipmentCollectionRecord> ShipmentCollectionRecords => Set<ShipmentCollectionRecord>();
+    public DbSet<ShipmentOffshoreErpInfo> ShipmentOffshoreErpInfos => Set<ShipmentOffshoreErpInfo>();
 
     // Clearance
     public DbSet<ShippingPortal.Api.Models.Clearance.Clearance> Clearances => Set<ShippingPortal.Api.Models.Clearance.Clearance>();
@@ -158,9 +159,23 @@ public class ShippingPortalDbContext : IdentityDbContext<ApplicationUser>
             .OnDelete(DeleteBehavior.Restrict);
 
         builder.Entity<ShipmentCollectionRecord>()
+            .HasOne(x => x.Currency)
+            .WithMany()
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder.Entity<ShipmentOffshoreErpInfo>()
+            .HasIndex(x => new { x.ShipmentId, x.PurchaseOrderOffshorePartnerId })
+            .IsUnique();
+
+        builder.Entity<ShipmentOffshoreErpInfo>()
             .HasOne(x => x.Shipment)
             .WithMany()
             .OnDelete(DeleteBehavior.Cascade);
+
+        builder.Entity<ShipmentOffshoreErpInfo>()
+            .HasOne(x => x.PurchaseOrderOffshorePartner)
+            .WithMany()
+            .OnDelete(DeleteBehavior.Restrict);
 
         builder.Entity<ShipmentCollectionRecord>()
             .HasOne(x => x.Currency)
