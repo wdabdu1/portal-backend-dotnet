@@ -20,7 +20,7 @@ public record CreatePurchaseOrderRequest(
     string? OffshorePoNo, DateOnly? OffshorePoDate, DateOnly? ReceivedSignedPiDate, DateOnly? SentSignedPiDate, DateOnly? BuPoDate, DateOnly? OrderExecutionDate, DateOnly? LatestShippingDate,
     List<LineItemRequest> LineItems, List<OffshorePartnerRequest> OffshorePartners);
 
-public record PurchaseOrderSummary(int Id, string PoNumber, string BusinessUnit, string Supplier, string Status, int LineItemCount, DateTime CreatedAt);
+public record PurchaseOrderSummary(int Id, string PoNumber, string BusinessUnit, string Supplier, string Status, int LineItemCount, DateTime CreatedAt, decimal OrderValueUsd);
 
 public record LineItemResponse(int Id, string ProductCategory, string ModelProduct, string ProductType, decimal Qty, string UnitOfMeasure, decimal UnitPrice, string Currency, decimal Total, decimal TotalUsd);
 public record OffshorePartnerResponse(int Id, string BusinessPartnerName, int SequenceOrder);
@@ -45,16 +45,26 @@ public class PurchaseOrdersController : ControllerBase
     }
 
     [HttpGet]
-    public async Task<ActionResult<IEnumerable<PurchaseOrderSummary>>> GetAll()
+    public async Task<ActionResult<IEnumerable<PurchaseOrderSummary>>> GetAll([FromServices] BuAccessService buAccess)
     {
-        return await _db.PurchaseOrders
+        var query = _db.PurchaseOrders
             .Include(p => p.BusinessUnit)
             .Include(p => p.Supplier)
             .Include(p => p.LineItems)
+            .AsQueryable();
+
+        if (!buAccess.SeesAllBus(User))
+        {
+            var allowed = buAccess.GetAllowedBusinessUnitIds(User);
+            query = query.Where(p => allowed.Contains(p.BusinessUnitId));
+        }
+
+        return await query
             .OrderByDescending(p => p.CreatedAt)
             .Select(p => new PurchaseOrderSummary(
                 p.Id, p.PoNumber, p.BusinessUnit!.Name, p.Supplier!.Name,
-                p.Status.ToString(), p.LineItems.Count, p.CreatedAt))
+                p.Status.ToString(), p.LineItems.Count, p.CreatedAt,
+                p.LineItems.Sum(li => li.TotalUsd)))
             .ToListAsync();
     }
     [HttpGet("confirmed")]
