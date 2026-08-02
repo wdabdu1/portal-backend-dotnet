@@ -134,7 +134,7 @@ public class ShippingLinesController : ControllerBase
         return new ShippingLineResponse(
             line.Id, line.Name, line.IsActive,
             line.DemurrageTariffs.Select(t => new ShippingLineTariffResponse(
-                t.Id, t.TariffGroupId, t.TariffGroup?.Name ?? "", t.ContainerSize, t.FreeDays, t.FirstPeriodRateSdg, t.AfterwardRateSdg
+                t.Id, t.TariffGroupId, t.TariffGroup?.Name ?? "", t.ContainerSize, t.FreeDays, t.FirstPeriodDays, t.FirstPeriodRateSdg, t.AfterwardRateSdg
             )).ToList());
     }
 
