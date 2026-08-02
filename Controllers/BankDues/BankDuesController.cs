@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using ShippingPortal.Api.Data;
 using ShippingPortal.Api.Models.Shipments;
+using ShippingPortal.Api.Services;
 
 namespace ShippingPortal.Api.Controllers.BankDues;
 
@@ -22,15 +23,23 @@ public class BankDuesController : ControllerBase
     private readonly ShippingPortalDbContext _db;
     public BankDuesController(ShippingPortalDbContext db) => _db = db;
 
+    private readonly Dictionary<int, decimal> _fxCache = new();
+
     private async Task<decimal> GetFxRateAsync(int? currencyId)
     {
         if (!currencyId.HasValue) return 1m;
+        if (_fxCache.TryGetValue(currencyId.Value, out var cached)) return cached;
+
         var rate = await _db.FxRates.Where(r => r.CurrencyId == currencyId).OrderByDescending(r => r.EffectiveDate).FirstOrDefaultAsync();
-        return rate?.RateToUsd ?? 1m;
+        var value = rate?.RateToUsd ?? 1m;
+        _fxCache[currencyId.Value] = value;
+        return value;
     }
 
     // Converts a value in `currencyId` to AED via the USD cross-rate:
-    // value / rateToUsd(currency) * rateToUsd(AED).
+    // value / rateToUsd(currency) * rateToUsd(AED). Rates are cached per
+    // request instance, so a list with many rows only hits the DB once
+    // per distinct currency instead of once per row.
     private async Task<decimal> ConvertToAedAsync(decimal value, int? currencyId)
     {
         var sourceRate = await GetFxRateAsync(currencyId);
@@ -41,14 +50,22 @@ public class BankDuesController : ControllerBase
     }
 
     [HttpGet]
-    public async Task<ActionResult<IEnumerable<BankDueRow>>> GetOpen()
+    public async Task<ActionResult<IEnumerable<BankDueRow>>> GetOpen([FromServices] BuAccessService buAccess)
     {
-        var bankings = await _db.ShipmentBankings
+        var query = _db.ShipmentBankings
             .Include(b => b.Shipment).ThenInclude(s => s!.PurchaseOrder).ThenInclude(po => po!.Consignee)
             .Include(b => b.ReceivingBank)
             .Include(b => b.Tenor)
             .Include(b => b.CollectionCurrency)
-            .ToListAsync();
+            .AsQueryable();
+
+        if (!buAccess.SeesAllBus(User))
+        {
+            var allowedBus = buAccess.GetAllowedBusinessUnitIds(User);
+            query = query.Where(b => allowedBus.Contains(b.Shipment!.PurchaseOrder!.BusinessUnitId));
+        }
+
+        var bankings = await query.ToListAsync();
 
         var clearances = await _db.Clearances.ToDictionaryAsync(c => c.ShipmentId);
 
