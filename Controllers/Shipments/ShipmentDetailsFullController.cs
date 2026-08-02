@@ -51,3 +51,45 @@ public class ShipmentDetailsFullController : ControllerBase
         var ssmo = await _db.ShipmentSsmos.FirstOrDefaultAsync(x => x.ShipmentId == id);
         var mot = await _db.ShipmentMots.FirstOrDefaultAsync(x => x.ShipmentId == id);
         var supplierFullSet = isClearance ? null : (object?)await _db.ShipmentSupplierFullSets.FirstOrDefaultAsync(x => x.ShipmentId == id);
+        var banking = await _db.ShipmentBankings.FirstOrDefaultAsync(x => x.ShipmentId == id);
+
+        var offshorePartners = await _db.PurchaseOrderOffshorePartners
+            .Where(op => op.PurchaseOrderId == shipment.PurchaseOrderId)
+            .Include(op => op.BusinessPartner)
+            .OrderBy(op => op.SequenceOrder)
+            .ToListAsync();
+
+        var erpRows = await _db.ShipmentOffshoreErpInfos.Where(e => e.ShipmentId == id).ToListAsync();
+        var maxSequence = offshorePartners.Count > 0 ? offshorePartners.Max(o => o.SequenceOrder) : 0;
+
+        var erpColumns = offshorePartners
+            .Where(op => !isClearance || op.SequenceOrder == maxSequence)
+            .Select(op =>
+            {
+                var row = erpRows.FirstOrDefault(e => e.PurchaseOrderOffshorePartnerId == op.Id);
+                var isLast = op.SequenceOrder == maxSequence;
+                object? data = row is null ? null : (isLast || op.SequenceOrder == 1
+                    ? new { row.PrNo, row.PoNo, row.Sa, row.BillReg, row.Grn, row.InvoiceNo }
+                    : new { row.InspectionNo, row.Grn, row.InvoiceNo, row.Remarks });
+                return new ErpColumnDetail(op.BusinessPartner?.Name ?? "", op.SequenceOrder, isLast, data);
+            })
+            .ToList();
+
+        var lineItems = shipment.LineItems.Select(li => new ShipmentLineItemDetail(
+            li.PurchaseOrderLineItem?.ProductCategory?.Name ?? "",
+            li.PurchaseOrderLineItem?.ModelProduct?.Name ?? "",
+            li.QtyInBl,
+            li.PurchaseOrderLineItem?.UnitOfMeasure?.Code
+        )).ToList();
+
+        var category = lineItems.FirstOrDefault()?.ProductCategory ?? "";
+
+        return new ShipmentFullDetailResponse(
+            shipment.Id, shipment.BlAwbNo, shipment.PurchaseOrder!.PoNumber, shipment.Status.ToString(),
+            shipment.PurchaseOrder.BusinessUnit!.Name,
+            isClearance ? null : shipment.PurchaseOrder.Supplier?.Name,
+            shipment.PurchaseOrder.Consignee?.Name ?? "", category,
+            shipment.Fcl20Count, shipment.Fcl40Count, shipment.Eta, shipment.SobActualDate,
+            lineItems, forwarder, acd, draftDocs, ssmo, mot, supplierFullSet, banking, erpColumns);
+    }
+}
