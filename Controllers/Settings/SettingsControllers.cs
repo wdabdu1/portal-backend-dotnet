@@ -70,10 +70,9 @@ public class ModelProductsController : LookupCrudController<ModelProduct>
 // Shipping lines carry nested demurrage tariffs (one row per Tariff Group x
 // container size), so they get a purpose-built controller rather than the
 // generic lookup pattern.
-public record TariffRow(int TariffGroupId, string ContainerSize, int FreeDays, decimal FirstPeriodRateSdg, decimal AfterwardRateSdg);
+public record TariffRow(int TariffGroupId, string ContainerSize, int FreeDays, int FirstPeriodDays, decimal FirstPeriodRateSdg, decimal AfterwardRateSdg);
 public record ShippingLineWithTariffsRequest(string Name, List<TariffRow> Tariffs);
-public record ShippingLineTariffResponse(int Id, int TariffGroupId, string TariffGroupName, string ContainerSize, int FreeDays, decimal FirstPeriodRateSdg, decimal AfterwardRateSdg);
-public record ShippingLineResponse(int Id, string Name, bool IsActive, List<ShippingLineTariffResponse> Tariffs);
+public record ShippingLineTariffResponse(int Id, int TariffGroupId, string TariffGroupName, string ContainerSize, int FreeDays, int FirstPeriodDays, decimal FirstPeriodRateSdg, decimal AfterwardRateSdg);public record ShippingLineResponse(int Id, string Name, bool IsActive, List<ShippingLineTariffResponse> Tariffs);
 
 [ApiController]
 [Authorize]
@@ -93,7 +92,7 @@ public class ShippingLinesController : ControllerBase
         return lines.Select(l => new ShippingLineResponse(
             l.Id, l.Name, l.IsActive,
             l.DemurrageTariffs.Select(t => new ShippingLineTariffResponse(
-                t.Id, t.TariffGroupId, t.TariffGroup?.Name ?? "", t.ContainerSize, t.FreeDays, t.FirstPeriodRateSdg, t.AfterwardRateSdg
+                t.Id, t.TariffGroupId, t.TariffGroup?.Name ?? "", t.ContainerSize, t.FreeDays, t.FirstPeriodDays, t.FirstPeriodRateSdg, t.AfterwardRateSdg
             )).ToList()
         )).ToList();
     }
@@ -110,10 +109,11 @@ public class ShippingLinesController : ControllerBase
         {
             _db.ShippingLineDemurrageTariffs.Add(new ShippingLineDemurrageTariff
             {
-                ShippingLineId = line.Id,
+                ShippingLineId = id,
                 TariffGroupId = t.TariffGroupId,
                 ContainerSize = t.ContainerSize,
                 FreeDays = t.FreeDays,
+                FirstPeriodDays = t.FirstPeriodDays,
                 FirstPeriodRateSdg = t.FirstPeriodRateSdg,
                 AfterwardRateSdg = t.AfterwardRateSdg
             });
@@ -151,10 +151,11 @@ public class ShippingLinesController : ControllerBase
         {
             _db.ShippingLineDemurrageTariffs.Add(new ShippingLineDemurrageTariff
             {
-                ShippingLineId = id,
+                ShippingLineId = line.Id,
                 TariffGroupId = t.TariffGroupId,
                 ContainerSize = t.ContainerSize,
                 FreeDays = t.FreeDays,
+                FirstPeriodDays = t.FirstPeriodDays,
                 FirstPeriodRateSdg = t.FirstPeriodRateSdg,
                 AfterwardRateSdg = t.AfterwardRateSdg
             });
