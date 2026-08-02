@@ -142,7 +142,6 @@ public class ClearanceController : ControllerBase
     // it. Traffic light per step reflects real performance: completed
     // early/on-time/late, or pending on-track/delayed.
     [HttpGet("{shipmentId:int}/sla-schedule")]
-    [HttpGet("{shipmentId:int}/sla-schedule")]
     public async Task<ActionResult<ClearanceScheduleResponse>> GetSlaSchedule(int shipmentId, [FromServices] ShippingPortal.Api.Services.ClearanceScheduleService scheduleService)
     {
         var result = await scheduleService.GetScheduleAsync(shipmentId);
