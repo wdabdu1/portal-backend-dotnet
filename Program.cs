@@ -59,6 +59,7 @@ builder.Services.AddScoped<TokenService>();
 builder.Services.AddScoped<FxRateService>();
 builder.Services.AddScoped<ClearanceScheduleService>();
 builder.Services.AddScoped<DemurrageStorageService>();
+builder.Services.AddScoped<BuAccessService>();
 
 builder.Services.AddControllers()
     .AddJsonOptions(options =>
