@@ -5,17 +5,24 @@ using ShippingPortal.Api.Models.Clearance;
 namespace ShippingPortal.Api.Services;
 
 public record DemurrageStorageResult(
-    bool Applicable, DateOnly? StartDate,
-    DateOnly? StorageEndDate, bool StorageIsActual, decimal StorageChargeSdg,
-    DateOnly? DemurrageEndDate, bool DemurrageIsActual, decimal DemurrageChargeSdg,
-    decimal TotalChargeSdg);
+    bool Applicable,
+    DateOnly? AnchorDate,
+    DateOnly? StorageEndDate, bool StorageEndIsActual,
+    DateOnly? DemurrageEndDate, bool DemurrageEndIsActual,
+    int StorageDays, int DemurrageDays,
+    decimal StorageCostEuro, decimal StorageCostSdg,
+    decimal DemurrageCostSdg,
+    decimal TotalStorageDemurrageSdg,
+    List<string> Warnings);
 
-// Storage (SPC) and Demurrage (Shipping Line) are both zero for Route 3 —
-// goods are already inside the Free Zone, no vessel container involved.
-// Both start from the DO's Actual Arrival Date (falling back to Shipment
-// ETA), and each ends at its own real-world milestone: Storage at Truck
-// Port Entry Permit Date, Demurrage at Containers Returned Date — using the
-// SLA-projected target date for whichever hasn't actually happened yet.
+// Storage: SPC's charge for goods sitting in port, tiered by day count
+// (universal tiers, same for everyone). Demurrage: the Shipping Line's
+// charge for holding their container too long, tiered per Tariff Group
+// (varies by goods type) and container size. Both start from the same
+// anchor (DO Actual Arrival Date, falling back to ETA) and use the
+// cascading SLA schedule's projected "Truck & Containers" date as the
+// anticipated end until a real actual date is entered. Route 3 never
+// applies — goods are already in the FZ, no vessel container to return.
 public class DemurrageStorageService
 {
     private readonly ShippingPortalDbContext _db;
@@ -29,84 +36,117 @@ public class DemurrageStorageService
 
     public async Task<DemurrageStorageResult> CalculateAsync(int shipmentId)
     {
-        var shipment = await _db.Shipments
-            .Include(s => s.LineItems).ThenInclude(li => li.PurchaseOrderLineItem).ThenInclude(pli => pli!.ProductCategory)
-            .FirstOrDefaultAsync(s => s.Id == shipmentId);
-        if (shipment is null) return new DemurrageStorageResult(false, null, null, false, 0, null, false, 0, 0);
+        var warnings = new List<string>();
+
+        var shipment = await _db.Shipments.FirstOrDefaultAsync(s => s.Id == shipmentId);
+        if (shipment is null)
+            return new DemurrageStorageResult(false, null, null, false, null, false, 0, 0, 0, 0, 0, 0, warnings);
 
         var clearance = await _db.Clearances.FirstOrDefaultAsync(c => c.ShipmentId == shipmentId);
-        if (clearance is null || clearance.Route == ClearanceRouteType.NotSelected || clearance.Route == ClearanceRouteType.Route3ClearFromFz)
-            return new DemurrageStorageResult(false, null, null, false, 0, null, false, 0, 0);
+        var route = clearance?.Route ?? ClearanceRouteType.NotSelected;
+
+        if (route == ClearanceRouteType.NotSelected || route == ClearanceRouteType.Route3ClearFromFz)
+            return new DemurrageStorageResult(false, null, null, false, null, false, 0, 0, 0, 0, 0, 0, warnings);
 
         var schedule = await _scheduleService.GetScheduleAsync(shipmentId);
         if (!schedule.AnchorDate.HasValue)
-            return new DemurrageStorageResult(false, null, null, false, 0, null, false, 0, 0);
+            return new DemurrageStorageResult(false, null, null, false, null, false, 0, 0, 0, 0, 0, 0, warnings);
 
-        var startDate = schedule.AnchorDate.Value;
-
+        var anchor = schedule.AnchorDate.Value;
         var truckContainersItem = schedule.Items.FirstOrDefault(i => i.GroupItem == "Truck & Containers");
-        var storageEndDate = truckContainersItem?.TargetDate;
-        var storageIsActual = false;
+        var projectedEnd = truckContainersItem?.TargetDate ?? anchor;
 
-        DateOnly? demurrageEndDate = null;
-        var demurrageIsActual = false;
+        // Actual end dates come from the route-specific detail tables.
+        DateOnly? truckPortEntryActual = null; // not currently a "final" marker on its own — storage end is the specific field below
+        DateOnly? storageActualEnd = null;
+        DateOnly? demurrageActualEnd = null;
 
-        if (clearance.Route == ClearanceRouteType.Route1ClearAtPort)
+        if (route == ClearanceRouteType.Route1ClearAtPort)
         {
-            var r1 = await _db.ClearanceRoute1Details.FirstOrDefaultAsync(x => x.ClearanceId == clearance.Id);
-            if (r1?.TruckPortEntryPermitDate.HasValue == true) { storageEndDate = r1.TruckPortEntryPermitDate; storageIsActual = true; }
-            demurrageEndDate = r1?.ContainersReturnedDate ?? truckContainersItem?.TargetDate;
-            demurrageIsActual = r1?.ContainersReturnedDate.HasValue == true;
+            var r1 = await _db.ClearanceRoute1Details.FirstOrDefaultAsync(x => x.ClearanceId == clearance!.Id);
+            storageActualEnd = r1?.TruckPortEntryPermitDate;
+            demurrageActualEnd = r1?.ContainersReturnedDate;
         }
-        else if (clearance.Route == ClearanceRouteType.Route2FzDeposit)
+        else if (route == ClearanceRouteType.Route2FzDeposit)
         {
-            var r2 = await _db.ClearanceRoute2Details.FirstOrDefaultAsync(x => x.ClearanceId == clearance.Id);
-            if (r2?.TruckPortEntryPermitDate.HasValue == true) { storageEndDate = r2.TruckPortEntryPermitDate; storageIsActual = true; }
-            demurrageEndDate = r2?.ContainersReturnedDate ?? truckContainersItem?.TargetDate;
-            demurrageIsActual = r2?.ContainersReturnedDate.HasValue == true;
+            var r2 = await _db.ClearanceRoute2Details.FirstOrDefaultAsync(x => x.ClearanceId == clearance!.Id);
+            storageActualEnd = r2?.TruckPortEntryPermitDate;
+            demurrageActualEnd = r2?.ContainersReturnedDate;
         }
 
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
-        var storageDays = storageEndDate.HasValue ? Math.Max(0, storageEndDate.Value.DayNumber - startDate.DayNumber) : 0;
-        var demurrageDays = demurrageEndDate.HasValue ? Math.Max(0, demurrageEndDate.Value.DayNumber - startDate.DayNumber) : 0;
+        var storageEnd = storageActualEnd ?? projectedEnd;
+        var demurrageEnd = demurrageActualEnd ?? projectedEnd;
 
-        var storageCharge = await CalculateStorageChargeAsync(storageDays, shipment.Fcl20Count, shipment.Fcl40Count);
-        var demurrageCharge = await CalculateDemurrageChargeAsync(demurrageDays, shipment);
+        var storageDays = Math.Max(0, storageEnd.DayNumber - anchor.DayNumber);
+        var demurrageDays = Math.Max(0, demurrageEnd.DayNumber - anchor.DayNumber);
+
+        // --- Storage (SPC tiers, universal) ---
+        var tiers = await _db.SpcStorageTiers.OrderBy(t => t.TierOrder).ToListAsync();
+        var (storageEuro20, storageEuro40) = CalculateTieredEuro(storageDays, tiers);
+        var storageEuro = storageEuro20 * shipment.Fcl20Count + storageEuro40 * shipment.Fcl40Count;
+
+        var spcRate = await _db.SpcRates.OrderByDescending(r => r.EffectiveDate).FirstOrDefaultAsync();
+        if (spcRate is null) warnings.Add("No SPC Euro Rate configured — storage cost shown in Euro only.");
+        var storageSdg = storageEuro * (spcRate?.EuroToSdgRate ?? 0);
+
+        // --- Demurrage (Shipping Line tariff, per Tariff Group + container size) ---
+        var firstLineItem = await _db.ShipmentLineItems
+            .Where(li => li.ShipmentId == shipmentId)
+            .Include(li => li.PurchaseOrderLineItem).ThenInclude(pli => pli!.ProductCategory)
+            .FirstOrDefaultAsync();
+
+        var tariffGroupId = firstLineItem?.PurchaseOrderLineItem?.ProductCategory?.TariffGroupId;
+        decimal demurrageSdg = 0;
+
+        if (!shipment.ShippingLineId.Equals(default) && tariffGroupId.HasValue)
+        {
+            var tariff20 = await _db.ShippingLineDemurrageTariffs.FirstOrDefaultAsync(t =>
+                t.ShippingLineId == shipment.ShippingLineId && t.TariffGroupId == tariffGroupId && t.ContainerSize == "20");
+            var tariff40 = await _db.ShippingLineDemurrageTariffs.FirstOrDefaultAsync(t =>
+                t.ShippingLineId == shipment.ShippingLineId && t.TariffGroupId == tariffGroupId && t.ContainerSize == "40");
+
+            if (tariff20 is null && shipment.Fcl20Count > 0) warnings.Add("No demurrage tariff configured for this Shipping Line / Tariff Group / 20' combination.");
+            if (tariff40 is null && shipment.Fcl40Count > 0) warnings.Add("No demurrage tariff configured for this Shipping Line / Tariff Group / 40' combination.");
+
+            demurrageSdg += CalculateDemurrageForSize(demurrageDays, tariff20, shipment.Fcl20Count);
+            demurrageSdg += CalculateDemurrageForSize(demurrageDays, tariff40, shipment.Fcl40Count);
+        }
+        else
+        {
+            warnings.Add("No Tariff Group set on this shipment's product category — demurrage cannot be calculated.");
+        }
 
         return new DemurrageStorageResult(
-            true, startDate,
-            storageEndDate, storageIsActual, storageCharge,
-            demurrageEndDate, demurrageIsActual, demurrageCharge,
-            storageCharge + demurrageCharge);
+            true, anchor, storageEnd, storageActualEnd.HasValue, demurrageEnd, demurrageActualEnd.HasValue,
+            storageDays, demurrageDays, storageEuro, storageSdg, demurrageSdg, storageSdg + demurrageSdg, warnings);
     }
 
-    private async Task<decimal> CalculateStorageChargeAsync(int totalDays, int fcl20, int fcl40)
+    private static (decimal Rate20, decimal Rate40) CalculateTieredEuro(int totalDays, List<Models.Lookups.SpcStorageTier> tiers)
     {
-        if (totalDays <= 0 || (fcl20 == 0 && fcl40 == 0)) return 0;
+        decimal cost20 = 0, cost40 = 0;
+        var remaining = totalDays;
 
-        var tiers = await _db.SpcStorageTiers.OrderBy(t => t.TierOrder).ToListAsync();
-        var spcRate = await _db.SpcRates.OrderByDescending(r => r.EffectiveDate).FirstOrDefaultAsync();
-        var euroToSdg = spcRate?.EuroToSdgRate ?? 0m;
-
-        decimal totalEuro = 0;
-        var remainingDays = totalDays;
-
-        foreach (var tier in tiers)
+        foreach (var tier in tiers.OrderBy(t => t.TierOrder))
         {
-            if (remainingDays <= 0) break;
-            var daysInTier = tier.DurationDays.HasValue ? Math.Min(remainingDays, tier.DurationDays.Value) : remainingDays;
-            totalEuro += daysInTier * (fcl20 * tier.Rate20 + fcl40 * tier.Rate40);
-            remainingDays -= daysInTier;
+            if (remaining <= 0) break;
+            var tierDays = tier.DurationDays.HasValue ? Math.Min(remaining, tier.DurationDays.Value) : remaining;
+            cost20 += tierDays * tier.Rate20;
+            cost40 += tierDays * tier.Rate40;
+            remaining -= tierDays;
         }
 
-        return totalEuro * euroToSdg;
+        return (cost20, cost40);
     }
 
-    private async Task<decimal> CalculateDemurrageChargeAsync(int totalDays, Models.Shipments.Shipment shipment)
+    private static decimal CalculateDemurrageForSize(int totalDays, Models.Lookups.ShippingLineDemurrageTariff? tariff, int containerCount)
     {
-        if (totalDays <= 0 || shipment.ShippingLineId == 0) return 0;
-        if (shipment.Fcl20Count == 0 && shipment.Fcl40Count == 0) return 0;
+        if (tariff is null || containerCount <= 0) return 0;
 
-        var tariffGroupId = shipment.LineItems
-            .Select(li => li.PurchaseOrderLineItem?.ProductCategory?.TariffGroupId)
-            .FirstOrDefault(g
+        var chargeableDays = Math.Max(0, totalDays - tariff.FreeDays);
+        var firstPeriodDaysCharged = Math.Min(chargeableDays, tariff.FirstPeriodDays);
+        var afterwardDaysCharged = Math.Max(0, chargeableDays - tariff.FirstPeriodDays);
+
+        var perContainer = (firstPeriodDaysCharged * tariff.FirstPeriodRateSdg) + (afterwardDaysCharged * tariff.AfterwardRateSdg);
+        return perContainer * containerCount;
+    }
+}
