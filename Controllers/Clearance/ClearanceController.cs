@@ -24,8 +24,7 @@ public record ClearanceDetailResponse(
     int Route, DateOnly? ClearanceCompleteDate, string? ImFormNo, DateOnly? ImFormDate,
     string Consignee, string Category, int FclCount);
 
-public record ScheduleItem(string Division, string GroupItem, decimal TargetDays, DateOnly TargetDate, DateOnly? ActualDate, string Status, string Light);
-public record ClearanceScheduleResponse(DateOnly? EstimatedCompletionDate, List<ScheduleItem> Items);
+public record ClearanceScheduleResponse(DateOnly? EstimatedCompletionDate, List<ShippingPortal.Api.Services.ScheduleItem> Items);
 
 [ApiController]
 [Authorize]
@@ -143,69 +142,10 @@ public class ClearanceController : ControllerBase
     // it. Traffic light per step reflects real performance: completed
     // early/on-time/late, or pending on-track/delayed.
     [HttpGet("{shipmentId:int}/sla-schedule")]
-    public async Task<ActionResult<ClearanceScheduleResponse>> GetSlaSchedule(int shipmentId)
+    public async Task<ActionResult<ClearanceScheduleResponse>> GetSlaSchedule(int shipmentId, [FromServices] ShippingPortal.Api.Services.ClearanceScheduleService scheduleService)
     {
-        var shipment = await _db.Shipments.FirstOrDefaultAsync(s => s.Id == shipmentId);
-        if (shipment is null) return NotFound();
-        if (!shipment.Eta.HasValue) return Ok(new ClearanceScheduleResponse(null, new List<ScheduleItem>()));
-
-        var clearance = await _db.Clearances.FirstOrDefaultAsync(c => c.ShipmentId == shipmentId);
-        var route = clearance?.Route ?? ShippingPortal.Api.Models.Clearance.ClearanceRouteType.NotSelected;
-        if (route == ShippingPortal.Api.Models.Clearance.ClearanceRouteType.NotSelected)
-            return Ok(new ClearanceScheduleResponse(null, new List<ScheduleItem>()));
-
-        var routeDivision = route switch
-        {
-            ShippingPortal.Api.Models.Clearance.ClearanceRouteType.Route1ClearAtPort => ShippingPortal.Api.Models.Clearance.ClearanceDivision.Route1,
-            ShippingPortal.Api.Models.Clearance.ClearanceRouteType.Route2FzDeposit => ShippingPortal.Api.Models.Clearance.ClearanceDivision.Route2,
-            _ => ShippingPortal.Api.Models.Clearance.ClearanceDivision.Route3
-        };
-
-        var slaRows = await _db.ClearanceSlaSettings.Where(s => s.IsActive).OrderBy(s => s.SequenceOrder).ToListAsync();
-        var orderedRows = new List<ShippingPortal.Api.Models.Clearance.ClearanceSlaSetting>();
-        if (routeDivision != ShippingPortal.Api.Models.Clearance.ClearanceDivision.Route3)
-            orderedRows.AddRange(slaRows.Where(s => s.Division == ShippingPortal.Api.Models.Clearance.ClearanceDivision.General));
-        orderedRows.AddRange(slaRows.Where(s => s.Division == routeDivision));
-
-        var actualDates = clearance is null
-            ? new Dictionary<(string, string), DateOnly?>()
-            : await BuildActualDatesAsync(clearance.Id, routeDivision);
-
-        var holidaySet = (await _db.PublicHolidays.Where(h => h.AffectsClr).Select(h => h.Date).ToListAsync()).ToHashSet();
-
-        var items = new List<ScheduleItem>();
-        var chainFrom = shipment.Eta.Value;
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
-
-        foreach (var row in orderedRows)
-        {
-            var wholeDays = (int)Math.Ceiling(row.TargetDays);
-            var targetDate = AddBusinessDays(chainFrom, wholeDays, holidaySet);
-            actualDates.TryGetValue((row.Division, row.GroupItem), out var actualDate);
-
-            string status;
-            string light;
-            if (actualDate.HasValue)
-            {
-                var diff = BusinessDaysBetween(actualDate.Value, targetDate, holidaySet);
-                if (diff < 0) { status = $"Completed {-diff} business day(s) early"; light = "Green"; }
-                else if (diff == 0) { status = "Completed on time"; light = "Green"; }
-                else { status = $"Completed {diff} business day(s) late"; light = "Amber"; }
-                chainFrom = actualDate.Value;
-            }
-            else
-            {
-                var diff = BusinessDaysBetween(today, targetDate, holidaySet);
-                if (diff <= 0) { status = "Pending — on track"; light = "Green"; }
-                else { status = $"Pending — delayed {diff} business day(s)"; light = "Red"; }
-                chainFrom = targetDate;
-            }
-
-            items.Add(new ScheduleItem(row.Division, row.GroupItem, row.TargetDays, targetDate, actualDate, status, light));
-        }
-
-        var estimatedCompletion = items.Count > 0 ? items[^1].TargetDate : (DateOnly?)null;
-        return Ok(new ClearanceScheduleResponse(estimatedCompletion, items));
+        var result = await scheduleService.GetScheduleAsync(shipmentId);
+        return Ok(new ClearanceScheduleResponse(result.EstimatedCompletionDate, result.Items));
     }
 
     private async Task<Dictionary<(string, string), DateOnly?>> BuildActualDatesAsync(int clearanceId, string routeDivision)
