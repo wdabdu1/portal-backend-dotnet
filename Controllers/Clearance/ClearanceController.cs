@@ -9,7 +9,7 @@ namespace ShippingPortal.Api.Controllers.Clearance;
 
 public record ClearanceShipmentSummary(
     int ShipmentId, string BlAwbNo, string BusinessUnit, string Category, DateOnly? Eta,
-    int FclCount, string? DeclarationNo, string Product, decimal Qty, string TrafficLight, string RouteStatus);
+    int FclCount, string? DeclarationNo, string Product, decimal Qty, string Unit, string TrafficLight, string RouteStatus);
 
 public record ClearanceGeneralInfoRequest(
     DateOnly? CopyOfBlReceivedDate, DateOnly? OriginalShipmentSetReceivedDate, string? LcNo,
@@ -110,7 +110,7 @@ public class ClearanceController : ControllerBase
 
             return new ClearanceShipmentSummary(
                 s.Id, s.BlAwbNo, s.PurchaseOrder?.BusinessUnit?.Name ?? "", firstLine?.ProductCategory?.Name ?? "",
-                s.Eta, s.Fcl20Count + s.Fcl40Count, declarationNo, firstLine?.ModelProduct?.Name ?? "", totalQty,
+                s.Eta, s.Fcl20Count + s.Fcl40Count, declarationNo, firstLine?.ModelProduct?.Name ?? "", totalQty, firstLine?.UnitOfMeasure?.Code ?? "",
                 trafficLight, routeStatus);
         })
         .Where(x => x is not null)
