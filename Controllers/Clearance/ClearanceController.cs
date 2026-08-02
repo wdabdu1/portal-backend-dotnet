@@ -142,12 +142,20 @@ public class ClearanceController : ControllerBase
     // it. Traffic light per step reflects real performance: completed
     // early/on-time/late, or pending on-track/delayed.
     [HttpGet("{shipmentId:int}/sla-schedule")]
+    [HttpGet("{shipmentId:int}/sla-schedule")]
     public async Task<ActionResult<ClearanceScheduleResponse>> GetSlaSchedule(int shipmentId, [FromServices] ShippingPortal.Api.Services.ClearanceScheduleService scheduleService)
     {
         var result = await scheduleService.GetScheduleAsync(shipmentId);
         return Ok(new ClearanceScheduleResponse(result.EstimatedCompletionDate, result.Items));
     }
 
+    [HttpGet("{shipmentId:int}/demurrage-storage")]
+    public async Task<ActionResult<ShippingPortal.Api.Services.DemurrageStorageResult>> GetDemurrageStorage(
+        int shipmentId, [FromServices] ShippingPortal.Api.Services.DemurrageStorageService service)
+    {
+        var result = await service.CalculateAsync(shipmentId);
+        return Ok(result);
+    }
     private async Task<Dictionary<(string, string), DateOnly?>> BuildActualDatesAsync(int clearanceId, string routeDivision)
     {
         var result = new Dictionary<(string, string), DateOnly?>();
