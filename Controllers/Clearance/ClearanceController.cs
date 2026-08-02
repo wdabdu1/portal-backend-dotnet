@@ -37,7 +37,7 @@ public class ClearanceController : ControllerBase
     // Selection screen: only Confirmed shipments (nothing to clear on a Draft),
     // sorted by ETA ascending — soonest-arriving first, per the requirement.
     [HttpGet("shipments")]
-    public async Task<ActionResult<IEnumerable<ClearanceShipmentSummary>>> GetShipmentsForClearance([FromQuery] string? search)
+    public async Task<ActionResult<IEnumerable<>>> GetShipmentsForClearance([FromQuery] string? search)
     {
         // Total target = General (applies to every shipment) + the specific
         // route's total once selected. Before a route is chosen, fall back
@@ -57,6 +57,12 @@ public class ClearanceController : ControllerBase
             .Include(s => s.LineItems).ThenInclude(li => li.PurchaseOrderLineItem).ThenInclude(pli => pli!.ProductCategory)
             .Include(s => s.LineItems).ThenInclude(li => li.PurchaseOrderLineItem).ThenInclude(pli => pli!.ModelProduct)
             .AsQueryable();
+
+        if (!buAccess.SeesAllBus(User))
+        {
+            var allowedBus = buAccess.GetAllowedBusinessUnitIds(User);
+            query = query.Where(s => allowedBus.Contains(s.PurchaseOrder!.BusinessUnitId));
+        }
 
         if (!string.IsNullOrWhiteSpace(search))
         {
