@@ -22,14 +22,22 @@ public class ShippingLine
         = new List<ShippingLineDemurrageTariff>();
 }
 
+// Per shipping line, demurrage tariffs differ by the goods' Tariff Group
+// (read from the shipment's Product Category — e.g. Chemical vs Standard)
+// and by container size, each with a free-period day count and separate
+// first-period / afterward daily rates, in SDG.
 public class ShippingLineDemurrageTariff
 {
     public int Id { get; set; }
     public int ShippingLineId { get; set; }
     public ShippingLine? ShippingLine { get; set; }
-    [Required, MaxLength(30)] public string BuGroup { get; set; } = "";
-    [Required, MaxLength(5)] public string ContainerSize { get; set; } = "";
+
+    public int TariffGroupId { get; set; }
+    public TariffGroup? TariffGroup { get; set; }
+
+    [Required, MaxLength(5)] public string ContainerSize { get; set; } = ""; // "20" or "40"
+
     public int FreeDays { get; set; }
-    public decimal FirstPeriodRate { get; set; }
-    public decimal AfterwardRate { get; set; }
+    public decimal FirstPeriodRateSdg { get; set; }
+    public decimal AfterwardRateSdg { get; set; }
 }
