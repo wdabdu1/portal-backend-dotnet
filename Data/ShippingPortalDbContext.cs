@@ -44,6 +44,8 @@ public class ShippingPortalDbContext : IdentityDbContext<ApplicationUser>
     public DbSet<AcdCostSetting> AcdCostSettings => Set<AcdCostSetting>();
     public DbSet<ShippingLine> ShippingLines => Set<ShippingLine>();
     public DbSet<ShippingLineDemurrageTariff> ShippingLineDemurrageTariffs => Set<ShippingLineDemurrageTariff>();
+    public DbSet<TariffGroup> TariffGroups => Set<TariffGroup>();
+    public DbSet<SpcStorageTier> SpcStorageTiers => Set<SpcStorageTier>();
 
     // Orders
     public DbSet<PurchaseOrder> PurchaseOrders => Set<PurchaseOrder>();
@@ -174,6 +176,16 @@ public class ShippingPortalDbContext : IdentityDbContext<ApplicationUser>
 
         builder.Entity<ShipmentOffshoreErpInfo>()
             .HasOne(x => x.PurchaseOrderOffshorePartner)
+            .WithMany()
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder.Entity<ProductCategory>()
+            .HasOne(x => x.TariffGroup)
+            .WithMany()
+            .OnDelete(DeleteBehavior.SetNull);
+
+        builder.Entity<ShippingLineDemurrageTariff>()
+            .HasOne(x => x.TariffGroup)
             .WithMany()
             .OnDelete(DeleteBehavior.Restrict);
 
