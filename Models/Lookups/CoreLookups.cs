@@ -185,6 +185,19 @@ public class SpcRate
     public DateOnly EffectiveDate { get; set; }
 }
 
+// Fixed 3-tier structure (Tarif-1/2/3) — same "predefined process, editable
+// values" pattern as Clearance SLA. DurationDays is null for the final,
+// open-ended tier. Rates are in SPC Euro per FCL per day.
+public class SpcStorageTier
+{
+    public int Id { get; set; }
+    public int TierOrder { get; set; }
+    public string Label { get; set; } = "";
+    public int? DurationDays { get; set; }
+    public decimal Rate20 { get; set; }
+    public decimal Rate40 { get; set; }
+}
+
 public class AcdCostSetting
 {
     public int Id { get; set; }
