@@ -24,7 +24,7 @@ public record PurchaseOrderDetailResponse(
     List<PoOffshorePartnerDetail> OffshorePartners);
 
 [ApiController]
-[Authorize]
+[Authorize(Roles = AppRoles.OrdersShipmentsViewers)]
 [Route("api/orders/{id:int}/details")]
 public class PurchaseOrderDetailController : ControllerBase
 {
@@ -54,7 +54,7 @@ public class PurchaseOrderDetailController : ControllerBase
         if (po is null) return NotFound();
         if (!buAccess.SeesAllBus(User) && !buAccess.CanSeeBusinessUnit(User, po.BusinessUnitId)) return Forbid();
 
-        var isClearance = User.IsInRole(AppRoles.Clearance);
+        var isClearance = User.IsInRole(AppRoles.ClrUsr) || User.IsInRole(AppRoles.ClrSupervisor);
         var maxSequence = po.OffshorePartners.Count > 0 ? po.OffshorePartners.Max(o => o.SequenceOrder) : 0;
 
         var lineItems = po.LineItems.Select(li => new PoLineItemDetail(
