@@ -10,9 +10,8 @@ public class BuAccessService
 {
     public bool SeesAllBus(ClaimsPrincipal user)
     {
-        return user.IsInRole(Models.Identity.AppRoles.Manager)
-            || user.IsInRole(Models.Identity.AppRoles.SuperUser)
-            || user.IsInRole(Models.Identity.AppRoles.Clearance);
+        // Anyone NOT in the BU-scoped role list sees all BUs.
+        return !Models.Identity.AppRoles.BuScopedRoles.Any(user.IsInRole);
     }
 
     public HashSet<int> GetAllowedBusinessUnitIds(ClaimsPrincipal user)
