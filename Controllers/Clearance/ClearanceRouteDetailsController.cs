@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using ShippingPortal.Api.Data;
 using ClearanceEntity = ShippingPortal.Api.Models.Clearance.Clearance;
 using ShippingPortal.Api.Models.Clearance;
+using ShippingPortal.Api.Models.Identity;
 
 namespace ShippingPortal.Api.Controllers.Clearance;
 
@@ -57,6 +58,7 @@ public class ClearanceRouteDetailsController : ControllerBase
     }
 
     [HttpGet("route1")]
+    [Authorize(Roles = AppRoles.ClearanceViewers)]
     public async Task<ActionResult<ClearanceRoute1Details>> GetRoute1(int shipmentId)
     {
         var clearance = await _db.Clearances.FirstOrDefaultAsync(c => c.ShipmentId == shipmentId);
@@ -66,6 +68,7 @@ public class ClearanceRouteDetailsController : ControllerBase
     }
 
     [HttpPut("route1")]
+    [Authorize(Roles = AppRoles.ClearanceEditors)]
     public async Task<IActionResult> SaveRoute1(int shipmentId, Route1Request req)
     {
         var clearance = await GetOrCreateClearanceAsync(shipmentId);
@@ -106,6 +109,7 @@ public class ClearanceRouteDetailsController : ControllerBase
     }
 
     [HttpGet("route2")]
+    [Authorize(Roles = AppRoles.ClearanceViewers)]
     public async Task<ActionResult<ClearanceRoute2Details>> GetRoute2(int shipmentId)
     {
         var clearance = await _db.Clearances.FirstOrDefaultAsync(c => c.ShipmentId == shipmentId);
@@ -115,6 +119,7 @@ public class ClearanceRouteDetailsController : ControllerBase
     }
 
     [HttpPut("route2")]
+    [Authorize(Roles = AppRoles.ClearanceEditors)]
     public async Task<IActionResult> SaveRoute2(int shipmentId, Route2Request req)
     {
         var clearance = await GetOrCreateClearanceAsync(shipmentId);
@@ -142,6 +147,7 @@ public class ClearanceRouteDetailsController : ControllerBase
     }
 
     [HttpGet("route3")]
+    [Authorize(Roles = AppRoles.ClearanceViewers)]
     public async Task<ActionResult<ClearanceRoute3Details>> GetRoute3(int shipmentId)
     {
         var clearance = await _db.Clearances.FirstOrDefaultAsync(c => c.ShipmentId == shipmentId);
@@ -151,6 +157,7 @@ public class ClearanceRouteDetailsController : ControllerBase
     }
 
     [HttpPut("route3")]
+    [Authorize(Roles = AppRoles.ClearanceEditors)]
     public async Task<IActionResult> SaveRoute3(int shipmentId, Route3Request req)
     {
         var clearance = await GetOrCreateClearanceAsync(shipmentId);
