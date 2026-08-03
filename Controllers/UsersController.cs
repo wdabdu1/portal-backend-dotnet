@@ -9,9 +9,7 @@ namespace ShippingPortal.Api.Controllers;
 
 public record BuAccessRow(int BusinessUnitId, string BusinessUnitName, string AccessLevel);
 public record UserSummary(string Id, string Email, string DisplayName, string Role, bool IsActive, List<BuAccessRow> BusinessUnits);
-public record CreateUserRequest(string Email, string DisplayName, string Password, string Role, List<BuAccessInput> BusinessUnits);
-public record BuAccessInput(int BusinessUnitId, string AccessLevel);
-public record UpdateUserRolesRequest(string Role, List<BuAccessInput> BusinessUnits);
+public record UpdateUserRolesRequest(string Role, List<CreateUserBuAccess> BusinessUnits);
 
 [ApiController]
 [Authorize(Roles = AppRoles.SuperUser)]
@@ -42,39 +40,10 @@ public class UsersController : ControllerBase
                 .Select(a => new BuAccessRow(a.BusinessUnitId, a.BusinessUnit!.Name, a.AccessLevel.ToString()))
                 .ToListAsync();
 
-            result.Add(new UserSummary(user.Id, user.Email ?? "", user.DisplayName, roles.FirstOrDefault() ?? "", !user.LockoutEnabled || user.LockoutEnd == null, access));
+            result.Add(new UserSummary(user.Id, user.Email ?? "", user.DisplayName, roles.FirstOrDefault() ?? "", user.IsActive, access));
         }
 
         return Ok(result.OrderBy(u => u.Email).ToList());
-    }
-
-    [HttpPost]
-    public async Task<ActionResult<UserSummary>> Create(CreateUserRequest req)
-    {
-        if (!AppRoles.All.Contains(req.Role)) return BadRequest(new { message = "Invalid role." });
-
-        var user = new ApplicationUser { UserName = req.Email, Email = req.Email, DisplayName = req.DisplayName, EmailConfirmed = true };
-        var result = await _userManager.CreateAsync(user, req.Password);
-        if (!result.Succeeded) return BadRequest(new { message = string.Join("; ", result.Errors.Select(e => e.Description)) });
-
-        await _userManager.AddToRoleAsync(user, req.Role);
-
-        foreach (var bu in req.BusinessUnits)
-        {
-            _db.UserBusinessUnitAccess.Add(new UserBusinessUnitAccess
-            {
-                UserId = user.Id,
-                BusinessUnitId = bu.BusinessUnitId,
-                AccessLevel = Enum.Parse<AccessLevel>(bu.AccessLevel)
-            });
-        }
-        await _db.SaveChangesAsync();
-
-        var access = req.BusinessUnits.Count == 0 ? new List<BuAccessRow>() :
-            await _db.UserBusinessUnitAccess.Where(a => a.UserId == user.Id).Include(a => a.BusinessUnit)
-                .Select(a => new BuAccessRow(a.BusinessUnitId, a.BusinessUnit!.Name, a.AccessLevel.ToString())).ToListAsync();
-
-        return Ok(new UserSummary(user.Id, user.Email ?? "", user.DisplayName, req.Role, true, access));
     }
 
     [HttpPut("{id}/roles")]
@@ -98,7 +67,7 @@ public class UsersController : ControllerBase
             {
                 UserId = id,
                 BusinessUnitId = bu.BusinessUnitId,
-                AccessLevel = Enum.Parse<AccessLevel>(bu.AccessLevel)
+                AccessLevel = bu.AccessLevel
             });
         }
         await _db.SaveChangesAsync();
@@ -112,8 +81,7 @@ public class UsersController : ControllerBase
         var user = await _userManager.FindByIdAsync(id);
         if (user is null) return NotFound();
 
-        user.LockoutEnabled = true;
-        user.LockoutEnd = DateTimeOffset.MaxValue;
+        user.IsActive = false;
         await _userManager.UpdateAsync(user);
         return NoContent();
     }
@@ -124,8 +92,7 @@ public class UsersController : ControllerBase
         var user = await _userManager.FindByIdAsync(id);
         if (user is null) return NotFound();
 
-        user.LockoutEnabled = false;
-        user.LockoutEnd = null;
+        user.IsActive = true;
         await _userManager.UpdateAsync(user);
         return NoContent();
     }
