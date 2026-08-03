@@ -45,6 +45,7 @@ public class PurchaseOrdersController : ControllerBase
     }
 
     [HttpGet]
+    [Authorize(Roles = AppRoles.OrdersShipmentsViewers)]
     public async Task<ActionResult<IEnumerable<PurchaseOrderSummary>>> GetAll([FromServices] BuAccessService buAccess)
     {
         var query = _db.PurchaseOrders
@@ -113,6 +114,7 @@ public class PurchaseOrdersController : ControllerBase
         }).ToList();
     }
     [HttpGet("{id:int}")]
+    [Authorize(Roles = AppRoles.OrdersShipmentsViewers)]
     public async Task<ActionResult<PurchaseOrderResponse>> GetById(int id)
     {
         var po = await LoadFullOrderAsync(id);
@@ -120,6 +122,7 @@ public class PurchaseOrdersController : ControllerBase
     }
 
     [HttpPost]
+    [Authorize(Roles = AppRoles.OrdersShipmentsEditors)]
     public async Task<ActionResult<PurchaseOrderResponse>> Create(CreatePurchaseOrderRequest req)
     {
         if (!await HasWriteAccessAsync(req.BusinessUnitId))
@@ -197,6 +200,7 @@ public class PurchaseOrdersController : ControllerBase
     }
 
     [HttpPost("{id:int}/confirm")]
+    [Authorize(Roles = AppRoles.OrdersShipmentsEditors)]
     public async Task<IActionResult> Confirm(int id)
     {
         var po = await _db.PurchaseOrders.FindAsync(id);
