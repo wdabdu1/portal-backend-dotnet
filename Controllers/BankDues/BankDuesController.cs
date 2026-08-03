@@ -22,7 +22,24 @@ public record CollectionRecordResponse(int Id, DateOnly PaymentDate, int Currenc
 public class BankDuesController : ControllerBase
 {
     private readonly ShippingPortalDbContext _db;
-    public BankDuesController(ShippingPortalDbContext db) => _db = db;
+    private readonly ShippingPortal.Api.Services.BuAccessService _buAccess;
+    public BankDuesController(ShippingPortalDbContext db, ShippingPortal.Api.Services.BuAccessService buAccess)
+    {
+        _db = db;
+        _buAccess = buAccess;
+    }
+
+    private async Task<IActionResult?> CheckWriteAccessAsync(int shipmentId)
+    {
+        var buId = await _db.Shipments
+            .Where(s => s.Id == shipmentId)
+            .Select(s => (int?)s.PurchaseOrder!.BusinessUnitId)
+            .FirstOrDefaultAsync();
+
+        if (buId is null) return NotFound();
+        if (!_buAccess.CanWriteBusinessUnit(User, buId.Value)) return Forbid();
+        return null;
+    }
 
     private readonly Dictionary<int, decimal> _fxCache = new();
 
@@ -137,6 +154,7 @@ public class BankDuesController : ControllerBase
     [Authorize(Roles = AppRoles.BankDuesEditors)]
     public async Task<ActionResult<CollectionRecordResponse>> AddRecord(int shipmentId, CollectionRecordRequest req)
     {
+        var denied = await CheckWriteAccessAsync(shipmentId); if (denied is not null) return denied;
         if (!await _db.Shipments.AnyAsync(s => s.Id == shipmentId)) return NotFound();
 
         var record = new ShipmentCollectionRecord
@@ -159,6 +177,7 @@ public class BankDuesController : ControllerBase
     [Authorize(Roles = AppRoles.BankDuesEditors)]
     public async Task<IActionResult> DeleteRecord(int shipmentId, int recordId)
     {
+        var denied = await CheckWriteAccessAsync(shipmentId); if (denied is not null) return denied;
         var record = await _db.ShipmentCollectionRecords.FirstOrDefaultAsync(r => r.Id == recordId && r.ShipmentId == shipmentId);
         if (record is null) return NotFound();
 
