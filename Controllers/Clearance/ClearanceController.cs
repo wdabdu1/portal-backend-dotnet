@@ -2,9 +2,9 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using ShippingPortal.Api.Data;
+using ShippingPortal.Api.Models.Identity;
 using ShippingPortal.Api.Models.Shipments;
 using ClearanceEntity = ShippingPortal.Api.Models.Clearance.Clearance;
-
 namespace ShippingPortal.Api.Controllers.Clearance;
 
 public record ClearanceShipmentSummary(
