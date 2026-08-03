@@ -44,7 +44,7 @@ public class ShipmentDetailsFullController : ControllerBase
         if (shipment is null) return NotFound();
         if (!buAccess.SeesAllBus(User) && !buAccess.CanSeeBusinessUnit(User, shipment.PurchaseOrder!.BusinessUnitId)) return Forbid();
 
-        var isClearance = User.IsInRole(AppRoles.Clearance);
+        var isClearance = User.IsInRole(AppRoles.ClrUsr) || User.IsInRole(AppRoles.ClrSupervisor);
 
         // --- Forwarder — hidden entirely from Clearance (per updated scope) ---
         object? forwarder = null;
