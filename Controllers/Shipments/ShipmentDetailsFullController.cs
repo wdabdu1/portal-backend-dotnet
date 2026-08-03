@@ -21,7 +21,7 @@ public record ShipmentFullDetailResponse(
     List<ErpColumnDetail> ErpInfo, string? LastOffshoreInvoiceNo);
 
 [ApiController]
-[Authorize]
+[Authorize(Roles = AppRoles.ShipmentDetailsViewers)]
 [Route("api/shipments/{id:int}/full-details")]
 public class ShipmentDetailsFullController : ControllerBase
 {
