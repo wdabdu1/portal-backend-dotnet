@@ -53,10 +53,11 @@ public class ShipmentsController : ControllerBase
 
     [HttpPost]
     [Authorize(Roles = AppRoles.OrdersShipmentsEditors)]
-    public async Task<ActionResult<ShipmentSummary>> Create(CreateShipmentRequest req)
+    public async Task<ActionResult<ShipmentSummary>> Create(CreateShipmentRequest req, [FromServices] Services.BuAccessService buAccess)
     {
         var po = await _db.PurchaseOrders.Include(p => p.LineItems).FirstOrDefaultAsync(p => p.Id == req.PurchaseOrderId);
         if (po is null) return NotFound(new { message = "Purchase order not found." });
+        if (!buAccess.CanWriteBusinessUnit(User, po.BusinessUnitId)) return Forbid();
         if (po.Status != OrderStatus.Confirmed) return BadRequest(new { message = "Shipments can only be created against confirmed purchase orders." });
 
         if (await _db.Shipments.AnyAsync(s => s.BlAwbNo == req.BlAwbNo))
@@ -126,10 +127,11 @@ public class ShipmentsController : ControllerBase
 
     [HttpPost("{id:int}/confirm")]
     [Authorize(Roles = AppRoles.OrdersShipmentsEditors)]
-    public async Task<IActionResult> Confirm(int id)
+    public async Task<IActionResult> Confirm(int id, [FromServices] Services.BuAccessService buAccess)
     {
-        var shipment = await _db.Shipments.FindAsync(id);
+        var shipment = await _db.Shipments.Include(s => s.PurchaseOrder).FirstOrDefaultAsync(s => s.Id == id);
         if (shipment is null) return NotFound();
+        if (!buAccess.CanWriteBusinessUnit(User, shipment.PurchaseOrder!.BusinessUnitId)) return Forbid();
         if (shipment.Status != ShipmentStatus.Draft) return BadRequest(new { message = "Only draft shipments can be confirmed." });
 
         shipment.Status = ShipmentStatus.Confirmed;
