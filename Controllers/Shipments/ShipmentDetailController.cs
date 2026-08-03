@@ -96,6 +96,9 @@ public class ShipmentDetailController : ControllerBase
     [HttpPut("ship-on-board")]
     public async Task<IActionResult> SaveShipOnBoard(int shipmentId, ShipOnBoardRequest req)
     {
+        var denied = await CheckWriteAccessAsync(shipmentId); 
+        if (denied is not null) return denied;
+        
         var shipment = await _db.Shipments.FindAsync(shipmentId);
         if (shipment is null) return NotFound();
 
@@ -109,6 +112,9 @@ public class ShipmentDetailController : ControllerBase
     [HttpPut("forwarder")]
     public async Task<IActionResult> UpsertForwarder(int shipmentId, ShipmentForwarderRequest req)
     {
+        var denied = await CheckWriteAccessAsync(shipmentId); 
+        if (denied is not null) return denied;
+        
         if (!await _db.Shipments.AnyAsync(s => s.Id == shipmentId)) return NotFound();
 
         var entity = await _db.ShipmentForwarders.FirstOrDefaultAsync(x => x.ShipmentId == shipmentId);
@@ -133,6 +139,9 @@ public class ShipmentDetailController : ControllerBase
     [HttpPut("acd")]
     public async Task<IActionResult> UpsertAcd(int shipmentId, ShipmentAcdRequest req)
     {
+        var denied = await CheckWriteAccessAsync(shipmentId); 
+        if (denied is not null) return denied;
+        
         if (!await _db.Shipments.AnyAsync(s => s.Id == shipmentId)) return NotFound();
 
         var entity = await _db.ShipmentAcds.FirstOrDefaultAsync(x => x.ShipmentId == shipmentId);
@@ -150,6 +159,9 @@ public class ShipmentDetailController : ControllerBase
     [HttpPut("draft-documents")]
     public async Task<IActionResult> UpsertDraftDocuments(int shipmentId, ShipmentDraftDocumentsRequest req)
     {
+        var denied = await CheckWriteAccessAsync(shipmentId); 
+        if (denied is not null) return denied;
+        
         if (!await _db.Shipments.AnyAsync(s => s.Id == shipmentId)) return NotFound();
 
         var entity = await _db.ShipmentDraftDocuments.FirstOrDefaultAsync(x => x.ShipmentId == shipmentId);
@@ -166,6 +178,9 @@ public class ShipmentDetailController : ControllerBase
     [HttpPut("ssmo")]
     public async Task<IActionResult> UpsertSsmo(int shipmentId, ShipmentSsmoRequest req)
     {
+        var denied = await CheckWriteAccessAsync(shipmentId); 
+        if (denied is not null) return denied;
+        
         if (!await _db.Shipments.AnyAsync(s => s.Id == shipmentId)) return NotFound();
 
         var entity = await _db.ShipmentSsmos.FirstOrDefaultAsync(x => x.ShipmentId == shipmentId);
@@ -183,6 +198,9 @@ public class ShipmentDetailController : ControllerBase
     [HttpPut("mot")]
     public async Task<IActionResult> UpsertMot(int shipmentId, ShipmentMotRequest req)
     {
+        var denied = await CheckWriteAccessAsync(shipmentId); 
+        if (denied is not null) return denied;
+        
         if (!await _db.Shipments.AnyAsync(s => s.Id == shipmentId)) return NotFound();
 
         var entity = await _db.ShipmentMots.FirstOrDefaultAsync(x => x.ShipmentId == shipmentId);
@@ -202,6 +220,9 @@ public class ShipmentDetailController : ControllerBase
     [HttpPut("supplier-full-set")]
     public async Task<IActionResult> UpsertSupplierFullSet(int shipmentId, ShipmentSupplierFullSetRequest req)
     {
+        var denied = await CheckWriteAccessAsync(shipmentId); 
+        if (denied is not null) return denied;
+        
         if (!await _db.Shipments.AnyAsync(s => s.Id == shipmentId)) return NotFound();
 
         var entity = await _db.ShipmentSupplierFullSets.FirstOrDefaultAsync(x => x.ShipmentId == shipmentId);
@@ -256,6 +277,9 @@ public class ShipmentDetailController : ControllerBase
     [HttpGet("supplier-payment/records")]
     public async Task<ActionResult<IEnumerable<PaymentRecordResponse>>> GetPaymentRecords(int shipmentId)
     {
+        var denied = await CheckWriteAccessAsync(shipmentId); 
+        if (denied is not null) return denied;
+        
         return await _db.ShipmentSupplierPaymentRecords
             .Where(r => r.ShipmentId == shipmentId)
             .Include(r => r.Currency)
@@ -288,6 +312,9 @@ public class ShipmentDetailController : ControllerBase
     [HttpDelete("supplier-payment/records/{recordId:int}")]
     public async Task<IActionResult> DeletePaymentRecord(int shipmentId, int recordId)
     {
+        var denied = await CheckWriteAccessAsync(shipmentId); 
+        if (denied is not null) return denied;
+        
         var record = await _db.ShipmentSupplierPaymentRecords.FirstOrDefaultAsync(r => r.Id == recordId && r.ShipmentId == shipmentId);
         if (record is null) return NotFound();
 
@@ -299,6 +326,9 @@ public class ShipmentDetailController : ControllerBase
     [HttpPut("banking")]
     public async Task<IActionResult> UpsertBanking(int shipmentId, ShipmentBankingRequest req)
     {
+        var denied = await CheckWriteAccessAsync(shipmentId); 
+        if (denied is not null) return denied;
+        
         if (!await _db.Shipments.AnyAsync(s => s.Id == shipmentId)) return NotFound();
 
         var entity = await _db.ShipmentBankings.FirstOrDefaultAsync(x => x.ShipmentId == shipmentId);
