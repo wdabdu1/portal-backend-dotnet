@@ -40,7 +40,27 @@ public record ShipOnBoardRequest(DateOnly? SobActualDate);
 public class ShipmentDetailController : ControllerBase
 {
     private readonly ShippingPortalDbContext _db;
-    public ShipmentDetailController(ShippingPortalDbContext db) => _db = db;
+    private readonly ShippingPortal.Api.Services.BuAccessService _buAccess;
+    public ShipmentDetailController(ShippingPortalDbContext db, ShippingPortal.Api.Services.BuAccessService buAccess)
+    {
+        _db = db;
+        _buAccess = buAccess;
+    }
+
+    // Every write action below calls this first — returns Forbid() if the
+    // caller lacks ReadWrite on this specific shipment's Business Unit
+    // (relevant only for BU-scoped roles; everyone else bypasses).
+    private async Task<IActionResult?> CheckWriteAccessAsync(int shipmentId)
+    {
+        var buId = await _db.Shipments
+            .Where(s => s.Id == shipmentId)
+            .Select(s => (int?)s.PurchaseOrder!.BusinessUnitId)
+            .FirstOrDefaultAsync();
+
+        if (buId is null) return NotFound();
+        if (!_buAccess.CanWriteBusinessUnit(User, buId.Value)) return Forbid();
+        return null;
+    }
 
     [HttpGet("detail")]
     public async Task<ActionResult<ShipmentDetailResponse>> GetDetail(int shipmentId)
