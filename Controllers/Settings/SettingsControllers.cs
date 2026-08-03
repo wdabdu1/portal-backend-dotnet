@@ -47,8 +47,8 @@ public class BusinessPartnersController : LookupCrudController<BusinessPartner>
         => await Db.BusinessPartners.Where(p => p.IsOffshoreEntity && p.IsActive).ToListAsync();
 }
 
-[]
-[Authorize(Roles = AppRoles.SettingsViewers)]
+[ApiController]
+[Authorize]
 [Route("api/settings/model-products")]
 public class ModelProductsController : LookupCrudController<ModelProduct>
 {
