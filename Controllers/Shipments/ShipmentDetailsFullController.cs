@@ -13,12 +13,12 @@ public record ErpColumnDetail(string CompanyName, int SequenceOrder, bool IsLast
 
 public record ShipmentFullDetailResponse(
     int Id, string BlAwbNo, string PoNumber, string Status,
-    string BusinessUnit, string? Supplier, string Consignee, string Category,
-    int Fcl20Count, int Fcl40Count, DateOnly? Eta, DateOnly? SobActualDate,
+    string BusinessUnit, string? Division, string? Supplier, string Consignee, string Category,
+    int Fcl20Count, int Fcl40Count, DateOnly? Etd, DateOnly? Eta, DateOnly? SobActualDate,
     List<ShipmentLineItemDetail> LineItems,
     object? Forwarder, object? Acd, object? DraftDocuments, object? Ssmo, object? Mot,
     object? SupplierFullSet, object? Banking,
-    List<ErpColumnDetail> ErpInfo);
+    List<ErpColumnDetail> ErpInfo, string? LastOffshoreInvoiceNo);
 
 [ApiController]
 [Authorize]
@@ -33,6 +33,7 @@ public class ShipmentDetailsFullController : ControllerBase
     {
         var shipment = await _db.Shipments
             .Include(s => s.PurchaseOrder).ThenInclude(p => p!.BusinessUnit)
+            .Include(s => s.PurchaseOrder).ThenInclude(p => p!.Division)
             .Include(s => s.PurchaseOrder).ThenInclude(p => p!.Supplier)
             .Include(s => s.PurchaseOrder).ThenInclude(p => p!.Consignee)
             .Include(s => s.LineItems).ThenInclude(li => li.PurchaseOrderLineItem).ThenInclude(pli => pli!.ProductCategory)
