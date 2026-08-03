@@ -48,7 +48,7 @@ public class BusinessPartnersController : LookupCrudController<BusinessPartner>
 }
 
 [ApiController]
-[Authorize]
+[Authorize(Roles = AppRoles.SettingsViewers)]
 [Route("api/settings/model-products")]
 public class ModelProductsController : LookupCrudController<ModelProduct>
 {
@@ -75,7 +75,7 @@ public record ShippingLineWithTariffsRequest(string Name, List<TariffRow> Tariff
 public record ShippingLineTariffResponse(int Id, int TariffGroupId, string TariffGroupName, string ContainerSize, int FreeDays, int FirstPeriodDays, decimal FirstPeriodRateSdg, decimal AfterwardRateSdg);public record ShippingLineResponse(int Id, string Name, bool IsActive, List<ShippingLineTariffResponse> Tariffs);
 
 [ApiController]
-[Authorize]
+[Authorize(Roles = AppRoles.SettingsViewers)]
 [Route("api/settings/shipping-lines")]
 public class ShippingLinesController : ControllerBase
 {
