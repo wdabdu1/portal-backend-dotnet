@@ -50,7 +50,7 @@ public class ShipmentDetailController : ControllerBase
     // Every write action below calls this first — returns Forbid() if the
     // caller lacks ReadWrite on this specific shipment's Business Unit
     // (relevant only for BU-scoped roles; everyone else bypasses).
-    private async Task<IActionResult?> CheckWriteAccessAsync(int shipmentId)
+    private async Task<ActionResult?> CheckWriteAccessAsync(int shipmentId)
     {
         var buId = await _db.Shipments
             .Where(s => s.Id == shipmentId)
