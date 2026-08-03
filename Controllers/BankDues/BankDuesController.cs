@@ -115,9 +115,8 @@ public class BankDuesController : ControllerBase
         return Ok(rows.OrderBy(r => r.Consignee).ToList());
     }
 
-    [HttpPost("{shipmentId:int}/records")]
-    [Authorize(Roles = AppRoles.BankDuesEditors)]
-    public async Task<ActionResult<CollectionRecordResponse>> AddRecord(int shipmentId, CollectionRecordRequest req)
+    [HttpGet("{shipmentId:int}/records")]
+    public async Task<ActionResult<IEnumerable<CollectionRecordResponse>>> GetRecords(int shipmentId)
     {
         var records = await _db.ShipmentCollectionRecords
             .Where(r => r.ShipmentId == shipmentId)
@@ -135,6 +134,7 @@ public class BankDuesController : ControllerBase
     }
 
     [HttpPost("{shipmentId:int}/records")]
+    [Authorize(Roles = AppRoles.BankDuesEditors)]
     public async Task<ActionResult<CollectionRecordResponse>> AddRecord(int shipmentId, CollectionRecordRequest req)
     {
         if (!await _db.Shipments.AnyAsync(s => s.Id == shipmentId)) return NotFound();
