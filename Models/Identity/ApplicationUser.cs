@@ -43,4 +43,22 @@ public static class AppRoles
 
     // Roles limited to their assigned Business Unit(s) — everyone else sees all BUs.
     public static readonly string[] BuScopedRoles = { IpUser, IpSupervisor, Bu };
+
+    // Reusable comma-joined role groups for [Authorize(Roles = "...")].
+    public const string OrdersShipmentsEditors = IpUser + "," + IpSupervisor + "," + SuperUser;
+    public const string OrdersShipmentsViewers = IpUser + "," + IpSupervisor + "," + SuperUser + "," + Bu + "," + Treasury + "," + Manager;
+
+    public const string ClearanceEditors = ClrUsr + "," + ClrSupervisor + "," + SuperUser;
+    public const string ClearanceViewers = IpUser + "," + IpSupervisor + "," + ClrUsr + "," + ClrSupervisor + "," + Bu + "," + Treasury + "," + CorpFinance + "," + Manager + "," + SuperUser;
+
+    public const string ShipmentDetailsViewers = IpUser + "," + IpSupervisor + "," + ClrUsr + "," + ClrSupervisor + "," + Bu + "," + Treasury + "," + Manager + "," + SuperUser;
+
+    public const string SettingsViewers = Manager + "," + SuperUser;
+
+    public const string SupplierDuesEditors = IpUser + "," + IpSupervisor + "," + SuperUser;
+    public const string SupplierDuesViewers = IpUser + "," + IpSupervisor + "," + SuperUser + "," + Bu + "," + Treasury + "," + CorpFinance + "," + Manager;
+
+    public const string BankDuesEditors = IpUser + "," + IpSupervisor + "," + SuperUser;
+    public const string BankDuesViewers = IpUser + "," + IpSupervisor + "," + SuperUser + "," + Treasury + "," + CorpFinance + "," + Manager;
+}
 }
