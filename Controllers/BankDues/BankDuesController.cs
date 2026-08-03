@@ -114,8 +114,9 @@ public class BankDuesController : ControllerBase
         return Ok(rows.OrderBy(r => r.Consignee).ToList());
     }
 
-    [HttpGet("{shipmentId:int}/records")]
-    public async Task<ActionResult<IEnumerable<CollectionRecordResponse>>> GetRecords(int shipmentId)
+    [HttpPost("{shipmentId:int}/records")]
+    [Authorize(Roles = AppRoles.BankDuesEditors)]
+    public async Task<ActionResult<CollectionRecordResponse>> AddRecord(int shipmentId, CollectionRecordRequest req)
     {
         var records = await _db.ShipmentCollectionRecords
             .Where(r => r.ShipmentId == shipmentId)
@@ -154,6 +155,7 @@ public class BankDuesController : ControllerBase
     }
 
     [HttpDelete("{shipmentId:int}/records/{recordId:int}")]
+    [Authorize(Roles = AppRoles.BankDuesEditors)]
     public async Task<IActionResult> DeleteRecord(int shipmentId, int recordId)
     {
         var record = await _db.ShipmentCollectionRecords.FirstOrDefaultAsync(r => r.Id == recordId && r.ShipmentId == shipmentId);
