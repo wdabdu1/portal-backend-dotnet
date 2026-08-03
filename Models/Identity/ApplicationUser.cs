@@ -61,4 +61,3 @@ public static class AppRoles
     public const string BankDuesEditors = IpUser + "," + IpSupervisor + "," + SuperUser;
     public const string BankDuesViewers = IpUser + "," + IpSupervisor + "," + SuperUser + "," + Treasury + "," + CorpFinance + "," + Manager;
 }
-}
