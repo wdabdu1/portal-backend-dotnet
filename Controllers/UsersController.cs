@@ -65,7 +65,7 @@ public class UsersController : ControllerBase
             {
                 UserId = user.Id,
                 BusinessUnitId = bu.BusinessUnitId,
-                AccessLevel = Enum.Parse<BuAccessLevel>(bu.AccessLevel)
+                AccessLevel = Enum.Parse<AccessLevel>(bu.AccessLevel)
             });
         }
         await _db.SaveChangesAsync();
@@ -98,7 +98,7 @@ public class UsersController : ControllerBase
             {
                 UserId = id,
                 BusinessUnitId = bu.BusinessUnitId,
-                AccessLevel = Enum.Parse<BuAccessLevel>(bu.AccessLevel)
+                AccessLevel = Enum.Parse<AccessLevel>(bu.AccessLevel)
             });
         }
         await _db.SaveChangesAsync();
