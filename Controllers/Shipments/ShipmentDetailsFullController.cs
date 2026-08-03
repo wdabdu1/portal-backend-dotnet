@@ -45,14 +45,80 @@ public class ShipmentDetailsFullController : ControllerBase
 
         var isClearance = User.IsInRole(AppRoles.Clearance);
 
-        var forwarder = await _db.ShipmentForwarders.FirstOrDefaultAsync(x => x.ShipmentId == id);
-        var acd = await _db.ShipmentAcds.FirstOrDefaultAsync(x => x.ShipmentId == id);
-        var draftDocs = await _db.ShipmentDraftDocuments.FirstOrDefaultAsync(x => x.ShipmentId == id);
-        var ssmo = await _db.ShipmentSsmos.FirstOrDefaultAsync(x => x.ShipmentId == id);
-        var mot = await _db.ShipmentMots.FirstOrDefaultAsync(x => x.ShipmentId == id);
-        var supplierFullSet = isClearance ? null : (object?)await _db.ShipmentSupplierFullSets.FirstOrDefaultAsync(x => x.ShipmentId == id);
-        var banking = await _db.ShipmentBankings.FirstOrDefaultAsync(x => x.ShipmentId == id);
+        // --- Forwarder (resolve Forwarder name + Currency code) ---
+        object? forwarder = null;
+        var fwd = await _db.ShipmentForwarders.FirstOrDefaultAsync(x => x.ShipmentId == id);
+        if (fwd is not null)
+        {
+            var forwarderName = fwd.ForwarderId.HasValue ? (await _db.Forwarders.FindAsync(fwd.ForwarderId))?.Name : null;
+            var currencyCode = fwd.CurrencyId.HasValue ? (await _db.Currencies.FindAsync(fwd.CurrencyId))?.Code : null;
+            forwarder = new
+            {
+                Forwarder = forwarderName,
+                fwd.ActualShippingCost,
+                Currency = currencyCode,
+                fwd.ActualShippingCostUsd,
+                fwd.AmountSaved,
+                fwd.MarineInsurance
+            };
+        }
 
+        // --- ACD (no FK fields) ---
+        var acd = await _db.ShipmentAcds.FirstOrDefaultAsync(x => x.ShipmentId == id);
+        object? acdDto = acd is null ? null : new { acd.ProcessDate, acd.CostUsd, acd.CostSettledDate, acd.RefNumber };
+
+        // --- Draft Documents (no FK fields) ---
+        var draftDocs = await _db.ShipmentDraftDocuments.FirstOrDefaultAsync(x => x.ShipmentId == id);
+        object? draftDto = draftDocs is null ? null : new { draftDocs.InitialDraftReceivedDate, draftDocs.FinalDraftReceivedDate, draftDocs.FinalDraftConfirmedDate };
+
+        // --- SSMO (no FK fields) ---
+        var ssmo = await _db.ShipmentSsmos.FirstOrDefaultAsync(x => x.ShipmentId == id);
+        object? ssmoDto = ssmo is null ? null : new { ssmo.ApplicationDate, ssmo.Cost, ssmo.CostSettledDate, ssmo.RefNumber };
+
+        // --- MOT (no FK fields) ---
+        var mot = await _db.ShipmentMots.FirstOrDefaultAsync(x => x.ShipmentId == id);
+        object? motDto = mot is null ? null : new
+        {
+            mot.ProcessDate, mot.Cost, mot.CostSettledDate, mot.RefNumber,
+            mot.OffshoreApprovedPiNumber, mot.OffshoreApprovedPiDate
+        };
+
+        // --- Supplier Full Set (resolve Courier name) — hidden from Clearance ---
+        object? supplierFullSet = null;
+        if (!isClearance)
+        {
+            var fs = await _db.ShipmentSupplierFullSets.FirstOrDefaultAsync(x => x.ShipmentId == id);
+            if (fs is not null)
+            {
+                var courierName = fs.FsDispatchedViaId.HasValue ? (await _db.Couriers.FindAsync(fs.FsDispatchedViaId))?.Name : null;
+                supplierFullSet = new
+                {
+                    fs.SupplierInvoiceNo, fs.SupplierInvoiceDate, fs.FsDispatchDate,
+                    DispatchedVia = courierName, fs.FsTrackingNumber, fs.FsReceivedDate
+                };
+            }
+        }
+
+        // --- Banking (resolve Sender/Receiver Bank, Courier, Currency, Tenor) ---
+        object? banking = null;
+        var bank = await _db.ShipmentBankings.FirstOrDefaultAsync(x => x.ShipmentId == id);
+        if (bank is not null)
+        {
+            var senderBankName = bank.SenderBankId.HasValue ? (await _db.SenderBanks.FindAsync(bank.SenderBankId))?.Name : null;
+            var receiverBankName = bank.ReceivingBankId.HasValue ? (await _db.ReceiverBanks.FindAsync(bank.ReceivingBankId))?.Name : null;
+            var courierName = bank.OsDocDispatchedViaId.HasValue ? (await _db.Couriers.FindAsync(bank.OsDocDispatchedViaId))?.Name : null;
+            var currencyCode = bank.CollectionCurrencyId.HasValue ? (await _db.Currencies.FindAsync(bank.CollectionCurrencyId))?.Code : null;
+            var tenorDays = bank.TenorId.HasValue ? (await _db.Tenors.FindAsync(bank.TenorId))?.Days : (int?)null;
+
+            banking = new
+            {
+                SenderBank = senderBankName, bank.OsDocDispatchDate, DispatchedVia = courierName, bank.OsDocTrackingNumber,
+                bank.SenderBankCharges, ReceivingBank = receiverBankName, bank.NecessaryGoodType, bank.CollectionRefNo,
+                bank.CollectionValue, Currency = currencyCode, TenorDays = tenorDays, bank.ReceiverBankCharges
+            };
+        }
+
+        // --- Offshore ERP Info ---
         var offshorePartners = await _db.PurchaseOrderOffshorePartners
             .Where(op => op.PurchaseOrderId == shipment.PurchaseOrderId)
             .Include(op => op.BusinessPartner)
@@ -90,6 +156,6 @@ public class ShipmentDetailsFullController : ControllerBase
             isClearance ? null : shipment.PurchaseOrder.Supplier?.Name,
             shipment.PurchaseOrder.Consignee?.Name ?? "", category,
             shipment.Fcl20Count, shipment.Fcl40Count, shipment.Eta, shipment.SobActualDate,
-            lineItems, forwarder, acd, draftDocs, ssmo, mot, supplierFullSet, banking, erpColumns);
+            lineItems, forwarder, acdDto, draftDto, ssmoDto, motDto, supplierFullSet, banking, erpColumns);
     }
 }
