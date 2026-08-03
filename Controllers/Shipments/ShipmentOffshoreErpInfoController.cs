@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using ShippingPortal.Api.Data;
+using ShippingPortal.Api.Models.Identity;
 using ShippingPortal.Api.Models.Shipments;
 
 namespace ShippingPortal.Api.Controllers.Shipments;
@@ -16,17 +17,19 @@ public record ErpColumnRequest(
     string? InspectionNo, string? Remarks);
 
 [ApiController]
-[Authorize]
+[Authorize(Roles = AppRoles.OrdersShipmentsEditors)]
 [Route("api/shipments/{shipmentId:int}/erp-info")]
 public class ShipmentOffshoreErpInfoController : ControllerBase
 {
     private readonly ShippingPortalDbContext _db;
-    public ShipmentOffshoreErpInfoController(ShippingPortalDbContext db) => _db = db;
+    private readonly ShippingPortal.Api.Services.BuAccessService _buAccess;
 
-    // One column per offshore partner in the shipment's PO chain, in order.
-    // Existing saved data (if any) is merged in; partners with nothing saved
-    // yet still appear with blank fields, so the UI always shows the full
-    // chain even before anything's been entered.
+    public ShipmentOffshoreErpInfoController(ShippingPortalDbContext db, ShippingPortal.Api.Services.BuAccessService buAccess)
+    {
+        _db = db;
+        _buAccess = buAccess;
+    }
+
     [HttpGet]
     public async Task<ActionResult<IEnumerable<ErpColumnResponse>>> GetColumns(int shipmentId)
     {
@@ -60,6 +63,10 @@ public class ShipmentOffshoreErpInfoController : ControllerBase
     {
         var shipment = await _db.Shipments.FirstOrDefaultAsync(s => s.Id == shipmentId);
         if (shipment is null) return NotFound();
+        if (!_buAccess.CanWriteBusinessUnit(User, shipment.PurchaseOrderId is var poId && poId != 0
+                ? await _db.PurchaseOrders.Where(p => p.Id == shipment.PurchaseOrderId).Select(p => p.BusinessUnitId).FirstOrDefaultAsync()
+                : 0))
+            return Forbid();
 
         var offshorePartner = await _db.PurchaseOrderOffshorePartners
             .Include(op => op.BusinessPartner)
@@ -74,8 +81,6 @@ public class ShipmentOffshoreErpInfoController : ControllerBase
             _db.ShipmentOffshoreErpInfos.Add(entity);
         }
 
-        // Only the fields relevant to this partner's position get written —
-        // e.g. saving a subsequent-offshore column never touches PrNo/PoNo/Sa/BillReg.
         if (offshorePartner.SequenceOrder == 1)
         {
             entity.PrNo = req.PrNo;
