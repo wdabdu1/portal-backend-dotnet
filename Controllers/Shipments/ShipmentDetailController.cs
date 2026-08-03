@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using ShippingPortal.Api.Data;
 using ShippingPortal.Api.Models.Shipments;
+using ShippingPortal.Api.Models.Identity;
 
 namespace ShippingPortal.Api.Controllers.Shipments;
 
@@ -34,7 +35,7 @@ public record ShipmentDetailResponse(
 public record ShipOnBoardRequest(DateOnly? SobActualDate);
 
 [ApiController]
-[Authorize]
+[Authorize(Roles = AppRoles.OrdersShipmentsEditors)]
 [Route("api/shipments/{shipmentId:int}")]
 public class ShipmentDetailController : ControllerBase
 {
