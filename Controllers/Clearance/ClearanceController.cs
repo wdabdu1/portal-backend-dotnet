@@ -37,7 +37,6 @@ public class ClearanceController : ControllerBase
     // Selection screen: only Confirmed shipments (nothing to clear on a Draft),
     // sorted by ETA ascending — soonest-arriving first, per the requirement.
     [HttpGet("shipments")]
-    [HttpGet("shipments")]
     [Authorize(Roles = AppRoles.ClearanceViewers)]
     public async Task<ActionResult<IEnumerable<ClearanceShipmentSummary>>> GetShipmentsForClearance([FromQuery] string? search, [FromServices] ShippingPortal.Api.Services.BuAccessService buAccess)
     {
