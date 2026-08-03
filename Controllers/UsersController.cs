@@ -96,4 +96,20 @@ public class UsersController : ControllerBase
         await _userManager.UpdateAsync(user);
         return NoContent();
     }
+
+    [HttpDelete("{id}")]
+    public async Task<IActionResult> Delete(string id)
+    {
+        var user = await _userManager.FindByIdAsync(id);
+        if (user is null) return NotFound();
+
+        var access = await _db.UserBusinessUnitAccess.Where(a => a.UserId == id).ToListAsync();
+        _db.UserBusinessUnitAccess.RemoveRange(access);
+        await _db.SaveChangesAsync();
+
+        var result = await _userManager.DeleteAsync(user);
+        if (!result.Succeeded) return BadRequest(new { message = string.Join("; ", result.Errors.Select(e => e.Description)) });
+
+        return NoContent();
+    }
 }
