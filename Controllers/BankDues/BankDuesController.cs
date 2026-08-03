@@ -16,7 +16,7 @@ public record CollectionRecordRequest(DateOnly PaymentDate, int CurrencyId, deci
 public record CollectionRecordResponse(int Id, DateOnly PaymentDate, int CurrencyId, string CurrencyCode, decimal Value, decimal ValueAed);
 
 [ApiController]
-[Authorize]
+[Authorize(Roles = AppRoles.BankDuesViewers)]
 [Route("api/bank-dues")]
 public class BankDuesController : ControllerBase
 {
