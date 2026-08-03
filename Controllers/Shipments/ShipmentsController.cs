@@ -27,6 +27,7 @@ public class ShipmentsController : ControllerBase
     public ShipmentsController(ShippingPortalDbContext db) => _db = db;
 
     [HttpGet]
+    [Authorize(Roles = AppRoles.OrdersShipmentsViewers)]
     public async Task<ActionResult<IEnumerable<ShipmentSummary>>> GetAll([FromServices] BuAccessService buAccess)
     {
         var query = _db.Shipments
@@ -50,6 +51,7 @@ public class ShipmentsController : ControllerBase
     }
 
     [HttpPost]
+    [Authorize(Roles = AppRoles.OrdersShipmentsEditors)]
     public async Task<ActionResult<ShipmentSummary>> Create(CreateShipmentRequest req)
     {
         var po = await _db.PurchaseOrders.Include(p => p.LineItems).FirstOrDefaultAsync(p => p.Id == req.PurchaseOrderId);
@@ -122,6 +124,7 @@ public class ShipmentsController : ControllerBase
     }
 
     [HttpPost("{id:int}/confirm")]
+    [Authorize(Roles = AppRoles.OrdersShipmentsEditors)]
     public async Task<IActionResult> Confirm(int id)
     {
         var shipment = await _db.Shipments.FindAsync(id);
