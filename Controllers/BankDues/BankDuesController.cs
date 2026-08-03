@@ -29,7 +29,7 @@ public class BankDuesController : ControllerBase
         _buAccess = buAccess;
     }
 
-    private async Task<IActionResult?> CheckWriteAccessAsync(int shipmentId)
+    private async Task<ActionResult?> CheckWriteAccessAsync(int shipmentId)
     {
         var buId = await _db.Shipments
             .Where(s => s.Id == shipmentId)
