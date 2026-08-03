@@ -134,7 +134,6 @@ public class DemurrageStorageService
             demFreeDays20, demChargeableDays20, demFreeDays40, demChargeableDays40,
             storageEuro, storageSdg, demurrageSdg, storageSdg + demurrageSdg, warnings);
     }
-    }
 
     private static (decimal Rate20, decimal Rate40) CalculateTieredEuro(int totalDays, List<Models.Lookups.SpcStorageTier> tiers)
     {
