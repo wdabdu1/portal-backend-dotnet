@@ -84,7 +84,7 @@ public class DemurrageStorageService
         var storageDays = Math.Max(0, storageEnd.DayNumber - anchor.DayNumber);
         var demurrageDays = Math.Max(0, demurrageEnd.DayNumber - anchor.DayNumber);
 
-        // --- Storage (SPC tiers, universal) ---
+        // --- Storage (SPC tiers, universal — free days come from Tarif-1's duration) ---
         var tiers = await _db.SpcStorageTiers.OrderBy(t => t.TierOrder).ToListAsync();
         var (storageEuro20, storageEuro40) = CalculateTieredEuro(storageDays, tiers);
         var storageEuro = storageEuro20 * shipment.Fcl20Count + storageEuro40 * shipment.Fcl40Count;
@@ -92,6 +92,9 @@ public class DemurrageStorageService
         var spcRate = await _db.SpcRates.OrderByDescending(r => r.EffectiveDate).FirstOrDefaultAsync();
         if (spcRate is null) warnings.Add("No SPC Euro Rate configured — storage cost shown in Euro only.");
         var storageSdg = storageEuro * (spcRate?.EuroToSdgRate ?? 0);
+
+        var storageFreeDays = tiers.FirstOrDefault(t => t.TierOrder == 1)?.DurationDays ?? 0;
+        var storageChargeableDays = Math.Max(0, storageDays - storageFreeDays);
 
         // --- Demurrage (Shipping Line tariff, per Tariff Group + container size) ---
         var firstLineItem = await _db.ShipmentLineItems
@@ -101,6 +104,7 @@ public class DemurrageStorageService
 
         var tariffGroupId = firstLineItem?.PurchaseOrderLineItem?.ProductCategory?.TariffGroupId;
         decimal demurrageSdg = 0;
+        int? demFreeDays20 = null, demChargeableDays20 = null, demFreeDays40 = null, demChargeableDays40 = null;
 
         if (!shipment.ShippingLineId.Equals(default) && tariffGroupId.HasValue)
         {
@@ -114,6 +118,9 @@ public class DemurrageStorageService
 
             demurrageSdg += CalculateDemurrageForSize(demurrageDays, tariff20, shipment.Fcl20Count);
             demurrageSdg += CalculateDemurrageForSize(demurrageDays, tariff40, shipment.Fcl40Count);
+
+            if (tariff20 is not null) { demFreeDays20 = tariff20.FreeDays; demChargeableDays20 = Math.Max(0, demurrageDays - tariff20.FreeDays); }
+            if (tariff40 is not null) { demFreeDays40 = tariff40.FreeDays; demChargeableDays40 = Math.Max(0, demurrageDays - tariff40.FreeDays); }
         }
         else
         {
@@ -122,7 +129,11 @@ public class DemurrageStorageService
 
         return new DemurrageStorageResult(
             true, anchor, storageEnd, storageActualEnd.HasValue, demurrageEnd, demurrageActualEnd.HasValue,
-            storageDays, demurrageDays, storageEuro, storageSdg, demurrageSdg, storageSdg + demurrageSdg, warnings);
+            storageDays, demurrageDays, shipment.Fcl20Count, shipment.Fcl40Count,
+            storageFreeDays, storageChargeableDays,
+            demFreeDays20, demChargeableDays20, demFreeDays40, demChargeableDays40,
+            storageEuro, storageSdg, demurrageSdg, storageSdg + demurrageSdg, warnings);
+    }
     }
 
     private static (decimal Rate20, decimal Rate40) CalculateTieredEuro(int totalDays, List<Models.Lookups.SpcStorageTier> tiers)
