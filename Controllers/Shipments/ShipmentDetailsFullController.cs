@@ -46,45 +46,58 @@ public class ShipmentDetailsFullController : ControllerBase
 
         var isClearance = User.IsInRole(AppRoles.Clearance);
 
-        // --- Forwarder (resolve Forwarder name + Currency code) ---
+        // --- Forwarder — hidden entirely from Clearance (per updated scope) ---
         object? forwarder = null;
-        var fwd = await _db.ShipmentForwarders.FirstOrDefaultAsync(x => x.ShipmentId == id);
-        if (fwd is not null)
+        if (!isClearance)
         {
-            var forwarderName = fwd.ForwarderId.HasValue ? (await _db.Forwarders.FindAsync(fwd.ForwarderId))?.Name : null;
-            var currencyCode = fwd.CurrencyId.HasValue ? (await _db.Currencies.FindAsync(fwd.CurrencyId))?.Code : null;
-            forwarder = new
+            var fwd = await _db.ShipmentForwarders.FirstOrDefaultAsync(x => x.ShipmentId == id);
+            if (fwd is not null)
             {
-                Forwarder = forwarderName,
-                fwd.ActualShippingCost,
-                Currency = currencyCode,
-                fwd.ActualShippingCostUsd,
-                fwd.AmountSaved,
-                fwd.MarineInsurance
-            };
+                var forwarderName = fwd.ForwarderId.HasValue ? (await _db.Forwarders.FindAsync(fwd.ForwarderId))?.Name : null;
+                var currencyCode = fwd.CurrencyId.HasValue ? (await _db.Currencies.FindAsync(fwd.CurrencyId))?.Code : null;
+                forwarder = new
+                {
+                    Forwarder = forwarderName,
+                    fwd.ActualShippingCost,
+                    Currency = currencyCode,
+                    fwd.ActualShippingCostUsd,
+                    fwd.AmountSaved,
+                    fwd.MarineInsurance
+                };
+            }
         }
 
-        // --- ACD (no FK fields) ---
+        // --- ACD — Clearance sees only Date + Reference No. ---
         var acd = await _db.ShipmentAcds.FirstOrDefaultAsync(x => x.ShipmentId == id);
-        object? acdDto = acd is null ? null : new { acd.ProcessDate, acd.CostUsd, acd.CostSettledDate, acd.RefNumber };
+        object? acdDto = acd is null ? null : (isClearance
+            ? new { acd.ProcessDate, acd.RefNumber }
+            : new { acd.ProcessDate, acd.CostUsd, acd.CostSettledDate, acd.RefNumber });
 
-        // --- Draft Documents (no FK fields) ---
-        var draftDocs = await _db.ShipmentDraftDocuments.FirstOrDefaultAsync(x => x.ShipmentId == id);
-        object? draftDto = draftDocs is null ? null : new { draftDocs.InitialDraftReceivedDate, draftDocs.FinalDraftReceivedDate, draftDocs.FinalDraftConfirmedDate };
-
-        // --- SSMO (no FK fields) ---
-        var ssmo = await _db.ShipmentSsmos.FirstOrDefaultAsync(x => x.ShipmentId == id);
-        object? ssmoDto = ssmo is null ? null : new { ssmo.ApplicationDate, ssmo.Cost, ssmo.CostSettledDate, ssmo.RefNumber };
-
-        // --- MOT (no FK fields) ---
-        var mot = await _db.ShipmentMots.FirstOrDefaultAsync(x => x.ShipmentId == id);
-        object? motDto = mot is null ? null : new
+        // --- Draft Documents — hidden entirely from Clearance ---
+        object? draftDto = null;
+        if (!isClearance)
         {
-            mot.ProcessDate, mot.Cost, mot.CostSettledDate, mot.RefNumber,
-            mot.OffshoreApprovedPiNumber, mot.OffshoreApprovedPiDate
-        };
+            var draftDocs = await _db.ShipmentDraftDocuments.FirstOrDefaultAsync(x => x.ShipmentId == id);
+            draftDto = draftDocs is null ? null : new { draftDocs.InitialDraftReceivedDate, draftDocs.FinalDraftReceivedDate, draftDocs.FinalDraftConfirmedDate };
+        }
 
-        // --- Supplier Full Set (resolve Courier name) — hidden from Clearance ---
+        // --- SSMO — Clearance sees only Date + Reference No. ---
+        var ssmo = await _db.ShipmentSsmos.FirstOrDefaultAsync(x => x.ShipmentId == id);
+        object? ssmoDto = ssmo is null ? null : (isClearance
+            ? new { ssmo.ApplicationDate, ssmo.RefNumber }
+            : new { ssmo.ApplicationDate, ssmo.Cost, ssmo.CostSettledDate, ssmo.RefNumber });
+
+        // --- MOT — Clearance sees only Date + Reference No. ---
+        var mot = await _db.ShipmentMots.FirstOrDefaultAsync(x => x.ShipmentId == id);
+        object? motDto = mot is null ? null : (isClearance
+            ? new { mot.ProcessDate, mot.RefNumber }
+            : new
+            {
+                mot.ProcessDate, mot.Cost, mot.CostSettledDate, mot.RefNumber,
+                mot.OffshoreApprovedPiNumber, mot.OffshoreApprovedPiDate
+            });
+
+        // --- Supplier Full Set — hidden entirely from Clearance ---
         object? supplierFullSet = null;
         if (!isClearance)
         {
@@ -100,26 +113,30 @@ public class ShipmentDetailsFullController : ControllerBase
             }
         }
 
-        // --- Banking (resolve Sender/Receiver Bank, Courier, Currency, Tenor) ---
+        // --- Banking — hidden entirely from Clearance ---
         object? banking = null;
-        var bank = await _db.ShipmentBankings.FirstOrDefaultAsync(x => x.ShipmentId == id);
-        if (bank is not null)
+        if (!isClearance)
         {
-            var senderBankName = bank.SenderBankId.HasValue ? (await _db.SenderBanks.FindAsync(bank.SenderBankId))?.Name : null;
-            var receiverBankName = bank.ReceivingBankId.HasValue ? (await _db.ReceiverBanks.FindAsync(bank.ReceivingBankId))?.Name : null;
-            var courierName = bank.OsDocDispatchedViaId.HasValue ? (await _db.Couriers.FindAsync(bank.OsDocDispatchedViaId))?.Name : null;
-            var currencyCode = bank.CollectionCurrencyId.HasValue ? (await _db.Currencies.FindAsync(bank.CollectionCurrencyId))?.Code : null;
-            var tenorDays = bank.TenorId.HasValue ? (await _db.Tenors.FindAsync(bank.TenorId))?.Days : (int?)null;
-
-            banking = new
+            var bank = await _db.ShipmentBankings.FirstOrDefaultAsync(x => x.ShipmentId == id);
+            if (bank is not null)
             {
-                SenderBank = senderBankName, bank.OsDocDispatchDate, DispatchedVia = courierName, bank.OsDocTrackingNumber,
-                bank.SenderBankCharges, ReceivingBank = receiverBankName, bank.NecessaryGoodType, bank.CollectionRefNo,
-                bank.CollectionValue, Currency = currencyCode, TenorDays = tenorDays, bank.ReceiverBankCharges
-            };
+                var senderBankName = bank.SenderBankId.HasValue ? (await _db.SenderBanks.FindAsync(bank.SenderBankId))?.Name : null;
+                var receiverBankName = bank.ReceivingBankId.HasValue ? (await _db.ReceiverBanks.FindAsync(bank.ReceivingBankId))?.Name : null;
+                var courierName = bank.OsDocDispatchedViaId.HasValue ? (await _db.Couriers.FindAsync(bank.OsDocDispatchedViaId))?.Name : null;
+                var currencyCode = bank.CollectionCurrencyId.HasValue ? (await _db.Currencies.FindAsync(bank.CollectionCurrencyId))?.Code : null;
+                var tenorDays = bank.TenorId.HasValue ? (await _db.Tenors.FindAsync(bank.TenorId))?.Days : (int?)null;
+
+                banking = new
+                {
+                    SenderBank = senderBankName, bank.OsDocDispatchDate, DispatchedVia = courierName, bank.OsDocTrackingNumber,
+                    bank.SenderBankCharges, ReceivingBank = receiverBankName, bank.NecessaryGoodType, bank.CollectionRefNo,
+                    bank.CollectionValue, Currency = currencyCode, TenorDays = tenorDays, bank.ReceiverBankCharges
+                };
+            }
         }
 
-        // --- Offshore ERP Info ---
+        // --- Offshore chain: full ERP Info hidden from Clearance; they only
+        // get the last offshore's Invoice No. as a single flat field. ---
         var offshorePartners = await _db.PurchaseOrderOffshorePartners
             .Where(op => op.PurchaseOrderId == shipment.PurchaseOrderId)
             .Include(op => op.BusinessPartner)
@@ -129,18 +146,29 @@ public class ShipmentDetailsFullController : ControllerBase
         var erpRows = await _db.ShipmentOffshoreErpInfos.Where(e => e.ShipmentId == id).ToListAsync();
         var maxSequence = offshorePartners.Count > 0 ? offshorePartners.Max(o => o.SequenceOrder) : 0;
 
-        var erpColumns = offshorePartners
-            .Where(op => !isClearance || op.SequenceOrder == maxSequence)
-            .Select(op =>
-            {
-                var row = erpRows.FirstOrDefault(e => e.PurchaseOrderOffshorePartnerId == op.Id);
-                var isLast = op.SequenceOrder == maxSequence;
-                object? data = row is null ? null : (isLast || op.SequenceOrder == 1
-                    ? new { row.PrNo, row.PoNo, row.Sa, row.BillReg, row.Grn, row.InvoiceNo }
-                    : new { row.InspectionNo, row.Grn, row.InvoiceNo, row.Remarks });
-                return new ErpColumnDetail(op.BusinessPartner?.Name ?? "", op.SequenceOrder, isLast, data);
-            })
-            .ToList();
+        List<ErpColumnDetail> erpColumns = new();
+        string? lastOffshoreInvoiceNo = null;
+
+        if (isClearance)
+        {
+            var lastRow = erpRows.FirstOrDefault(e =>
+                offshorePartners.FirstOrDefault(op => op.Id == e.PurchaseOrderOffshorePartnerId)?.SequenceOrder == maxSequence);
+            lastOffshoreInvoiceNo = lastRow?.InvoiceNo;
+        }
+        else
+        {
+            erpColumns = offshorePartners
+                .Select(op =>
+                {
+                    var row = erpRows.FirstOrDefault(e => e.PurchaseOrderOffshorePartnerId == op.Id);
+                    var isLast = op.SequenceOrder == maxSequence;
+                    object? data = row is null ? null : (isLast || op.SequenceOrder == 1
+                        ? new { row.PrNo, row.PoNo, row.Sa, row.BillReg, row.Grn, row.InvoiceNo }
+                        : new { row.InspectionNo, row.Grn, row.InvoiceNo, row.Remarks });
+                    return new ErpColumnDetail(op.BusinessPartner?.Name ?? "", op.SequenceOrder, isLast, data);
+                })
+                .ToList();
+        }
 
         var lineItems = shipment.LineItems.Select(li => new ShipmentLineItemDetail(
             li.PurchaseOrderLineItem?.ProductCategory?.Name ?? "",
@@ -153,10 +181,11 @@ public class ShipmentDetailsFullController : ControllerBase
 
         return new ShipmentFullDetailResponse(
             shipment.Id, shipment.BlAwbNo, shipment.PurchaseOrder!.PoNumber, shipment.Status.ToString(),
-            shipment.PurchaseOrder.BusinessUnit!.Name,
+            shipment.PurchaseOrder.BusinessUnit!.Name, shipment.PurchaseOrder.Division?.Name,
             isClearance ? null : shipment.PurchaseOrder.Supplier?.Name,
             shipment.PurchaseOrder.Consignee?.Name ?? "", category,
-            shipment.Fcl20Count, shipment.Fcl40Count, shipment.Eta, shipment.SobActualDate,
-            lineItems, forwarder, acdDto, draftDto, ssmoDto, motDto, supplierFullSet, banking, erpColumns);
+            shipment.Fcl20Count, shipment.Fcl40Count, shipment.Etd, shipment.Eta, shipment.SobActualDate,
+            lineItems, forwarder, acdDto, draftDto, ssmoDto, motDto, supplierFullSet, banking, erpColumns,
+            lastOffshoreInvoiceNo);
     }
 }
