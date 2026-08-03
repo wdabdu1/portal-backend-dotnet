@@ -10,6 +10,10 @@ public record DemurrageStorageResult(
     DateOnly? StorageEndDate, bool StorageEndIsActual,
     DateOnly? DemurrageEndDate, bool DemurrageEndIsActual,
     int StorageDays, int DemurrageDays,
+    int Fcl20Count, int Fcl40Count,
+    int StorageFreeDays, int StorageChargeableDays,
+    int? DemurrageFreeDays20, int? DemurrageChargeableDays20,
+    int? DemurrageFreeDays40, int? DemurrageChargeableDays40,
     decimal StorageCostEuro, decimal StorageCostSdg,
     decimal DemurrageCostSdg,
     decimal TotalStorageDemurrageSdg,
@@ -46,11 +50,11 @@ public class DemurrageStorageService
         var route = clearance?.Route ?? ClearanceRouteType.NotSelected;
 
         if (route == ClearanceRouteType.NotSelected || route == ClearanceRouteType.Route3ClearFromFz)
-            return new DemurrageStorageResult(false, null, null, false, null, false, 0, 0, 0, 0, 0, 0, warnings);
+            return new DemurrageStorageResult(false, null, null, false, null, false, 0, 0, shipment.Fcl20Count, shipment.Fcl40Count, 0, 0, null, null, null, null, 0, 0, 0, 0, warnings);
 
         var schedule = await _scheduleService.GetScheduleAsync(shipmentId);
         if (!schedule.AnchorDate.HasValue)
-            return new DemurrageStorageResult(false, null, null, false, null, false, 0, 0, 0, 0, 0, 0, warnings);
+            return new DemurrageStorageResult(false, null, null, false, null, false, 0, 0, shipment.Fcl20Count, shipment.Fcl40Count, 0, 0, null, null, null, null, 0, 0, 0, 0, warnings);
 
         var anchor = schedule.AnchorDate.Value;
         var truckContainersItem = schedule.Items.FirstOrDefault(i => i.GroupItem == "Truck & Containers");
