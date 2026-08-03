@@ -44,7 +44,7 @@ public class DemurrageStorageService
 
         var shipment = await _db.Shipments.FirstOrDefaultAsync(s => s.Id == shipmentId);
         if (shipment is null)
-            return new DemurrageStorageResult(false, null, null, false, null, false, 0, 0, 0, 0, 0, 0, warnings);
+            return new DemurrageStorageResult(false, null, null, false, null, false, 0, 0, 0, 0, 0, 0, null, null, null, null, 0, 0, 0, 0, warnings);
 
         var clearance = await _db.Clearances.FirstOrDefaultAsync(c => c.ShipmentId == shipmentId);
         var route = clearance?.Route ?? ClearanceRouteType.NotSelected;
