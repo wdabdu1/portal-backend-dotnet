@@ -7,7 +7,7 @@ using ShippingPortal.Api.Models.Identity;
 namespace ShippingPortal.Api.Controllers.Settings;
 
 [ApiController]
-[Authorize]
+[Authorize(Roles = AppRoles.SettingsViewers)]
 public abstract class LookupCrudController<TEntity> : ControllerBase where TEntity : class
 {
     protected readonly ShippingPortalDbContext Db;
