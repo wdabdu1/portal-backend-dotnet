@@ -13,7 +13,7 @@ public record SupplierDueRow(
     decimal TotalValueUsd, decimal TotalUnpaidUsd);
 
 [ApiController]
-[Authorize]
+[Authorize(Roles = AppRoles.SupplierDuesViewers)]
 [Route("api/supplier-dues")]
 public class SupplierDuesController : ControllerBase
 {
