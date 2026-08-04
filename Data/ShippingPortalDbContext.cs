@@ -88,44 +88,10 @@ public class ShippingPortalDbContext : IdentityDbContext<ApplicationUser>
 
         // Restrict-delete on lookups referenced by transactional data, so a
         // Settings row can't be deleted out from under an existing PO/Shipment.
-        builder.Entity<ShippingPortal.Api.Models.Clearance.ClearanceEstimateLineItem>()
-            .HasOne(x => x.ChargeType)
+        builder.Entity<PurchaseOrder>()
+            .HasOne(p => p.Supplier)
             .WithMany()
             .OnDelete(DeleteBehavior.Restrict);
-
-        // --- Delete-protection audit: every remaining Settings/lookup FK
-        // from transactional data, explicitly Restrict so a Settings row
-        // can never be deleted out from under real Orders/Shipments data,
-        // and never silently cascades or nulls out a real reference. ---
-
-        builder.Entity<PurchaseOrder>().HasOne(p => p.BusinessUnit).WithMany().OnDelete(DeleteBehavior.Restrict);
-        builder.Entity<PurchaseOrder>().HasOne(p => p.Division).WithMany().OnDelete(DeleteBehavior.Restrict);
-        builder.Entity<PurchaseOrder>().HasOne(p => p.ApprovalType).WithMany().OnDelete(DeleteBehavior.Restrict);
-        builder.Entity<PurchaseOrder>().HasOne(p => p.SupplierPaymentTerm).WithMany().OnDelete(DeleteBehavior.Restrict);
-        builder.Entity<PurchaseOrder>().HasOne(p => p.Incoterm).WithMany().OnDelete(DeleteBehavior.Restrict);
-        builder.Entity<PurchaseOrder>().HasOne(p => p.OriginCountry).WithMany().OnDelete(DeleteBehavior.Restrict);
-        builder.Entity<PurchaseOrder>().HasOne(p => p.ShipmentMode).WithMany().OnDelete(DeleteBehavior.Restrict);
-
-        builder.Entity<PurchaseOrderLineItem>().HasOne(li => li.ProductCategory).WithMany().OnDelete(DeleteBehavior.Restrict);
-        builder.Entity<PurchaseOrderLineItem>().HasOne(li => li.ModelProduct).WithMany().OnDelete(DeleteBehavior.Restrict);
-        builder.Entity<PurchaseOrderLineItem>().HasOne(li => li.ProductType).WithMany().OnDelete(DeleteBehavior.Restrict);
-        builder.Entity<PurchaseOrderLineItem>().HasOne(li => li.UnitOfMeasure).WithMany().OnDelete(DeleteBehavior.Restrict);
-        builder.Entity<PurchaseOrderLineItem>().HasOne(li => li.Currency).WithMany().OnDelete(DeleteBehavior.Restrict);
-
-        builder.Entity<Shipment>().HasOne(s => s.ShippingLine).WithMany().OnDelete(DeleteBehavior.Restrict);
-
-        builder.Entity<ShipmentForwarder>().HasOne(f => f.ForwarderEntity).WithMany().OnDelete(DeleteBehavior.Restrict);
-        builder.Entity<ShipmentForwarder>().HasOne(f => f.Currency).WithMany().OnDelete(DeleteBehavior.Restrict);
-
-        builder.Entity<ShipmentSupplierFullSet>().HasOne(f => f.FsDispatchedVia).WithMany().OnDelete(DeleteBehavior.Restrict);
-
-        builder.Entity<ShipmentBanking>().HasOne(b => b.SenderBank).WithMany().OnDelete(DeleteBehavior.Restrict);
-        builder.Entity<ShipmentBanking>().HasOne(b => b.OsDocDispatchedVia).WithMany().OnDelete(DeleteBehavior.Restrict);
-        builder.Entity<ShipmentBanking>().HasOne(b => b.ReceivingBank).WithMany().OnDelete(DeleteBehavior.Restrict);
-        builder.Entity<ShipmentBanking>().HasOne(b => b.CollectionCurrency).WithMany().OnDelete(DeleteBehavior.Restrict);
-        builder.Entity<ShipmentBanking>().HasOne(b => b.Tenor).WithMany().OnDelete(DeleteBehavior.Restrict);
-    }
-}
 
         builder.Entity<PurchaseOrder>()
             .HasOne(p => p.BrandManufacturer)
@@ -223,11 +189,6 @@ public class ShippingPortalDbContext : IdentityDbContext<ApplicationUser>
             .WithMany()
             .OnDelete(DeleteBehavior.Restrict);
 
-        builder.Entity<ShipmentCollectionRecord>()
-            .HasOne(x => x.Currency)
-            .WithMany()
-            .OnDelete(DeleteBehavior.Restrict);
-
         // Clearance: 1:1 with Shipment, and each route/sub-section 1:1 with Clearance.
         builder.Entity<ShippingPortal.Api.Models.Clearance.Clearance>().HasIndex(x => x.ShipmentId).IsUnique();
         builder.Entity<ShippingPortal.Api.Models.Clearance.ClearanceRoute1Details>().HasIndex(x => x.ClearanceId).IsUnique();
@@ -248,5 +209,37 @@ public class ShippingPortalDbContext : IdentityDbContext<ApplicationUser>
             .HasOne(x => x.ChargeType)
             .WithMany()
             .OnDelete(DeleteBehavior.Restrict);
+
+        // --- Delete-protection audit: every remaining Settings/lookup FK
+        // from transactional data, explicitly Restrict so a Settings row
+        // can never be deleted out from under real Orders/Shipments data,
+        // and never silently cascades or nulls out a real reference. ---
+
+        builder.Entity<PurchaseOrder>().HasOne(p => p.BusinessUnit).WithMany().OnDelete(DeleteBehavior.Restrict);
+        builder.Entity<PurchaseOrder>().HasOne(p => p.Division).WithMany().OnDelete(DeleteBehavior.Restrict);
+        builder.Entity<PurchaseOrder>().HasOne(p => p.ApprovalType).WithMany().OnDelete(DeleteBehavior.Restrict);
+        builder.Entity<PurchaseOrder>().HasOne(p => p.SupplierPaymentTerm).WithMany().OnDelete(DeleteBehavior.Restrict);
+        builder.Entity<PurchaseOrder>().HasOne(p => p.Incoterm).WithMany().OnDelete(DeleteBehavior.Restrict);
+        builder.Entity<PurchaseOrder>().HasOne(p => p.OriginCountry).WithMany().OnDelete(DeleteBehavior.Restrict);
+        builder.Entity<PurchaseOrder>().HasOne(p => p.ShipmentMode).WithMany().OnDelete(DeleteBehavior.Restrict);
+
+        builder.Entity<PurchaseOrderLineItem>().HasOne(li => li.ProductCategory).WithMany().OnDelete(DeleteBehavior.Restrict);
+        builder.Entity<PurchaseOrderLineItem>().HasOne(li => li.ModelProduct).WithMany().OnDelete(DeleteBehavior.Restrict);
+        builder.Entity<PurchaseOrderLineItem>().HasOne(li => li.ProductType).WithMany().OnDelete(DeleteBehavior.Restrict);
+        builder.Entity<PurchaseOrderLineItem>().HasOne(li => li.UnitOfMeasure).WithMany().OnDelete(DeleteBehavior.Restrict);
+        builder.Entity<PurchaseOrderLineItem>().HasOne(li => li.Currency).WithMany().OnDelete(DeleteBehavior.Restrict);
+
+        builder.Entity<Shipment>().HasOne(s => s.ShippingLine).WithMany().OnDelete(DeleteBehavior.Restrict);
+
+        builder.Entity<ShipmentForwarder>().HasOne(f => f.ForwarderEntity).WithMany().OnDelete(DeleteBehavior.Restrict);
+        builder.Entity<ShipmentForwarder>().HasOne(f => f.Currency).WithMany().OnDelete(DeleteBehavior.Restrict);
+
+        builder.Entity<ShipmentSupplierFullSet>().HasOne(f => f.FsDispatchedVia).WithMany().OnDelete(DeleteBehavior.Restrict);
+
+        builder.Entity<ShipmentBanking>().HasOne(b => b.SenderBank).WithMany().OnDelete(DeleteBehavior.Restrict);
+        builder.Entity<ShipmentBanking>().HasOne(b => b.OsDocDispatchedVia).WithMany().OnDelete(DeleteBehavior.Restrict);
+        builder.Entity<ShipmentBanking>().HasOne(b => b.ReceivingBank).WithMany().OnDelete(DeleteBehavior.Restrict);
+        builder.Entity<ShipmentBanking>().HasOne(b => b.CollectionCurrency).WithMany().OnDelete(DeleteBehavior.Restrict);
+        builder.Entity<ShipmentBanking>().HasOne(b => b.Tenor).WithMany().OnDelete(DeleteBehavior.Restrict);
     }
 }
