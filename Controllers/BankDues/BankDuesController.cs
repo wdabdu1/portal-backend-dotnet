@@ -9,7 +9,7 @@ using ShippingPortal.Api.Services;
 namespace ShippingPortal.Api.Controllers.BankDues;
 
 public record BankDueRow(
-    int ShipmentId, string Consignee, string? ReceiverBank, string BlAwbNo, DateOnly? Sob,
+    int ShipmentId, string BusinessUnit, string Consignee, string? ReceiverBank, string BlAwbNo, DateOnly? Sob,
     string? LastOffshoreInvoiceNo, int? TenorDays, DateOnly? DueDate, string? ImFormNo, DateOnly? ImFormDate,
     decimal? Value, string? Currency, decimal ValueAed, decimal PaidAed, decimal BalanceAed);
 
@@ -72,6 +72,7 @@ public class BankDuesController : ControllerBase
     {
         var query = _db.ShipmentBankings
             .Include(b => b.Shipment).ThenInclude(s => s!.PurchaseOrder).ThenInclude(po => po!.Consignee)
+            .Include(b => b.Shipment).ThenInclude(s => s!.PurchaseOrder).ThenInclude(po => po!.BusinessUnit)
             .Include(b => b.ReceivingBank)
             .Include(b => b.Tenor)
             .Include(b => b.CollectionCurrency)
@@ -123,7 +124,7 @@ public class BankDuesController : ControllerBase
                 dueDate = shipment.SobActualDate.Value.AddDays(banking.Tenor.Days);
 
             rows.Add(new BankDueRow(
-                shipment.Id, shipment.PurchaseOrder?.Consignee?.Name ?? "", banking.ReceivingBank?.Name, shipment.BlAwbNo,
+                shipment.Id, shipment.PurchaseOrder?.BusinessUnit?.Name ?? "", shipment.PurchaseOrder?.Consignee?.Name ?? "", banking.ReceivingBank?.Name, shipment.BlAwbNo,
                 shipment.SobActualDate, null /* Last Offshore Invoice No. — pending */, banking.Tenor?.Days, dueDate,
                 clearance?.ImFormNo, clearance?.ImFormDate, banking.CollectionValue, banking.CollectionCurrency?.Code,
                 valueAed, paidAed, balanceAed));
