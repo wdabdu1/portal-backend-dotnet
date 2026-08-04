@@ -17,7 +17,7 @@ public record CreateShipmentRequest(
     int ShippingLineId, int Fcl20Count, int Fcl40Count, bool Soc, int? BlFreeDays,
     List<ShipmentLineItemRequest> LineItems);
 
-public record ShipmentSummary(int Id, string BlAwbNo, string PoNumber, string ShippingLine, string Status, DateOnly? Eta, int LineItemCount);
+public record ShipmentSummary(int Id, string BlAwbNo, string PoNumber, string BusinessUnit, string ShippingLine, string Status, DateOnly? Eta, int LineItemCount);
 
 [ApiController]
 [Authorize]
@@ -46,7 +46,7 @@ public class ShipmentsController : ControllerBase
         return await query
             .OrderByDescending(s => s.CreatedAt)
             .Select(s => new ShipmentSummary(
-                s.Id, s.BlAwbNo, s.PurchaseOrder!.PoNumber, s.ShippingLine!.Name,
+                s.Id, s.BlAwbNo, s.PurchaseOrder!.PoNumber, s.PurchaseOrder.BusinessUnit!.Name, s.ShippingLine!.Name,
                 s.Status.ToString(), s.Eta, s.LineItems.Count))
             .ToListAsync();
     }
@@ -121,8 +121,9 @@ public class ShipmentsController : ControllerBase
         await _db.SaveChangesAsync();
 
         var shippingLine = await _db.ShippingLines.FindAsync(req.ShippingLineId);
+        var businessUnit = await _db.BusinessUnits.FindAsync(po.BusinessUnitId);
         return CreatedAtAction(nameof(GetAll), new ShipmentSummary(
-            shipment.Id, shipment.BlAwbNo, po.PoNumber, shippingLine?.Name ?? "", shipment.Status.ToString(), shipment.Eta, shipment.LineItems.Count));
+            shipment.Id, shipment.BlAwbNo, po.PoNumber, businessUnit?.Name ?? "", shippingLine?.Name ?? "", shipment.Status.ToString(), shipment.Eta, shipment.LineItems.Count));
     }
 
     [HttpPost("{id:int}/confirm")]
