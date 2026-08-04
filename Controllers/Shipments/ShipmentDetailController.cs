@@ -139,18 +139,32 @@ public class ShipmentDetailController : ControllerBase
     [HttpPut("acd")]
     public async Task<IActionResult> UpsertAcd(int shipmentId, ShipmentAcdRequest req)
     {
-        var denied = await CheckWriteAccessAsync(shipmentId); 
+        var denied = await CheckWriteAccessAsync(shipmentId);
         if (denied is not null) return denied;
-        
-        if (!await _db.Shipments.AnyAsync(s => s.Id == shipmentId)) return NotFound();
+
+        var shipment = await _db.Shipments.FirstOrDefaultAsync(s => s.Id == shipmentId);
+        if (shipment is null) return NotFound();
 
         var entity = await _db.ShipmentAcds.FirstOrDefaultAsync(x => x.ShipmentId == shipmentId);
         if (entity is null) { entity = new ShipmentAcd { ShipmentId = shipmentId }; _db.ShipmentAcds.Add(entity); }
 
         entity.ProcessDate = req.ProcessDate;
-        entity.CostUsd = req.CostUsd;
         entity.CostSettledDate = req.CostSettledDate;
         entity.RefNumber = req.RefNumber;
+
+        // ACD cost is always computed, never entered directly — rate/FCL
+        // comes from Settings and may change over time, so we use whichever
+        // rate was in effect on or before this shipment's process date (or
+        // today, if no process date is set yet).
+        var asOfDate = req.ProcessDate ?? DateOnly.FromDateTime(DateTime.UtcNow);
+        var rate = await _db.AcdCostSettings
+            .Where(r => r.EffectiveDate <= asOfDate)
+            .OrderByDescending(r => r.EffectiveDate)
+            .FirstOrDefaultAsync();
+
+        entity.CostUsd = rate is not null
+            ? (rate.Rate20Usd * shipment.Fcl20Count) + (rate.Rate40Usd * shipment.Fcl40Count)
+            : (decimal?)null;
 
         await _db.SaveChangesAsync();
         return Ok(entity);
