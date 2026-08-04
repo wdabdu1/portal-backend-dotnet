@@ -200,6 +200,7 @@ public class SpcStorageTier
 public class AcdCostSetting
 {
     public int Id { get; set; }
-    public decimal CostPerFclUsd { get; set; }
+    public decimal Rate20Usd { get; set; }
+    public decimal Rate40Usd { get; set; }
     public DateOnly EffectiveDate { get; set; }
 }
