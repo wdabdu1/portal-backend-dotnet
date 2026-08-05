@@ -95,7 +95,7 @@ public class ShipmentDetailsFullController : ControllerBase
             : new
             {
                 mot.ProcessDate, mot.Cost, mot.CostSettledDate, mot.RefNumber,
-                mot.OffshoreApprovedPiNumber, mot.OffshoreApprovedPiDate
+                mot.ApprovalDate, mot.OffshoreApprovedPiNumber
             });
 
         // --- Supplier Full Set — hidden entirely from Clearance ---
