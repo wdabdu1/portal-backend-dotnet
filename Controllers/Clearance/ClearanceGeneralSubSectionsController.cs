@@ -113,10 +113,8 @@ public class ClearanceGeneralSubSectionsController : ControllerBase
 
     [HttpGet("estimate-line-items")]
     [Authorize(Roles = AppRoles.ClearanceViewers)]
-    public async Task<ActionResult<EstimateLineItemResponse>> AddEstimateLineItem(int shipmentId, EstimateLineItemRequest req)
+    public async Task<ActionResult<EstimateLineItemResponse>> GetEstimateLineItems(int shipmentId)
     {
-        var lockDenied = await _sectionLock.EnsureNotLockedAsync("Clearance", shipmentId, "costEstimate");
-        if (lockDenied is not null) return lockDenied;
         var clearance = await GetOrCreateClearanceAsync(shipmentId);
         if (clearance is null) return Ok(new List<EstimateLineItemResponse>());
 
@@ -131,6 +129,8 @@ public class ClearanceGeneralSubSectionsController : ControllerBase
     [Authorize(Roles = AppRoles.ClearanceEditors)]
     public async Task<ActionResult<EstimateLineItemResponse>> AddEstimateLineItem(int shipmentId, EstimateLineItemRequest req)
     {
+        var lockDenied = await _sectionLock.EnsureNotLockedAsync("Clearance", shipmentId, "costEstimate");
+        if (lockDenied is not null) return lockDenied;
         var clearance = await GetOrCreateClearanceAsync(shipmentId);
         if (clearance is null) return NotFound();
 
