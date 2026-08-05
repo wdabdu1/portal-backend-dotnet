@@ -73,18 +73,6 @@ public class ShipmentMot
     public string? OffshoreApprovedPiNumber { get; set; }
 }
 
-public class ShipmentLineItem
-{
-    public int Id { get; set; }
-    public int ShipmentId { get; set; }
-    public Shipment? Shipment { get; set; }
-    public int PurchaseOrderLineItemId { get; set; }
-    public PurchaseOrderLineItem? PurchaseOrderLineItem { get; set; }
-    public decimal QtyInBl { get; set; }
-    public decimal ItemSubtotal { get; set; }
-    public string? HsCode { get; set; }
-}
-
 // Invoice Value/Currency are fully computed (sum of ShipmentLineItem
 // subtotals) — nothing stored here for the invoice header anymore.
 // Only the actual payment records are real data now.
