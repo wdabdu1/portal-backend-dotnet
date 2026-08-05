@@ -60,6 +60,7 @@ builder.Services.AddScoped<FxRateService>();
 builder.Services.AddScoped<ClearanceScheduleService>();
 builder.Services.AddScoped<DemurrageStorageService>();
 builder.Services.AddScoped<BuAccessService>();
+builder.Services.AddScoped<SectionLockService>();
 
 builder.Services.AddControllers()
     .AddJsonOptions(options =>
