@@ -78,6 +78,7 @@ public class ShippingPortalDbContext : IdentityDbContext<ApplicationUser>
     public DbSet<ShippingPortal.Api.Models.Clearance.ClearanceCertificateEntry> ClearanceCertificateEntries => Set<ShippingPortal.Api.Models.Clearance.ClearanceCertificateEntry>();
     public DbSet<ShippingPortal.Api.Models.Clearance.ClearanceChargeType> ClearanceChargeTypes => Set<ShippingPortal.Api.Models.Clearance.ClearanceChargeType>();
     public DbSet<ShippingPortal.Api.Models.Clearance.ClearanceEstimateLineItem> ClearanceEstimateLineItems => Set<ShippingPortal.Api.Models.Clearance.ClearanceEstimateLineItem>();
+    public DbSet<ShippingPortal.Api.Models.Clearance.ClearanceRoute3Withdrawal> ClearanceRoute3Withdrawals => Set<ShippingPortal.Api.Models.Clearance.ClearanceRoute3Withdrawal>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -246,5 +247,31 @@ public class ShippingPortalDbContext : IdentityDbContext<ApplicationUser>
         builder.Entity<ShipmentBanking>().HasOne(b => b.ReceivingBank).WithMany().OnDelete(DeleteBehavior.Restrict);
         builder.Entity<ShipmentBanking>().HasOne(b => b.CollectionCurrency).WithMany().OnDelete(DeleteBehavior.Restrict);
         builder.Entity<ShipmentBanking>().HasOne(b => b.Tenor).WithMany().OnDelete(DeleteBehavior.Restrict);
+
+        // FZ Inventory: Route 2's destination is a Settings lookup (restrict-delete),
+        // Route 2's link to its own Shipment already exists via Clearance.
+        builder.Entity<ShippingPortal.Api.Models.Clearance.ClearanceRoute2Details>()
+            .HasOne(r => r.Destination)
+            .WithMany()
+            .OnDelete(DeleteBehavior.Restrict);
+
+        // Route 3's link back to the depositing Shipment — restrict, since a
+        // deposit shipment can't be deleted while a withdrawal references it.
+        builder.Entity<ShippingPortal.Api.Models.Clearance.ClearanceRoute3Details>()
+            .HasOne(r => r.DepositShipment)
+            .WithMany()
+            .OnDelete(DeleteBehavior.Restrict);
+
+        // Withdrawal ledger: cascades with its own Route 3 record, but
+        // restrict-delete on the deposited line item it draws down.
+        builder.Entity<ShippingPortal.Api.Models.Clearance.ClearanceRoute3Withdrawal>()
+            .HasOne(w => w.ClearanceRoute3Details)
+            .WithMany()
+            .OnDelete(DeleteBehavior.Cascade);
+
+        builder.Entity<ShippingPortal.Api.Models.Clearance.ClearanceRoute3Withdrawal>()
+            .HasOne(w => w.DepositShipmentLineItem)
+            .WithMany()
+            .OnDelete(DeleteBehavior.Restrict);
     }
 }
