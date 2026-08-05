@@ -14,7 +14,7 @@ public record ShipmentLineItemRequest(int PurchaseOrderLineItemId, decimal QtyIn
 
 public record CreateShipmentRequest(
     string BlAwbNo, int PurchaseOrderId, DateOnly? BlAwbDate, DateOnly? Etd, DateOnly? Eta,
-    int ShippingLineId, int Fcl20Count, int Fcl40Count, bool Soc, int? BlFreeDays,
+    int ShippingLineId, string? VesselName, int Fcl20Count, int Fcl40Count, bool Soc, int? BlFreeDays,
     List<ShipmentLineItemRequest> LineItems);
 
 public record ShipmentSummary(int Id, string BlAwbNo, string PoNumber, string BusinessUnit, string ShippingLine, string Status, DateOnly? Eta, int LineItemCount);
@@ -96,6 +96,7 @@ public class ShipmentsController : ControllerBase
             Etd = req.Etd,
             Eta = req.Eta,
             ShippingLineId = req.ShippingLineId,
+            VesselName = req.VesselName,
             Fcl20Count = req.Fcl20Count,
             Fcl40Count = req.Fcl40Count,
             Soc = req.Soc,
