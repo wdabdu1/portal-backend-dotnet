@@ -14,12 +14,11 @@ public record ErpColumnDetail(string CompanyName, int SequenceOrder, bool IsLast
 public record ShipmentFullDetailResponse(
     int Id, string BlAwbNo, string PoNumber, string Status,
     string BusinessUnit, string? Division, string? Supplier, string Consignee, string Category,
-    int Fcl20Count, int Fcl40Count, DateOnly? Etd, DateOnly? Eta, DateOnly? SobActualDate,
+    string? VesselName, int Fcl20Count, int Fcl40Count, DateOnly? Etd, DateOnly? Eta, DateOnly? SobActualDate,
     List<ShipmentLineItemDetail> LineItems,
     object? Forwarder, object? Acd, object? DraftDocuments, object? Ssmo, object? Mot,
     object? SupplierFullSet, object? Banking,
     List<ErpColumnDetail> ErpInfo, string? LastOffshoreInvoiceNo);
-
 [ApiController]
 [Authorize(Roles = AppRoles.ShipmentDetailsViewers)]
 [Route("api/shipments/{id:int}/full-details")]
@@ -183,9 +182,7 @@ public class ShipmentDetailsFullController : ControllerBase
             shipment.Id, shipment.BlAwbNo, shipment.PurchaseOrder!.PoNumber, shipment.Status.ToString(),
             shipment.PurchaseOrder.BusinessUnit!.Name, shipment.PurchaseOrder.Division?.Name,
             isClearance ? null : shipment.PurchaseOrder.Supplier?.Name,
-            shipment.PurchaseOrder.Consignee?.Name ?? "", category,
+            shipment.PurchaseOrder.Consignee?.Name ?? "", category, shipment.VesselName,
             shipment.Fcl20Count, shipment.Fcl40Count, shipment.Etd, shipment.Eta, shipment.SobActualDate,
-            lineItems, forwarder, acdDto, draftDto, ssmoDto, motDto, supplierFullSet, banking, erpColumns,
-            lastOffshoreInvoiceNo);
     }
 }
