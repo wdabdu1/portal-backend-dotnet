@@ -143,6 +143,9 @@ public class ClearanceRouteDetailsController : ControllerBase
 
         entity.DepositRequestDate = req.DepositRequestDate;
         entity.RequestApprovalDate = req.RequestApprovalDate;
+        entity.DepositRefNo = req.DepositRefNo;
+        entity.FzInvoiceNo = req.FzInvoiceNo;
+        entity.DestinationId = req.DestinationId;
         entity.InspectionDate = req.InspectionDate;
         entity.SpcBillRequestDate = req.SpcBillRequestDate;
         entity.SpcBillValueSdg = req.SpcBillValueSdg;
@@ -200,6 +203,34 @@ public class ClearanceRouteDetailsController : ControllerBase
         entity.ReleaseExitPassDate = req.ReleaseExitPassDate;
         entity.TruckPortEntryPermitDate = req.TruckPortEntryPermitDate;
         entity.ClearanceActualCompletedDate = req.ClearanceActualCompletedDate;
+        entity.DepositShipmentId = req.DepositShipmentId;
+
+        await _db.SaveChangesAsync();
+
+        // Withdrawal quantities are fully replaced on every save — the
+        // frontend always sends the complete current set for this
+        // withdrawal shipment, not a diff, so this is simplest and correct.
+        if (req.Withdrawals is not null)
+        {
+            var existing = await _db.ClearanceRoute3Withdrawals
+                .Where(w => w.ClearanceRoute3DetailsId == entity.Id)
+                .ToListAsync();
+            _db.ClearanceRoute3Withdrawals.RemoveRange(existing);
+
+            foreach (var w in req.Withdrawals.Where(w => w.Qty > 0))
+            {
+                _db.ClearanceRoute3Withdrawals.Add(new ClearanceRoute3Withdrawal
+                {
+                    ClearanceRoute3DetailsId = entity.Id,
+                    DepositShipmentLineItemId = w.ShipmentLineItemId,
+                    Qty = w.Qty
+                });
+            }
+            await _db.SaveChangesAsync();
+        }
+
+        return Ok(entity);
+    }
 
         await _db.SaveChangesAsync();
         return Ok(entity);
