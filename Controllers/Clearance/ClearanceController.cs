@@ -32,7 +32,12 @@ public record ClearanceScheduleResponse(DateOnly? EstimatedCompletionDate, List<
 public class ClearanceController : ControllerBase
 {
     private readonly ShippingPortalDbContext _db;
-    public ClearanceController(ShippingPortalDbContext db) => _db = db;
+    private readonly ShippingPortal.Api.Services.SectionLockService _sectionLock;
+    public ClearanceController(ShippingPortalDbContext db, ShippingPortal.Api.Services.SectionLockService sectionLock)
+    {
+        _db = db;
+        _sectionLock = sectionLock;
+    }
 
     // Selection screen: only Confirmed shipments (nothing to clear on a Draft),
     // sorted by ETA ascending — soonest-arriving first, per the requirement.
@@ -254,6 +259,8 @@ public class ClearanceController : ControllerBase
     [Authorize(Roles = AppRoles.ClearanceEditors)]
     public async Task<IActionResult> UpsertGeneralInfo(int shipmentId, ClearanceGeneralInfoRequest req)
     {
+        var lockDenied = await _sectionLock.EnsureNotLockedAsync("Clearance", shipmentId, "generalInfo");
+        if (lockDenied is not null) return lockDenied;
         if (!await _db.Shipments.AnyAsync(s => s.Id == shipmentId)) return NotFound();
 
         var clearance = await _db.Clearances.FirstOrDefaultAsync(c => c.ShipmentId == shipmentId);
@@ -284,6 +291,8 @@ public class ClearanceController : ControllerBase
     [Authorize(Roles = AppRoles.ClearanceEditors)]
     public async Task<IActionResult> SetRoute(int shipmentId, ClearanceRouteRequest req)
     {
+        var lockDenied = await _sectionLock.EnsureNotLockedAsync("Clearance", shipmentId, "route");
+        if (lockDenied is not null) return lockDenied;
         if (!await _db.Shipments.AnyAsync(s => s.Id == shipmentId)) return NotFound();
 
         var clearance = await _db.Clearances.FirstOrDefaultAsync(c => c.ShipmentId == shipmentId);
