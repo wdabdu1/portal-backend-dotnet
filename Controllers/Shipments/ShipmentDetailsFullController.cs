@@ -12,7 +12,7 @@ public record ShipmentLineItemDetail(string ProductCategory, string ModelProduct
 public record ErpColumnDetail(string CompanyName, int SequenceOrder, bool IsLast, object? Data);
 
 public record ShipmentFullDetailResponse(
-    int Id, string BlAwbNo, string PoNumber, string Status,
+    int Id, string BlAwbNo, string? PoNumber, string Status,
     string BusinessUnit, string? Division, string? Supplier, string Consignee, string Category,
     string? VesselName, int Fcl20Count, int Fcl40Count, DateOnly? Etd, DateOnly? Eta, DateOnly? SobActualDate,
     List<ShipmentLineItemDetail> LineItems,
@@ -67,10 +67,12 @@ public class ShipmentDetailsFullController : ControllerBase
         }
 
         // --- ACD — Clearance sees only Date + Reference No. ---
-        var acd = await _db.ShipmentAcds.FirstOrDefaultAsync(x => x.ShipmentId == id);
-        object? acdDto = acd is null ? null : (isClearance
-            ? new { acd.ProcessDate, acd.RefNumber }
-            : new { acd.ProcessDate, acd.CostUsd, acd.CostSettledDate, acd.RefNumber });
+        object? acdDto = null;
+        if (!isClearance)
+        {
+            var acd = await _db.ShipmentAcds.FirstOrDefaultAsync(x => x.ShipmentId == id);
+            acdDto = acd is null ? null : new { acd.ProcessDate, acd.CostUsd, acd.CostSettledDate, acd.RefNumber };
+        }
 
         // --- Draft Documents — hidden entirely from Clearance ---
         object? draftDto = null;
@@ -179,7 +181,7 @@ public class ShipmentDetailsFullController : ControllerBase
         var category = lineItems.FirstOrDefault()?.ProductCategory ?? "";
 
         return new ShipmentFullDetailResponse(
-            shipment.Id, shipment.BlAwbNo, shipment.PurchaseOrder!.PoNumber, shipment.Status.ToString(),
+            shipment.Id, shipment.BlAwbNo, isClearance ? null : shipment.PurchaseOrder!.PoNumber, shipment.Status.ToString(),
             shipment.PurchaseOrder.BusinessUnit!.Name, shipment.PurchaseOrder.Division?.Name,
             isClearance ? null : shipment.PurchaseOrder.Supplier?.Name,
             shipment.PurchaseOrder.Consignee?.Name ?? "", category, shipment.VesselName,
