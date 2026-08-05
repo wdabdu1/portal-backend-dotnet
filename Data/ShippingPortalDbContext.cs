@@ -18,6 +18,7 @@ public class ShippingPortalDbContext : IdentityDbContext<ApplicationUser>
     // Identity / access
     public DbSet<UserBusinessUnitAccess> UserBusinessUnitAccess => Set<UserBusinessUnitAccess>();
     public DbSet<ShippingPortal.Api.Models.SectionLock> SectionLocks => Set<ShippingPortal.Api.Models.SectionLock>();
+    public DbSet<ShippingPortal.Api.Models.UserTablePreference> UserTablePreferences => Set<ShippingPortal.Api.Models.UserTablePreference>();
 
     // Settings / master data
     public DbSet<BusinessUnit> BusinessUnits => Set<BusinessUnit>();
@@ -143,6 +144,10 @@ public class ShippingPortalDbContext : IdentityDbContext<ApplicationUser>
 
         builder.Entity<ShippingPortal.Api.Models.SectionLock>()
             .HasIndex(l => new { l.EntityType, l.EntityId, l.SectionKey })
+            .IsUnique();
+
+        builder.Entity<ShippingPortal.Api.Models.UserTablePreference>()
+            .HasIndex(p => new { p.UserId, p.TableKey })
             .IsUnique();
 
         // 1:1 Shipment sub-groups, each independently editable.
