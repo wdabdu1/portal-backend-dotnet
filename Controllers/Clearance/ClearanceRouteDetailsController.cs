@@ -41,7 +41,12 @@ public record Route3Request(
 public class ClearanceRouteDetailsController : ControllerBase
 {
     private readonly ShippingPortalDbContext _db;
-    public ClearanceRouteDetailsController(ShippingPortalDbContext db) => _db = db;
+    private readonly ShippingPortal.Api.Services.SectionLockService _sectionLock;
+    public ClearanceRouteDetailsController(ShippingPortalDbContext db, ShippingPortal.Api.Services.SectionLockService sectionLock)
+    {
+        _db = db;
+        _sectionLock = sectionLock;
+    }
 
     private async Task<ClearanceEntity?> GetOrCreateClearanceAsync(int shipmentId)
     {
@@ -71,6 +76,8 @@ public class ClearanceRouteDetailsController : ControllerBase
     [Authorize(Roles = AppRoles.ClearanceEditors)]
     public async Task<IActionResult> SaveRoute1(int shipmentId, Route1Request req)
     {
+        var lockDenied = await _sectionLock.EnsureNotLockedAsync("Clearance", shipmentId, "route1");
+        if (lockDenied is not null) return lockDenied;
         var clearance = await GetOrCreateClearanceAsync(shipmentId);
         if (clearance is null) return NotFound();
 
@@ -122,6 +129,8 @@ public class ClearanceRouteDetailsController : ControllerBase
     [Authorize(Roles = AppRoles.ClearanceEditors)]
     public async Task<IActionResult> SaveRoute2(int shipmentId, Route2Request req)
     {
+        var lockDenied = await _sectionLock.EnsureNotLockedAsync("Clearance", shipmentId, "route2");
+        if (lockDenied is not null) return lockDenied;
         var clearance = await GetOrCreateClearanceAsync(shipmentId);
         if (clearance is null) return NotFound();
 
@@ -160,6 +169,8 @@ public class ClearanceRouteDetailsController : ControllerBase
     [Authorize(Roles = AppRoles.ClearanceEditors)]
     public async Task<IActionResult> SaveRoute3(int shipmentId, Route3Request req)
     {
+        var lockDenied = await _sectionLock.EnsureNotLockedAsync("Clearance", shipmentId, "route3");
+        if (lockDenied is not null) return lockDenied;
         var clearance = await GetOrCreateClearanceAsync(shipmentId);
         if (clearance is null) return NotFound();
 
