@@ -56,6 +56,7 @@ public class ShipmentSsmo
     public decimal? Cost { get; set; }
     public DateOnly? CostSettledDate { get; set; }
     public string? RefNumber { get; set; }
+    public DateOnly? ApprovalDate { get; set; }
 }
 
 public class ShipmentMot
@@ -68,23 +69,20 @@ public class ShipmentMot
     public decimal? Cost { get; set; }
     public DateOnly? CostSettledDate { get; set; }
     public string? RefNumber { get; set; }
+    public DateOnly? ApprovalDate { get; set; }
     public string? OffshoreApprovedPiNumber { get; set; }
-    public DateOnly? OffshoreApprovedPiDate { get; set; }
 }
 
-public class ShipmentSupplierFullSet
+public class ShipmentLineItem
 {
     public int Id { get; set; }
     public int ShipmentId { get; set; }
     public Shipment? Shipment { get; set; }
-
-    public string? SupplierInvoiceNo { get; set; }
-    public DateOnly? SupplierInvoiceDate { get; set; }
-    public DateOnly? FsDispatchDate { get; set; }
-    public int? FsDispatchedViaId { get; set; }
-    public Courier? FsDispatchedVia { get; set; }
-    public string? FsTrackingNumber { get; set; }
-    public DateOnly? FsReceivedDate { get; set; }
+    public int PurchaseOrderLineItemId { get; set; }
+    public PurchaseOrderLineItem? PurchaseOrderLineItem { get; set; }
+    public decimal QtyInBl { get; set; }
+    public decimal ItemSubtotal { get; set; }
+    public string? HsCode { get; set; }
 }
 
 // Invoice Value/Currency are fully computed (sum of ShipmentLineItem
