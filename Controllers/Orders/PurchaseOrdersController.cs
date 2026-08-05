@@ -20,7 +20,7 @@ public record CreatePurchaseOrderRequest(
     string? OffshorePoNo, DateOnly? OffshorePoDate, DateOnly? ReceivedSignedPiDate, DateOnly? SentSignedPiDate, DateOnly? BuPoDate, DateOnly? OrderExecutionDate, DateOnly? LatestShippingDate,
     List<LineItemRequest> LineItems, List<OffshorePartnerRequest> OffshorePartners);
 
-public record PurchaseOrderSummary(int Id, string PoNumber, string BusinessUnit, string Supplier, string Status, int LineItemCount, DateTime CreatedAt, decimal OrderValueUsd);
+public record PurchaseOrderSummary(int Id, string PoNumber, string BusinessUnit, string Supplier, string Status, int LineItemCount, DateTime CreatedAt, decimal OrderValueUsd, decimal PercentShipped);
 
 public record LineItemResponse(int Id, string ProductCategory, string ModelProduct, string ProductType, decimal Qty, string UnitOfMeasure, decimal UnitPrice, string Currency, decimal Total, decimal TotalUsd);
 public record OffshorePartnerResponse(int Id, string BusinessPartnerName, int SequenceOrder);
@@ -65,7 +65,10 @@ public class PurchaseOrdersController : ControllerBase
             .Select(p => new PurchaseOrderSummary(
                 p.Id, p.PoNumber, p.BusinessUnit!.Name, p.Supplier!.Name,
                 p.Status.ToString(), p.LineItems.Count, p.CreatedAt,
-                p.LineItems.Sum(li => li.TotalUsd)))
+                p.LineItems.Sum(li => li.TotalUsd),
+                p.LineItems.Sum(li => li.Qty) == 0 ? 0 :
+                    (_db.ShipmentLineItems.Where(sli => p.LineItems.Select(li => li.Id).Contains(sli.PurchaseOrderLineItemId)).Sum(sli => sli.QtyInBl)
+                        / p.LineItems.Sum(li => li.Qty)) * 100))
             .ToListAsync();
     }
     [HttpGet("confirmed")]
@@ -80,7 +83,7 @@ public class PurchaseOrdersController : ControllerBase
             .Select(p => new PurchaseOrderSummary(
                 p.Id, p.PoNumber, p.BusinessUnit!.Name, p.Supplier!.Name,
                 p.Status.ToString(), p.LineItems.Count, p.CreatedAt,
-                p.LineItems.Sum(li => li.TotalUsd)))
+                p.LineItems.Sum(li => li.TotalUsd), 0))
             .ToListAsync();
     }
 
