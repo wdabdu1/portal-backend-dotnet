@@ -216,6 +216,7 @@ public class ShipmentDetailController : ControllerBase
         entity.Cost = req.Cost;
         entity.CostSettledDate = req.CostSettledDate;
         entity.RefNumber = req.RefNumber;
+        entity.ApprovalDate = req.ApprovalDate;
 
         await _db.SaveChangesAsync();
         return Ok(entity);
@@ -238,8 +239,8 @@ public class ShipmentDetailController : ControllerBase
         entity.Cost = req.Cost;
         entity.CostSettledDate = req.CostSettledDate;
         entity.RefNumber = req.RefNumber;
+        entity.ApprovalDate = req.ApprovalDate;
         entity.OffshoreApprovedPiNumber = req.OffshoreApprovedPiNumber;
-        entity.OffshoreApprovedPiDate = req.OffshoreApprovedPiDate;
 
         await _db.SaveChangesAsync();
         return Ok(entity);
