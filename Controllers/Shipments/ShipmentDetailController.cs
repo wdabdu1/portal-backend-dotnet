@@ -24,13 +24,18 @@ public record ShipmentBankingRequest(
     int? ReceivingBankId, bool NecessaryGoodType, string? CollectionRefNo, decimal? CollectionValue, int? CollectionCurrencyId,
     int? TenorId);
 
+public record ShipmentLineItemHsCode(int LineItemId, string ModelProduct, string? HsCode);
+
 public record ShipmentDetailResponse(
     int Id, string BlAwbNo, string PoNumber, string Status,
     ShipmentForwarder? Forwarder, ShipmentAcd? Acd, ShipmentDraftDocuments? DraftDocuments,
     ShipmentSsmo? Ssmo, ShipmentMot? Mot, ShipmentSupplierFullSet? SupplierFullSet,
     ShipmentBanking? Banking,
     List<string> OffshorePartnerNames,
-    string BusinessUnit, string Supplier, string Category, DateOnly? SobActualDate);
+    string BusinessUnit, string Supplier, string Category, DateOnly? SobActualDate,
+    List<ShipmentLineItemHsCode> LineItemHsCodes);
+
+public record SaveHsCodesRequest(List<ShipmentLineItemHsCode> LineItemHsCodes);
 
 public record ShipOnBoardRequest(DateOnly? SobActualDate);
 
@@ -71,6 +76,7 @@ public class ShipmentDetailController : ControllerBase
             .Include(s => s.PurchaseOrder).ThenInclude(p => p!.BusinessUnit)
             .Include(s => s.PurchaseOrder).ThenInclude(p => p!.Supplier)
             .Include(s => s.LineItems).ThenInclude(li => li.PurchaseOrderLineItem).ThenInclude(pli => pli!.ProductCategory)
+            .Include(s => s.LineItems).ThenInclude(li => li.PurchaseOrderLineItem).ThenInclude(pli => pli!.ModelProduct)
             .FirstOrDefaultAsync(s => s.Id == shipmentId);
         if (shipment is null) return NotFound();
 
@@ -90,9 +96,32 @@ public class ShipmentDetailController : ControllerBase
 
         var category = shipment.LineItems.FirstOrDefault()?.PurchaseOrderLineItem?.ProductCategory?.Name ?? "";
 
+        var lineItemHsCodes = shipment.LineItems
+            .Select(li => new ShipmentLineItemHsCode(li.Id, li.PurchaseOrderLineItem?.ModelProduct?.Name ?? "", li.HsCode))
+            .ToList();
+
         return new ShipmentDetailResponse(shipment.Id, shipment.BlAwbNo, shipment.PurchaseOrder!.PoNumber, shipment.Status.ToString(),
             forwarder, acd, draftDocs, ssmo, mot, fullSet, banking, offshorePartnerNames,
-            shipment.PurchaseOrder.BusinessUnit!.Name, shipment.PurchaseOrder.Supplier!.Name, category, shipment.SobActualDate);
+            shipment.PurchaseOrder.BusinessUnit!.Name, shipment.PurchaseOrder.Supplier!.Name, category, shipment.SobActualDate,
+            lineItemHsCodes);
+    }
+
+    [HttpPut("hs-codes")]
+    public async Task<IActionResult> SaveHsCodes(int shipmentId, SaveHsCodesRequest req)
+    {
+        var denied = await CheckWriteAccessAsync(shipmentId);
+        if (denied is not null) return denied;
+        var lockDenied = await _sectionLock.EnsureNotLockedAsync("Shipment", shipmentId, "acd");
+        if (lockDenied is not null) return lockDenied;
+
+        var lineItems = await _db.ShipmentLineItems.Where(li => li.ShipmentId == shipmentId).ToListAsync();
+        foreach (var update in req.LineItemHsCodes)
+        {
+            var li = lineItems.FirstOrDefault(x => x.Id == update.LineItemId);
+            if (li is not null) li.HsCode = update.HsCode;
+        }
+        await _db.SaveChangesAsync();
+        return NoContent();
     }
 
     [HttpPut("ship-on-board")]
