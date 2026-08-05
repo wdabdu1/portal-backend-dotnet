@@ -229,10 +229,6 @@ public class ClearanceRouteDetailsController : ControllerBase
             await _db.SaveChangesAsync();
         }
 
-        return Ok(entity);
-    }
-
-        await _db.SaveChangesAsync();
-        return Ok(entity);
+       return Ok(entity);
     }
 }
