@@ -184,5 +184,7 @@ public class ShipmentDetailsFullController : ControllerBase
             isClearance ? null : shipment.PurchaseOrder.Supplier?.Name,
             shipment.PurchaseOrder.Consignee?.Name ?? "", category, shipment.VesselName,
             shipment.Fcl20Count, shipment.Fcl40Count, shipment.Etd, shipment.Eta, shipment.SobActualDate,
+            lineItems, forwarder, acdDto, draftDto, ssmoDto, motDto, supplierFullSet, banking, erpColumns,
+            lastOffshoreInvoiceNo);
     }
 }
