@@ -25,7 +25,12 @@ public record CertificateEntryRequest(DateOnly? CertificateEntryDate, string? Sc
 public class ClearanceGeneralSubSectionsController : ControllerBase
 {
     private readonly ShippingPortalDbContext _db;
-    public ClearanceGeneralSubSectionsController(ShippingPortalDbContext db) => _db = db;
+    private readonly ShippingPortal.Api.Services.SectionLockService _sectionLock;
+    public ClearanceGeneralSubSectionsController(ShippingPortalDbContext db, ShippingPortal.Api.Services.SectionLockService sectionLock)
+    {
+        _db = db;
+        _sectionLock = sectionLock;
+    }
 
     private async Task<ClearanceEntity?> GetOrCreateClearanceAsync(int shipmentId)
     {
@@ -53,6 +58,8 @@ public class ClearanceGeneralSubSectionsController : ControllerBase
     [Authorize(Roles = AppRoles.ClearanceEditors)]
     public async Task<IActionResult> SaveDeliveryOrder(int shipmentId, DeliveryOrderRequest req)
     {
+        var lockDenied = await _sectionLock.EnsureNotLockedAsync("Clearance", shipmentId, "deliveryOrder");
+        if (lockDenied is not null) return lockDenied;
         var clearance = await GetOrCreateClearanceAsync(shipmentId);
         if (clearance is null) return NotFound();
 
@@ -88,6 +95,8 @@ public class ClearanceGeneralSubSectionsController : ControllerBase
     [Authorize(Roles = AppRoles.ClearanceEditors)]
     public async Task<IActionResult> SaveCostEstimate(int shipmentId, CostEstimateRequest req)
     {
+        var lockDenied = await _sectionLock.EnsureNotLockedAsync("Clearance", shipmentId, "costEstimate");
+        if (lockDenied is not null) return lockDenied;
         var clearance = await GetOrCreateClearanceAsync(shipmentId);
         if (clearance is null) return NotFound();
 
@@ -104,9 +113,11 @@ public class ClearanceGeneralSubSectionsController : ControllerBase
 
     [HttpGet("estimate-line-items")]
     [Authorize(Roles = AppRoles.ClearanceViewers)]
-    public async Task<ActionResult<IEnumerable<EstimateLineItemResponse>>> GetEstimateLineItems(int shipmentId)
+    public async Task<ActionResult<EstimateLineItemResponse>> AddEstimateLineItem(int shipmentId, EstimateLineItemRequest req)
     {
-        var clearance = await _db.Clearances.FirstOrDefaultAsync(c => c.ShipmentId == shipmentId);
+        var lockDenied = await _sectionLock.EnsureNotLockedAsync("Clearance", shipmentId, "costEstimate");
+        if (lockDenied is not null) return lockDenied;
+        var clearance = await GetOrCreateClearanceAsync(shipmentId);
         if (clearance is null) return Ok(new List<EstimateLineItemResponse>());
 
         return await _db.ClearanceEstimateLineItems
@@ -141,6 +152,8 @@ public class ClearanceGeneralSubSectionsController : ControllerBase
     [Authorize(Roles = AppRoles.ClearanceEditors)]
     public async Task<IActionResult> DeleteEstimateLineItem(int shipmentId, int lineItemId)
     {
+        var lockDenied = await _sectionLock.EnsureNotLockedAsync("Clearance", shipmentId, "costEstimate");
+        if (lockDenied is not null) return lockDenied;
         var clearance = await _db.Clearances.FirstOrDefaultAsync(c => c.ShipmentId == shipmentId);
         if (clearance is null) return NotFound();
 
@@ -165,6 +178,8 @@ public class ClearanceGeneralSubSectionsController : ControllerBase
     [Authorize(Roles = AppRoles.ClearanceEditors)]
     public async Task<IActionResult> SaveCertificateEntry(int shipmentId, CertificateEntryRequest req)
     {
+        var lockDenied = await _sectionLock.EnsureNotLockedAsync("Clearance", shipmentId, "certificateEntry");
+        if (lockDenied is not null) return lockDenied;
         var clearance = await GetOrCreateClearanceAsync(shipmentId);
         if (clearance is null) return NotFound();
 
