@@ -21,12 +21,16 @@ public record Route1Request(
 
 public record Route2Request(
     DateOnly? DepositRequestDate, DateOnly? RequestApprovalDate,
+    string? DepositRefNo, string? FzInvoiceNo, int? DestinationId,
     DateOnly? InspectionDate,
     DateOnly? SpcBillRequestDate, decimal? SpcBillValueSdg, DateOnly? SpcBillSettlementDate, DateOnly? PoliceSecurityAppointedDate,
     DateOnly? TruckPortEntryPermitDate, DateOnly? ContainersReceivedAtFzDate, DateOnly? ContainersReturnedDate,
     DateOnly? ShippingLineDepositReturnDate, decimal? DepositValue, DateOnly? ClearanceActualCompletedDate);
 
+public record WithdrawalLineInput(int ShipmentLineItemId, decimal Qty);
+
 public record Route3Request(
+    int? DepositShipmentId, List<WithdrawalLineInput>? Withdrawals,
     DateOnly? CertificateEntryDate, string? ScudaDeclarationNo,
     DateOnly? SsmoFileRequestDate, decimal? SsmoInspectionAmountSdg, DateOnly? SsmoFeesSettlementDate,
     DateOnly? CustExamStartDate, DateOnly? CustExamCompletedDate,
