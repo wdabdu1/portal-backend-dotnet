@@ -1,3 +1,4 @@
+using ShippingPortal.Api.Models.Lookups;
 namespace ShippingPortal.Api.Models.Clearance;
 
 // Each of these is 1:1 with Clearance, but only ever populated for the
@@ -63,6 +64,10 @@ public class ClearanceRoute2Details
     // FZ Deposit Request
     public DateOnly? DepositRequestDate { get; set; }
     public DateOnly? RequestApprovalDate { get; set; }
+    public string? DepositRefNo { get; set; }
+    public string? FzInvoiceNo { get; set; }
+    public int? DestinationId { get; set; }
+    public ShipmentDestination? Destination { get; set; }
 
     // Customs Inspection
     public DateOnly? InspectionDate { get; set; }
@@ -87,6 +92,12 @@ public class ClearanceRoute3Details
     public int Id { get; set; }
     public int ClearanceId { get; set; }
     public Clearance? Clearance { get; set; }
+
+    // Which Route 2 deposit shipment this withdrawal draws from — set once,
+    // when the user picks the BL. Item-level withdrawal quantities live in
+    // ClearanceRoute3Withdrawal, one row per (this withdrawal, deposited item).
+    public int? DepositShipmentId { get; set; }
+    public Shipments.Shipment? DepositShipment { get; set; }
 
     // Customs Certificate Entry
     public DateOnly? CertificateEntryDate { get; set; }
