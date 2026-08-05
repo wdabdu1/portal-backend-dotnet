@@ -22,6 +22,7 @@ public class Shipment
     public DateOnly? Eta { get; set; }
     public int ShippingLineId { get; set; }
     public ShippingLine? ShippingLine { get; set; }
+    public string? VesselName { get; set; }
     public int Fcl20Count { get; set; }
     public int Fcl40Count { get; set; }
     public bool Soc { get; set; }
