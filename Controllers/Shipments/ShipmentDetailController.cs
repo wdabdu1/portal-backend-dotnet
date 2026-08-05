@@ -41,10 +41,12 @@ public class ShipmentDetailController : ControllerBase
 {
     private readonly ShippingPortalDbContext _db;
     private readonly ShippingPortal.Api.Services.BuAccessService _buAccess;
-    public ShipmentDetailController(ShippingPortalDbContext db, ShippingPortal.Api.Services.BuAccessService buAccess)
+    private readonly ShippingPortal.Api.Services.SectionLockService _sectionLock;
+    public ShipmentDetailController(ShippingPortalDbContext db, ShippingPortal.Api.Services.BuAccessService buAccess, ShippingPortal.Api.Services.SectionLockService sectionLock)
     {
         _db = db;
         _buAccess = buAccess;
+        _sectionLock = sectionLock;
     }
 
     // Every write action below calls this first — returns Forbid() if the
