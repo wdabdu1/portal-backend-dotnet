@@ -113,7 +113,7 @@ public class ClearanceGeneralSubSectionsController : ControllerBase
 
     [HttpGet("estimate-line-items")]
     [Authorize(Roles = AppRoles.ClearanceViewers)]
-    public async Task<ActionResult<EstimateLineItemResponse>> GetEstimateLineItems(int shipmentId)
+    public async Task<ActionResult<IEnumerable<EstimateLineItemResponse>>> GetEstimateLineItems(int shipmentId)
     {
         var clearance = await GetOrCreateClearanceAsync(shipmentId);
         if (clearance is null) return Ok(new List<EstimateLineItemResponse>());
