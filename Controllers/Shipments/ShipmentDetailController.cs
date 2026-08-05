@@ -100,6 +100,8 @@ public class ShipmentDetailController : ControllerBase
     {
         var denied = await CheckWriteAccessAsync(shipmentId); 
         if (denied is not null) return denied;
+        var lockDenied = await _sectionLock.EnsureNotLockedAsync("Shipment", shipmentId, "shipOnBoard");
+        if (lockDenied is not null) return lockDenied;
         
         var shipment = await _db.Shipments.FindAsync(shipmentId);
         if (shipment is null) return NotFound();
@@ -116,6 +118,8 @@ public class ShipmentDetailController : ControllerBase
     {
         var denied = await CheckWriteAccessAsync(shipmentId); 
         if (denied is not null) return denied;
+        var lockDenied = await _sectionLock.EnsureNotLockedAsync("Shipment", shipmentId, "forwarder");
+        if (lockDenied is not null) return lockDenied;
         
         if (!await _db.Shipments.AnyAsync(s => s.Id == shipmentId)) return NotFound();
 
@@ -143,6 +147,8 @@ public class ShipmentDetailController : ControllerBase
     {
         var denied = await CheckWriteAccessAsync(shipmentId);
         if (denied is not null) return denied;
+        var lockDenied = await _sectionLock.EnsureNotLockedAsync("Shipment", shipmentId, "acd");
+        if (lockDenied is not null) return lockDenied;
 
         var shipment = await _db.Shipments.FirstOrDefaultAsync(s => s.Id == shipmentId);
         if (shipment is null) return NotFound();
@@ -177,6 +183,8 @@ public class ShipmentDetailController : ControllerBase
     {
         var denied = await CheckWriteAccessAsync(shipmentId); 
         if (denied is not null) return denied;
+        var lockDenied = await _sectionLock.EnsureNotLockedAsync("Shipment", shipmentId, "draftDocuments");
+        if (lockDenied is not null) return lockDenied;
         
         if (!await _db.Shipments.AnyAsync(s => s.Id == shipmentId)) return NotFound();
 
@@ -196,6 +204,8 @@ public class ShipmentDetailController : ControllerBase
     {
         var denied = await CheckWriteAccessAsync(shipmentId); 
         if (denied is not null) return denied;
+        var lockDenied = await _sectionLock.EnsureNotLockedAsync("Shipment", shipmentId, "ssmo");
+        if (lockDenied is not null) return lockDenied;
         
         if (!await _db.Shipments.AnyAsync(s => s.Id == shipmentId)) return NotFound();
 
@@ -216,6 +226,8 @@ public class ShipmentDetailController : ControllerBase
     {
         var denied = await CheckWriteAccessAsync(shipmentId); 
         if (denied is not null) return denied;
+        var lockDenied = await _sectionLock.EnsureNotLockedAsync("Shipment", shipmentId, "mot");
+        if (lockDenied is not null) return lockDenied;
         
         if (!await _db.Shipments.AnyAsync(s => s.Id == shipmentId)) return NotFound();
 
@@ -238,6 +250,8 @@ public class ShipmentDetailController : ControllerBase
     {
         var denied = await CheckWriteAccessAsync(shipmentId); 
         if (denied is not null) return denied;
+        var lockDenied = await _sectionLock.EnsureNotLockedAsync("Shipment", shipmentId, "supplierFullSet");
+        if (lockDenied is not null) return lockDenied;
         
         if (!await _db.Shipments.AnyAsync(s => s.Id == shipmentId)) return NotFound();
 
@@ -293,8 +307,6 @@ public class ShipmentDetailController : ControllerBase
     [HttpGet("supplier-payment/records")]
     public async Task<ActionResult<IEnumerable<PaymentRecordResponse>>> GetPaymentRecords(int shipmentId)
     {
-        var denied = await CheckWriteAccessAsync(shipmentId); 
-        if (denied is not null) return denied;
         
         return await _db.ShipmentSupplierPaymentRecords
             .Where(r => r.ShipmentId == shipmentId)
@@ -307,6 +319,10 @@ public class ShipmentDetailController : ControllerBase
     [HttpPost("supplier-payment/records")]
     public async Task<ActionResult<PaymentRecordResponse>> AddPaymentRecord(int shipmentId, PaymentRecordRequest req)
     {
+        var denied = await CheckWriteAccessAsync(shipmentId);
+        if (denied is not null) return denied;
+        var lockDenied = await _sectionLock.EnsureNotLockedAsync("Shipment", shipmentId, "supplierPayment");
+        if (lockDenied is not null) return lockDenied;
         if (!await _db.Shipments.AnyAsync(s => s.Id == shipmentId)) return NotFound();
 
         var rate = await GetFxRateAsync(req.CurrencyId);
@@ -344,6 +360,8 @@ public class ShipmentDetailController : ControllerBase
     {
         var denied = await CheckWriteAccessAsync(shipmentId); 
         if (denied is not null) return denied;
+        var lockDenied = await _sectionLock.EnsureNotLockedAsync("Shipment", shipmentId, "banking");
+        if (lockDenied is not null) return lockDenied;
         
         if (!await _db.Shipments.AnyAsync(s => s.Id == shipmentId)) return NotFound();
 
