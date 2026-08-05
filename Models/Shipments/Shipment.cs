@@ -45,4 +45,5 @@ public class ShipmentLineItem
     public PurchaseOrderLineItem? PurchaseOrderLineItem { get; set; }
     public decimal QtyInBl { get; set; }
     public decimal ItemSubtotal { get; set; }
+    public string? HsCode { get; set; }
 }
