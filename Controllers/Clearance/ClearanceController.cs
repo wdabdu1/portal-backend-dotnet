@@ -14,7 +14,8 @@ public record ClearanceShipmentSummary(
 public record ClearanceGeneralInfoRequest(
     DateOnly? CopyOfBlReceivedDate, DateOnly? OriginalShipmentSetReceivedDate, string? LcNo,
     string? DeclarationNo, string? Notes, DateOnly? ClearanceCompleteDate,
-    string? ImFormNo, DateOnly? ImFormDate, DateOnly? ShipmentEta);
+    string? ImFormNo, DateOnly? ImFormDate, DateOnly? ShipmentEta,
+    DateOnly? WithdrawalRequestDate, string? WithdrawalRequestRefNo);
 
 public record ClearanceRouteRequest(int Route); // 0=NotSelected,1=Route1,2=Route2,3=Route3
 
@@ -274,6 +275,8 @@ public class ClearanceController : ControllerBase
         clearance.ClearanceCompleteDate = req.ClearanceCompleteDate;
         clearance.ImFormNo = req.ImFormNo;
         clearance.ImFormDate = req.ImFormDate;
+        clearance.WithdrawalRequestDate = req.WithdrawalRequestDate;
+        clearance.WithdrawalRequestRefNo = req.WithdrawalRequestRefNo;
         clearance.UpdatedAt = DateTime.UtcNow;
 
         // Same cell as the Shipment's own ETA — editable from either place.
