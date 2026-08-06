@@ -9,6 +9,15 @@ namespace ShippingPortal.Api.Controllers.Clearance;
 public record FzDepositOption(int ShipmentId, string BlAwbNo, string? DepositRefNo);
 public record FzBalanceLine(int ShipmentLineItemId, string ModelProduct, decimal Deposited, decimal Withdrawn, decimal Balance);
 
+// Shipment-level shape, used only internally to drive the Route 3 BL
+// picker — still filtered to deposits with remaining balance, since you
+// can't withdraw from an empty one.
+public record FzOpenDeposit(
+    int ShipmentId, string BusinessUnit, string BlAwbNo, string? DepositRefNo, DateOnly? DateOfDeposit,
+    string? Division, decimal TotalQty, decimal TotalWithdrawn, decimal Balance);
+
+// Item-level shape for the full-history inventory table, grouped by FZ
+// destination on the frontend.
 public record FzInventoryItemRow(
     int ShipmentLineItemId, string Destination, string BusinessUnit, string Category, string ModelProduct,
     string BlAwbNo, DateOnly? DateOfDeposit, string? DepositRefNo,
@@ -23,10 +32,15 @@ public class FzInventoryController : ControllerBase
     private readonly ShippingPortalDbContext _db;
     public FzInventoryController(ShippingPortalDbContext db) => _db = db;
 
-    // Every Route 2 deposit that has completed the deposit step (has a
-    // Containers Received at FZ date) and still has some balance left —
-    // used both for the BL picker in Route 3 and the full inventory table.
-    private async Task<List<FzInventoryRow>> GetOpenDepositsAsync()
+    private async Task<Dictionary<int, decimal>> GetWithdrawnByLineItemAsync()
+    {
+        return await _db.ClearanceRoute3Withdrawals
+            .GroupBy(w => w.DepositShipmentLineItemId)
+            .Select(g => new { LineItemId = g.Key, Total = g.Sum(w => w.Qty) })
+            .ToDictionaryAsync(x => x.LineItemId, x => x.Total);
+    }
+
+    private async Task<List<FzOpenDeposit>> GetOpenDepositsAsync()
     {
         var deposits = await _db.ClearanceRoute2Details
             .Where(r => r.ContainersReceivedAtFzDate != null)
@@ -34,19 +48,13 @@ public class FzInventoryController : ControllerBase
             .Include(r => r.Clearance).ThenInclude(c => c!.Shipment).ThenInclude(s => s!.PurchaseOrder).ThenInclude(p => p!.Division)
             .ToListAsync();
 
-        var withdrawnByLineItem = await _db.ClearanceRoute3Withdrawals
-            .GroupBy(w => w.DepositShipmentLineItemId)
-            .Select(g => new { LineItemId = g.Key, Total = g.Sum(w => w.Qty) })
-            .ToDictionaryAsync(x => x.LineItemId, x => x.Total);
+        var withdrawnByLineItem = await GetWithdrawnByLineItemAsync();
 
-        var result = new List<FzInventoryRow>();
+        var result = new List<FzOpenDeposit>();
         foreach (var deposit in deposits)
         {
             var shipment = deposit.Clearance!.Shipment!;
-            var lineItems = await _db.ShipmentLineItems
-                .Where(li => li.ShipmentId == shipment.Id)
-                .Include(li => li.PurchaseOrderLineItem).ThenInclude(pli => pli!.ProductCategory)
-                .ToListAsync();
+            var lineItems = await _db.ShipmentLineItems.Where(li => li.ShipmentId == shipment.Id).ToListAsync();
 
             var totalQty = lineItems.Sum(li => li.QtyInBl);
             var totalWithdrawn = lineItems.Sum(li => withdrawnByLineItem.GetValueOrDefault(li.Id, 0m));
@@ -54,25 +62,58 @@ public class FzInventoryController : ControllerBase
 
             if (balance <= 0) continue;
 
-            var categories = lineItems
-                .Select(li => li.PurchaseOrderLineItem?.ProductCategory?.Name ?? "")
-                .Where(c => c != "")
-                .Distinct()
-                .Take(2)
-                .ToList();
-
-            result.Add(new FzInventoryRow(
+            result.Add(new FzOpenDeposit(
                 shipment.Id, shipment.PurchaseOrder?.BusinessUnit?.Name ?? "", shipment.BlAwbNo, deposit.DepositRefNo,
-                deposit.ContainersReceivedAtFzDate, shipment.PurchaseOrder?.Division?.Name, categories,
+                deposit.ContainersReceivedAtFzDate, shipment.PurchaseOrder?.Division?.Name,
                 totalQty, totalWithdrawn, balance));
         }
 
         return result.OrderBy(r => r.BlAwbNo).ToList();
     }
 
+    // Every item ever deposited to FZ (full history, including fully
+    // withdrawn items) — the actual inventory table, one row per deposited
+    // line item, grouped by destination on the frontend.
     [HttpGet]
-    public async Task<ActionResult<IEnumerable<FzInventoryRow>>> GetInventory()
-        => Ok(await GetOpenDepositsAsync());
+    public async Task<ActionResult<IEnumerable<FzInventoryItemRow>>> GetInventory()
+    {
+        var deposits = await _db.ClearanceRoute2Details
+            .Where(r => r.ContainersReceivedAtFzDate != null)
+            .Include(r => r.Destination)
+            .Include(r => r.Clearance).ThenInclude(c => c!.Shipment).ThenInclude(s => s!.PurchaseOrder).ThenInclude(p => p!.BusinessUnit)
+            .ToListAsync();
+
+        var withdrawnByLineItem = await GetWithdrawnByLineItemAsync();
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+
+        var result = new List<FzInventoryItemRow>();
+        foreach (var deposit in deposits)
+        {
+            var shipment = deposit.Clearance!.Shipment!;
+            var lineItems = await _db.ShipmentLineItems
+                .Where(li => li.ShipmentId == shipment.Id)
+                .Include(li => li.PurchaseOrderLineItem).ThenInclude(pli => pli!.ProductCategory)
+                .Include(li => li.PurchaseOrderLineItem).ThenInclude(pli => pli!.ModelProduct)
+                .ToListAsync();
+
+            foreach (var li in lineItems)
+            {
+                var withdrawn = withdrawnByLineItem.GetValueOrDefault(li.Id, 0m);
+                var inventoryDays = deposit.ContainersReceivedAtFzDate.HasValue
+                    ? today.DayNumber - deposit.ContainersReceivedAtFzDate.Value.DayNumber
+                    : 0;
+
+                result.Add(new FzInventoryItemRow(
+                    li.Id, deposit.Destination?.Name ?? "", shipment.PurchaseOrder?.BusinessUnit?.Name ?? "",
+                    li.PurchaseOrderLineItem?.ProductCategory?.Name ?? "", li.PurchaseOrderLineItem?.ModelProduct?.Name ?? "",
+                    shipment.BlAwbNo, deposit.ContainersReceivedAtFzDate, deposit.DepositRefNo,
+                    li.QtyInBl, withdrawn, li.QtyInBl - withdrawn,
+                    inventoryDays, li.QtyInBl == 0 ? 0 : (withdrawn / li.QtyInBl) * 100));
+            }
+        }
+
+        return Ok(result);
+    }
 
     [HttpGet("options")]
     public async Task<ActionResult<IEnumerable<FzDepositOption>>> GetDepositOptions()
