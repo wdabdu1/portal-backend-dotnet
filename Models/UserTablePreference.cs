@@ -9,4 +9,5 @@ public class UserTablePreference
     public string TableKey { get; set; } = "";
     public string SortColumn { get; set; } = "";
     public bool SortAsc { get; set; } = true;
+    public string? ColumnOrder { get; set; } // comma-separated column keys, user's preferred left-to-right order
 }
