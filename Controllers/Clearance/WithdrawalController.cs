@@ -196,6 +196,27 @@ public class WithdrawalController : ControllerBase
 
     [HttpGet("{id:int}/line-items")]
     [Authorize(Roles = AppRoles.ClearanceViewers)]
+    // Reusable across GET (display) and PUT (validation): everything
+    // currently allocated to this deposited item EXCLUDING this specific
+    // withdrawal's own entries, split into completed (permanent) vs
+    // in-progress-elsewhere (reserved, blocks new allocation but isn't
+    // "withdrawn" yet).
+    private async Task<Dictionary<int, (decimal CompletedElsewhere, decimal ReservedElsewhere)>> GetAllocationsExcludingAsync(int withdrawalId, List<int> lineItemIds)
+    {
+        var allLines = await _db.WithdrawalLineItems
+            .Where(x => lineItemIds.Contains(x.DepositShipmentLineItemId) && x.WithdrawalId != withdrawalId)
+            .Include(x => x.Withdrawal)
+            .ToListAsync();
+
+        return lineItemIds.ToDictionary(id => id, id =>
+        {
+            var lines = allLines.Where(x => x.DepositShipmentLineItemId == id);
+            var completedElsewhere = lines.Where(x => x.Withdrawal!.ClearanceActualCompletedDate != null).Sum(x => x.Qty);
+            var reservedElsewhere = lines.Where(x => x.Withdrawal!.ClearanceActualCompletedDate == null).Sum(x => x.Qty);
+            return (completedElsewhere, reservedElsewhere);
+        });
+    }
+
     public async Task<ActionResult<IEnumerable<FzBalanceLine>>> GetLineItems(int id)
     {
         var w = await _db.Withdrawals.FindAsync(id);
@@ -206,22 +227,19 @@ public class WithdrawalController : ControllerBase
             .Include(li => li.PurchaseOrderLineItem).ThenInclude(pli => pli!.ModelProduct)
             .ToListAsync();
 
-        var withdrawnByLineItem = await _db.WithdrawalLineItems
-            .Where(x => lineItems.Select(li => li.Id).Contains(x.DepositShipmentLineItemId))
-            .GroupBy(x => x.DepositShipmentLineItemId)
-            .Select(g => new { LineItemId = g.Key, Total = g.Sum(x => x.Qty) })
-            .ToDictionaryAsync(x => x.LineItemId, x => x.Total);
-
         var thisWithdrawalQty = await _db.WithdrawalLineItems
             .Where(x => x.WithdrawalId == id)
             .ToDictionaryAsync(x => x.DepositShipmentLineItemId, x => x.Qty);
 
+        var allocations = await GetAllocationsExcludingAsync(id, lineItems.Select(li => li.Id).ToList());
+
         var result = lineItems.Select(li =>
         {
-            var withdrawnElsewhere = withdrawnByLineItem.GetValueOrDefault(li.Id, 0m) - thisWithdrawalQty.GetValueOrDefault(li.Id, 0m);
-            var availableForThisWithdrawal = li.QtyInBl - withdrawnElsewhere;
-            return new FzBalanceLine(li.Id, li.PurchaseOrderLineItem?.ModelProduct?.Name ?? "", li.QtyInBl, withdrawnElsewhere, availableForThisWithdrawal);
-        }).Where(l => l.Balance > 0 || thisWithdrawalQty.ContainsKey(l.ShipmentLineItemId)).ToList();
+            var (completedElsewhere, reservedElsewhere) = allocations[li.Id];
+            var withdrawnTotal = completedElsewhere; // shown as "Withdrawn" — completed only
+            var available = li.QtyInBl - completedElsewhere - reservedElsewhere;
+            return new FzBalanceLine(li.Id, li.PurchaseOrderLineItem?.ModelProduct?.Name ?? "", li.QtyInBl, withdrawnTotal, reservedElsewhere, available);
+        }).Where(l => l.Available > 0 || thisWithdrawalQty.ContainsKey(l.ShipmentLineItemId)).ToList();
 
         return Ok(result);
     }
@@ -230,7 +248,24 @@ public class WithdrawalController : ControllerBase
     [Authorize(Roles = AppRoles.ClearanceEditors)]
     public async Task<IActionResult> SaveLineItems(int id, SaveWithdrawalLineItemsRequest req)
     {
-        if (!await _db.Withdrawals.AnyAsync(w => w.Id == id)) return NotFound();
+        var w = await _db.Withdrawals.FindAsync(id);
+        if (w is null) return NotFound();
+
+        var lineIds = req.Lines.Select(l => l.ShipmentLineItemId).ToList();
+        var depositLineItems = await _db.ShipmentLineItems.Where(li => lineIds.Contains(li.Id)).ToListAsync();
+        var allocations = await GetAllocationsExcludingAsync(id, lineIds);
+
+        foreach (var line in req.Lines.Where(l => l.Qty > 0))
+        {
+            var deposited = depositLineItems.FirstOrDefault(li => li.Id == line.ShipmentLineItemId)?.QtyInBl ?? 0;
+            var (completedElsewhere, reservedElsewhere) = allocations.GetValueOrDefault(line.ShipmentLineItemId, (0, 0));
+            var available = deposited - completedElsewhere - reservedElsewhere;
+
+            if (line.Qty > available)
+            {
+                return BadRequest(new { message = $"Requested quantity ({line.Qty}) exceeds available stock ({available}) for this item." });
+            }
+        }
 
         var existing = await _db.WithdrawalLineItems.Where(x => x.WithdrawalId == id).ToListAsync();
         _db.WithdrawalLineItems.RemoveRange(existing);
