@@ -80,6 +80,10 @@ public class ShippingPortalDbContext : IdentityDbContext<ApplicationUser>
     public DbSet<ShippingPortal.Api.Models.Clearance.ClearanceChargeType> ClearanceChargeTypes => Set<ShippingPortal.Api.Models.Clearance.ClearanceChargeType>();
     public DbSet<ShippingPortal.Api.Models.Clearance.ClearanceEstimateLineItem> ClearanceEstimateLineItems => Set<ShippingPortal.Api.Models.Clearance.ClearanceEstimateLineItem>();
     public DbSet<ShippingPortal.Api.Models.Clearance.ClearanceRoute3Withdrawal> ClearanceRoute3Withdrawals => Set<ShippingPortal.Api.Models.Clearance.ClearanceRoute3Withdrawal>();
+    public DbSet<ShippingPortal.Api.Models.Clearance.Withdrawal> Withdrawals => Set<ShippingPortal.Api.Models.Clearance.Withdrawal>();
+    public DbSet<ShippingPortal.Api.Models.Clearance.WithdrawalCostEstimate> WithdrawalCostEstimates => Set<ShippingPortal.Api.Models.Clearance.WithdrawalCostEstimate>();
+    public DbSet<ShippingPortal.Api.Models.Clearance.WithdrawalEstimateLineItem> WithdrawalEstimateLineItems => Set<ShippingPortal.Api.Models.Clearance.WithdrawalEstimateLineItem>();
+    public DbSet<ShippingPortal.Api.Models.Clearance.WithdrawalLineItem> WithdrawalLineItems => Set<ShippingPortal.Api.Models.Clearance.WithdrawalLineItem>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -276,6 +280,40 @@ public class ShippingPortalDbContext : IdentityDbContext<ApplicationUser>
 
         builder.Entity<ShippingPortal.Api.Models.Clearance.ClearanceRoute3Withdrawal>()
             .HasOne(w => w.DepositShipmentLineItem)
+            .WithMany()
+            .OnDelete(DeleteBehavior.Restrict);
+
+        // Standalone Withdrawal module: restrict-delete on the deposit
+        // Shipment it references (can't vanish while withdrawals exist
+        // against it), cascade for its own owned sub-records.
+        builder.Entity<ShippingPortal.Api.Models.Clearance.Withdrawal>()
+            .HasOne(w => w.DepositShipment)
+            .WithMany()
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder.Entity<ShippingPortal.Api.Models.Clearance.WithdrawalCostEstimate>()
+            .HasOne(x => x.Withdrawal)
+            .WithMany()
+            .OnDelete(DeleteBehavior.Cascade);
+        builder.Entity<ShippingPortal.Api.Models.Clearance.WithdrawalCostEstimate>()
+            .HasIndex(x => x.WithdrawalId)
+            .IsUnique();
+
+        builder.Entity<ShippingPortal.Api.Models.Clearance.WithdrawalEstimateLineItem>()
+            .HasOne(x => x.Withdrawal)
+            .WithMany()
+            .OnDelete(DeleteBehavior.Cascade);
+        builder.Entity<ShippingPortal.Api.Models.Clearance.WithdrawalEstimateLineItem>()
+            .HasOne(x => x.ChargeType)
+            .WithMany()
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder.Entity<ShippingPortal.Api.Models.Clearance.WithdrawalLineItem>()
+            .HasOne(x => x.Withdrawal)
+            .WithMany()
+            .OnDelete(DeleteBehavior.Cascade);
+        builder.Entity<ShippingPortal.Api.Models.Clearance.WithdrawalLineItem>()
+            .HasOne(x => x.DepositShipmentLineItem)
             .WithMany()
             .OnDelete(DeleteBehavior.Restrict);
     }
