@@ -23,12 +23,22 @@ public class ClearanceScheduleService
         if (shipment is null) return new ClearanceScheduleResult(null, null, new List<ScheduleItem>());
 
         var clearance = await _db.Clearances.FirstOrDefaultAsync(c => c.ShipmentId == shipmentId);
-        var deliveryOrder = clearance is null ? null : await _db.ClearanceDeliveryOrders.FirstOrDefaultAsync(d => d.ClearanceId == clearance.Id);
+        var route = clearance?.Route ?? ClearanceRouteType.NotSelected;
 
-        var anchor = deliveryOrder?.ActualArrivalDate ?? shipment.Eta;
+        // Route 3 (withdrawal from FZ) has no vessel arrival of its own —
+        // it anchors on the withdrawal request instead of DO/ETA.
+        DateOnly? anchor;
+        if (route == ClearanceRouteType.Route3ClearFromFz)
+        {
+            anchor = clearance?.WithdrawalRequestDate;
+        }
+        else
+        {
+            var deliveryOrder = clearance is null ? null : await _db.ClearanceDeliveryOrders.FirstOrDefaultAsync(d => d.ClearanceId == clearance.Id);
+            anchor = deliveryOrder?.ActualArrivalDate ?? shipment.Eta;
+        }
         if (!anchor.HasValue) return new ClearanceScheduleResult(null, null, new List<ScheduleItem>());
 
-        var route = clearance?.Route ?? ClearanceRouteType.NotSelected;
         if (route == ClearanceRouteType.NotSelected) return new ClearanceScheduleResult(anchor, null, new List<ScheduleItem>());
 
         var routeDivision = route switch
