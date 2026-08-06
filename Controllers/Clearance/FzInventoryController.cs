@@ -9,15 +9,10 @@ namespace ShippingPortal.Api.Controllers.Clearance;
 public record FzDepositOption(int ShipmentId, string BlAwbNo, string? DepositRefNo);
 public record FzBalanceLine(int ShipmentLineItemId, string ModelProduct, decimal Deposited, decimal Withdrawn, decimal Balance);
 
-// Shipment-level shape, used only internally to drive the Route 3 BL
-// picker — still filtered to deposits with remaining balance, since you
-// can't withdraw from an empty one.
 public record FzOpenDeposit(
     int ShipmentId, string BusinessUnit, string BlAwbNo, string? DepositRefNo, DateOnly? DateOfDeposit,
     string? Division, decimal TotalQty, decimal TotalWithdrawn, decimal Balance);
 
-// Item-level shape for the full-history inventory table, grouped by FZ
-// destination on the frontend.
 public record FzInventoryItemRow(
     int ShipmentLineItemId, string Destination, string BusinessUnit, string Category, string ModelProduct,
     string BlAwbNo, DateOnly? DateOfDeposit, string? DepositRefNo,
@@ -34,7 +29,7 @@ public class FzInventoryController : ControllerBase
 
     private async Task<Dictionary<int, decimal>> GetWithdrawnByLineItemAsync()
     {
-        return await _db.ClearanceRoute3Withdrawals
+        return await _db.WithdrawalLineItems
             .GroupBy(w => w.DepositShipmentLineItemId)
             .Select(g => new { LineItemId = g.Key, Total = g.Sum(w => w.Qty) })
             .ToDictionaryAsync(x => x.LineItemId, x => x.Total);
@@ -71,9 +66,6 @@ public class FzInventoryController : ControllerBase
         return result.OrderBy(r => r.BlAwbNo).ToList();
     }
 
-    // Every item ever deposited to FZ (full history, including fully
-    // withdrawn items) — the actual inventory table, one row per deposited
-    // line item, grouped by destination on the frontend.
     [HttpGet]
     public async Task<ActionResult<IEnumerable<FzInventoryItemRow>>> GetInventory()
     {
@@ -120,28 +112,5 @@ public class FzInventoryController : ControllerBase
     {
         var open = await GetOpenDepositsAsync();
         return Ok(open.Select(r => new FzDepositOption(r.ShipmentId, r.BlAwbNo, r.DepositRefNo)).ToList());
-    }
-
-    [HttpGet("{depositShipmentId:int}/balance")]
-    public async Task<ActionResult<IEnumerable<FzBalanceLine>>> GetBalance(int depositShipmentId)
-    {
-        var lineItems = await _db.ShipmentLineItems
-            .Where(li => li.ShipmentId == depositShipmentId)
-            .Include(li => li.PurchaseOrderLineItem).ThenInclude(pli => pli!.ModelProduct)
-            .ToListAsync();
-
-        var withdrawnByLineItem = await _db.ClearanceRoute3Withdrawals
-            .Where(w => lineItems.Select(li => li.Id).Contains(w.DepositShipmentLineItemId))
-            .GroupBy(w => w.DepositShipmentLineItemId)
-            .Select(g => new { LineItemId = g.Key, Total = g.Sum(w => w.Qty) })
-            .ToDictionaryAsync(x => x.LineItemId, x => x.Total);
-
-        var result = lineItems.Select(li =>
-        {
-            var withdrawn = withdrawnByLineItem.GetValueOrDefault(li.Id, 0m);
-            return new FzBalanceLine(li.Id, li.PurchaseOrderLineItem?.ModelProduct?.Name ?? "", li.QtyInBl, withdrawn, li.QtyInBl - withdrawn);
-        }).Where(l => l.Balance > 0).ToList();
-
-        return Ok(result);
     }
 }
