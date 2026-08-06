@@ -81,6 +81,31 @@ public class WithdrawalController : ControllerBase
             .ToListAsync());
     }
 
+    [HttpDelete("{id:int}")]
+    [Authorize(Roles = AppRoles.Manager + "," + AppRoles.SuperUser)]
+    public async Task<IActionResult> Delete(int id)
+    {
+        var w = await _db.Withdrawals.FindAsync(id);
+        if (w is null) return NotFound();
+
+        var hasQuantities = await _db.WithdrawalLineItems.AnyAsync(x => x.WithdrawalId == id && x.Qty > 0);
+        if (hasQuantities)
+        {
+            return Conflict(new { message = "This draft has withdrawal quantities recorded — cannot delete without review." });
+        }
+
+        var lineItems = await _db.WithdrawalLineItems.Where(x => x.WithdrawalId == id).ToListAsync();
+        _db.WithdrawalLineItems.RemoveRange(lineItems);
+        var estimateItems = await _db.WithdrawalEstimateLineItems.Where(x => x.WithdrawalId == id).ToListAsync();
+        _db.WithdrawalEstimateLineItems.RemoveRange(estimateItems);
+        var estimate = await _db.WithdrawalCostEstimates.FirstOrDefaultAsync(x => x.WithdrawalId == id);
+        if (estimate is not null) _db.WithdrawalCostEstimates.Remove(estimate);
+
+        _db.Withdrawals.Remove(w);
+        await _db.SaveChangesAsync();
+        return NoContent();
+    }
+
     [HttpGet("{id:int}")]
     [Authorize(Roles = AppRoles.ClearanceViewers)]
     public async Task<ActionResult<WithdrawalDetailResponse>> GetDetail(int id)
