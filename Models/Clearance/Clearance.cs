@@ -24,6 +24,11 @@ public class Clearance
     public string? ImFormNo { get; set; }
     public DateOnly? ImFormDate { get; set; }
 
+    // Route 3 only — replaces Copy of BL/ETA as the SLA anchor for
+    // withdrawals, since there's no vessel arrival involved.
+    public DateOnly? WithdrawalRequestDate { get; set; }
+    public string? WithdrawalRequestRefNo { get; set; }
+
     public ClearanceRouteType Route { get; set; } = ClearanceRouteType.NotSelected;
     public DateOnly? ClearanceCompleteDate { get; set; }
 
