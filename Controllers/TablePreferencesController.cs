@@ -7,6 +7,7 @@ using ShippingPortal.Api.Models;
 namespace ShippingPortal.Api.Controllers;
 
 public record TableSortPreference(string SortColumn, bool SortAsc);
+public record TableColumnOrderPreference(List<string> ColumnOrder);
 
 [ApiController]
 [Authorize]
@@ -43,6 +44,34 @@ public class TablePreferencesController : ControllerBase
         }
         pref.SortColumn = req.SortColumn;
         pref.SortAsc = req.SortAsc;
+        await _db.SaveChangesAsync();
+        return NoContent();
+    }
+
+    [HttpGet("{tableKey}/column-order")]
+    public async Task<ActionResult<List<string>?>> GetColumnOrder(string tableKey)
+    {
+        var userId = CurrentUserId;
+        if (userId is null) return Unauthorized();
+
+        var pref = await _db.UserTablePreferences.FirstOrDefaultAsync(p => p.UserId == userId && p.TableKey == tableKey);
+        if (pref?.ColumnOrder is null) return Ok(null);
+        return Ok(pref.ColumnOrder.Split(',').ToList());
+    }
+
+    [HttpPut("{tableKey}/column-order")]
+    public async Task<IActionResult> SaveColumnOrder(string tableKey, TableColumnOrderPreference req)
+    {
+        var userId = CurrentUserId;
+        if (userId is null) return Unauthorized();
+
+        var pref = await _db.UserTablePreferences.FirstOrDefaultAsync(p => p.UserId == userId && p.TableKey == tableKey);
+        if (pref is null)
+        {
+            pref = new UserTablePreference { UserId = userId, TableKey = tableKey, SortColumn = "", SortAsc = true };
+            _db.UserTablePreferences.Add(pref);
+        }
+        pref.ColumnOrder = string.Join(",", req.ColumnOrder);
         await _db.SaveChangesAsync();
         return NoContent();
     }
