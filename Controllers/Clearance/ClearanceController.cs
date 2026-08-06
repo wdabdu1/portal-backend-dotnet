@@ -23,7 +23,8 @@ public record ClearanceDetailResponse(
     int ShipmentId, string BlAwbNo, string PoNumber, DateOnly? Eta, DateOnly? CopyOfBlReceivedDate,
     DateOnly? OriginalShipmentSetReceivedDate, string? LcNo, string? DeclarationNo, string? Notes,
     int Route, DateOnly? ClearanceCompleteDate, string? ImFormNo, DateOnly? ImFormDate,
-    string Consignee, string Category, int FclCount);
+    string Consignee, string Category, int FclCount,
+    DateOnly? WithdrawalRequestDate, string? WithdrawalRequestRefNo);
 
 public record ClearanceScheduleResponse(DateOnly? EstimatedCompletionDate, List<ShippingPortal.Api.Services.ScheduleItem> Items);
 
@@ -147,7 +148,8 @@ public class ClearanceController : ControllerBase
             clearance?.CopyOfBlReceivedDate, clearance?.OriginalShipmentSetReceivedDate, clearance?.LcNo,
             clearance?.DeclarationNo, clearance?.Notes, (int)(clearance?.Route ?? 0), clearance?.ClearanceCompleteDate,
             clearance?.ImFormNo, clearance?.ImFormDate,
-            shipment.PurchaseOrder.Consignee?.Name ?? "", firstCategory, fclCount);
+            shipment.PurchaseOrder.Consignee?.Name ?? "", firstCategory, fclCount,
+            clearance?.WithdrawalRequestDate, clearance?.WithdrawalRequestRefNo);
     }
 
     // Sequential cascading schedule: each step's target date is calculated
