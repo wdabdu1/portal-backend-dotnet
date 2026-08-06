@@ -8,9 +8,12 @@ namespace ShippingPortal.Api.Controllers.Clearance;
 
 public record FzDepositOption(int ShipmentId, string BlAwbNo, string? DepositRefNo);
 public record FzBalanceLine(int ShipmentLineItemId, string ModelProduct, decimal Deposited, decimal Withdrawn, decimal Balance);
-public record FzInventoryRow(
-    int ShipmentId, string BusinessUnit, string BlAwbNo, string? DepositRefNo, DateOnly? DateOfDeposit,
-    string? Division, List<string> Categories, decimal TotalQty, decimal TotalWithdrawn, decimal Balance);
+
+public record FzInventoryItemRow(
+    int ShipmentLineItemId, string Destination, string BusinessUnit, string Category, string ModelProduct,
+    string BlAwbNo, DateOnly? DateOfDeposit, string? DepositRefNo,
+    decimal QtyDeposited, decimal QtyWithdrawn, decimal CurrentStock,
+    int InventoryDays, decimal PercentWithdrawn);
 
 [ApiController]
 [Authorize(Roles = AppRoles.ClearanceViewers)]
