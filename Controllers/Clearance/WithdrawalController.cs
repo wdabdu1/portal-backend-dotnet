@@ -8,7 +8,7 @@ using ShippingPortal.Api.Models.Identity;
 namespace ShippingPortal.Api.Controllers.Clearance;
 
 public record CreateWithdrawalRequest(int DepositShipmentId);
-public record WithdrawalSummary(int Id, int DepositShipmentId, string DepositBlAwbNo, DateOnly? WithdrawalRequestDate, string? WithdrawalRequestRefNo);
+public record WithdrawalSummary(int Id, int DepositShipmentId, string DepositBlAwbNo, DateOnly? WithdrawalRequestDate, string? WithdrawalRequestRefNo, bool IsCompleted);
 
 public record WithdrawalGeneralInfoRequest(DateOnly? WithdrawalRequestDate, string? WithdrawalRequestRefNo);
 
@@ -50,11 +50,22 @@ public class WithdrawalController : ControllerBase
         var deposit = await _db.Shipments.FindAsync(req.DepositShipmentId);
         if (deposit is null) return NotFound(new { message = "Deposit shipment not found." });
 
+        // One draft per deposit at a time — if an in-progress withdrawal
+        // already exists for this BL, hand the user straight back to it
+        // instead of creating a duplicate.
+        var existingDraft = await _db.Withdrawals
+            .FirstOrDefaultAsync(w => w.DepositShipmentId == req.DepositShipmentId && w.ClearanceActualCompletedDate == null);
+
+        if (existingDraft is not null)
+        {
+            return Ok(new WithdrawalSummary(existingDraft.Id, deposit.Id, deposit.BlAwbNo, existingDraft.WithdrawalRequestDate, existingDraft.WithdrawalRequestRefNo, false));
+        }
+
         var withdrawal = new Withdrawal { DepositShipmentId = req.DepositShipmentId };
         _db.Withdrawals.Add(withdrawal);
         await _db.SaveChangesAsync();
 
-        return Ok(new WithdrawalSummary(withdrawal.Id, deposit.Id, deposit.BlAwbNo, null, null));
+        return Ok(new WithdrawalSummary(withdrawal.Id, deposit.Id, deposit.BlAwbNo, null, null, false));
     }
 
     [HttpGet]
@@ -66,7 +77,7 @@ public class WithdrawalController : ControllerBase
 
         return Ok(await query
             .OrderByDescending(w => w.Id)
-            .Select(w => new WithdrawalSummary(w.Id, w.DepositShipmentId, w.DepositShipment!.BlAwbNo, w.WithdrawalRequestDate, w.WithdrawalRequestRefNo))
+            .Select(w => new WithdrawalSummary(w.Id, w.DepositShipmentId, w.DepositShipment!.BlAwbNo, w.WithdrawalRequestDate, w.WithdrawalRequestRefNo, w.ClearanceActualCompletedDate != null))
             .ToListAsync());
     }
 
