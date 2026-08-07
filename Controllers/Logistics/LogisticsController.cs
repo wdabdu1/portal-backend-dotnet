@@ -134,4 +134,67 @@ public class LogisticsController : ControllerBase
         var query = _db.WarehouseAllocations.Include(a => a.Warehouse).ThenInclude(w => w!.City).AsQueryable();
         query = sourceType == "Port"
             ? query.Where(a => a.ShipmentLineItemId == sourceLineItemId)
-            :
+            : query.Where(a => a.WithdrawalLineItemId == sourceLineItemId);
+
+        var allocations = await query.ToListAsync();
+        return Ok(allocations.Select(a => new AllocationResponse(
+            a.Id, a.WarehouseId, a.Warehouse!.Name, a.Qty, a.ContactName, a.ContactPhone, a.Warehouse.City?.Name)));
+    }
+
+    [HttpPost("allocate")]
+    [Authorize(Roles = AppRoles.LogisticsEditors)]
+    public async Task<IActionResult> Allocate(AllocationRequest req)
+    {
+        if (req.Qty <= 0) return BadRequest(new { message = "Quantity must be greater than zero." });
+
+        decimal totalQty;
+        if (req.SourceType == "Port")
+        {
+            var li = await _db.ShipmentLineItems.FindAsync(req.SourceLineItemId);
+            if (li is null) return NotFound(new { message = "Source line item not found." });
+            totalQty = li.QtyInBl;
+        }
+        else if (req.SourceType == "FZWithdrawal")
+        {
+            var wli = await _db.WithdrawalLineItems.FindAsync(req.SourceLineItemId);
+            if (wli is null) return NotFound(new { message = "Source line item not found." });
+            totalQty = wli.Qty;
+        }
+        else
+        {
+            return BadRequest(new { message = "Invalid source type." });
+        }
+
+        var allocatedTotals = await GetAllocatedTotalsAsync();
+        var alreadyAllocated = allocatedTotals.GetValueOrDefault((req.SourceType, req.SourceLineItemId));
+        if (req.Qty > totalQty - alreadyAllocated)
+        {
+            return BadRequest(new { message = $"Requested quantity ({req.Qty}) exceeds remaining unallocated quantity ({totalQty - alreadyAllocated})." });
+        }
+
+        var allocation = new WarehouseAllocation
+        {
+            ShipmentLineItemId = req.SourceType == "Port" ? req.SourceLineItemId : null,
+            WithdrawalLineItemId = req.SourceType == "FZWithdrawal" ? req.SourceLineItemId : null,
+            WarehouseId = req.WarehouseId,
+            Qty = req.Qty,
+            ContactName = req.ContactName,
+            ContactPhone = req.ContactPhone
+        };
+        _db.WarehouseAllocations.Add(allocation);
+        await _db.SaveChangesAsync();
+        return Ok(new { id = allocation.Id });
+    }
+
+    [HttpDelete("allocations/{id:int}")]
+    [Authorize(Roles = AppRoles.LogisticsEditors)]
+    public async Task<IActionResult> DeleteAllocation(int id)
+    {
+        var allocation = await _db.WarehouseAllocations.FindAsync(id);
+        if (allocation is null) return NotFound();
+
+        _db.WarehouseAllocations.Remove(allocation);
+        await _db.SaveChangesAsync();
+        return NoContent();
+    }
+}
