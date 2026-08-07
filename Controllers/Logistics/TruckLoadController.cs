@@ -97,12 +97,15 @@ public class TruckLoadController : ControllerBase
     [Authorize(Roles = AppRoles.LogisticsEditors)]
     public async Task<ActionResult<TruckLoadSummary>> Create(CreateTruckLoadRequest req)
     {
-        if (!await _db.TruckLoads.AnyAsync(t => t.Id == id)) return NotFound();
+        var truck = await _db.Trucks.FindAsync(req.TruckId);
+        if (truck is null) return NotFound(new { message = "Truck not found." });
 
-        var drop = new TruckLoadDrop { TruckLoadId = id, WarehouseId = req.WarehouseId, ExpectedDeliveryDate = req.ExpectedDeliveryDate };
-        _db.TruckLoadDrops.Add(drop);
+        var load = new TruckLoad { TruckId = req.TruckId, DriverId = req.DriverId, LoadDate = req.LoadDate, Notes = req.Notes };
+        _db.TruckLoads.Add(load);
         await _db.SaveChangesAsync();
-        return Ok(new { id = drop.Id });
+
+        var driver = req.DriverId.HasValue ? await _db.Drivers.FindAsync(req.DriverId.Value) : null;
+        return Ok(new TruckLoadSummary(load.Id, truck.PlateNo, driver?.Name, load.LoadDate, 0, 0));
     }
 
     [HttpGet("{id:int}")]
@@ -145,7 +148,7 @@ public class TruckLoadController : ControllerBase
     {
         if (!await _db.TruckLoads.AnyAsync(t => t.Id == id)) return NotFound();
 
-        var drop = new TruckLoadDrop { TruckLoadId = id, WarehouseId = req.WarehouseId };
+        var drop = new TruckLoadDrop { TruckLoadId = id, WarehouseId = req.WarehouseId, ExpectedDeliveryDate = req.ExpectedDeliveryDate };
         _db.TruckLoadDrops.Add(drop);
         await _db.SaveChangesAsync();
         return Ok(new { id = drop.Id });
