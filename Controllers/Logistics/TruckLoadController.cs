@@ -10,6 +10,11 @@ namespace ShippingPortal.Api.Controllers.Logistics;
 public record CreateTruckLoadRequest(int TruckId, int? DriverId, DateOnly LoadDate, string? Notes);
 public record TruckLoadSummary(int Id, string PlateNo, string? DriverName, DateOnly LoadDate, int DropCount, int ItemCount);
 
+public record TruckLoadItemRow(
+    int TruckLoadItemId, int TruckLoadId, string PlateNo, string? DriverName, DateOnly LoadDate,
+    string WarehouseName, string? City, DateOnly? ExpectedDeliveryDate,
+    string ModelProduct, string Unit, decimal Qty, decimal? InHousePrice, decimal? ParallelMarketPrice);
+
 public record AddDropRequest(int WarehouseId, DateOnly? ExpectedDeliveryDate);
 public record DropSummary(int Id, int WarehouseId, string WarehouseName, string? City, DateOnly? ExpectedDeliveryDate);
 
@@ -55,19 +60,49 @@ public class TruckLoadController : ControllerBase
         return Ok(result);
     }
 
+    // Item-level flat view: one row per TruckLoadItem, so the same truck
+    // and drop naturally repeat across rows for multi-drop trips.
+    [HttpGet("items")]
+    public async Task<ActionResult<IEnumerable<TruckLoadItemRow>>> GetItems()
+    {
+        var items = await _db.TruckLoadItems
+            .Include(i => i.TruckLoadDrop).ThenInclude(d => d!.TruckLoad).ThenInclude(t => t!.Truck)
+            .Include(i => i.TruckLoadDrop).ThenInclude(d => d!.TruckLoad).ThenInclude(t => t!.Driver)
+            .Include(i => i.TruckLoadDrop).ThenInclude(d => d!.Warehouse).ThenInclude(w => w!.City)
+            .Include(i => i.WarehouseAllocation).ThenInclude(a => a!.ShipmentLineItem).ThenInclude(li => li!.PurchaseOrderLineItem).ThenInclude(pli => pli!.ModelProduct)
+            .Include(i => i.WarehouseAllocation).ThenInclude(a => a!.ShipmentLineItem).ThenInclude(li => li!.PurchaseOrderLineItem).ThenInclude(pli => pli!.UnitOfMeasure)
+            .Include(i => i.WarehouseAllocation).ThenInclude(a => a!.WithdrawalLineItem).ThenInclude(li => li!.DepositShipmentLineItem).ThenInclude(li => li!.PurchaseOrderLineItem).ThenInclude(pli => pli!.ModelProduct)
+            .Include(i => i.WarehouseAllocation).ThenInclude(a => a!.WithdrawalLineItem).ThenInclude(li => li!.DepositShipmentLineItem).ThenInclude(li => li!.PurchaseOrderLineItem).ThenInclude(pli => pli!.UnitOfMeasure)
+            .ToListAsync();
+
+        var result = items.Select(i =>
+        {
+            var drop = i.TruckLoadDrop!;
+            var load = drop.TruckLoad!;
+            var portLi = i.WarehouseAllocation?.ShipmentLineItem?.PurchaseOrderLineItem;
+            var withdrawalLi = i.WarehouseAllocation?.WithdrawalLineItem?.DepositShipmentLineItem?.PurchaseOrderLineItem;
+
+            return new TruckLoadItemRow(
+                i.Id, load.Id, load.Truck!.PlateNo, load.Driver?.Name, load.LoadDate,
+                drop.Warehouse!.Name, drop.Warehouse.City?.Name, drop.ExpectedDeliveryDate,
+                portLi?.ModelProduct?.Name ?? withdrawalLi?.ModelProduct?.Name ?? "",
+                portLi?.UnitOfMeasure?.Code ?? withdrawalLi?.UnitOfMeasure?.Code ?? "",
+                i.Qty, i.InHousePrice, i.ParallelMarketPrice);
+        }).ToList();
+
+        return Ok(result);
+    }
+
     [HttpPost]
     [Authorize(Roles = AppRoles.LogisticsEditors)]
     public async Task<ActionResult<TruckLoadSummary>> Create(CreateTruckLoadRequest req)
     {
-        var truck = await _db.Trucks.FindAsync(req.TruckId);
-        if (truck is null) return NotFound(new { message = "Truck not found." });
+        if (!await _db.TruckLoads.AnyAsync(t => t.Id == id)) return NotFound();
 
-        var load = new TruckLoad { TruckId = req.TruckId, DriverId = req.DriverId, LoadDate = req.LoadDate, Notes = req.Notes };
-        _db.TruckLoads.Add(load);
+        var drop = new TruckLoadDrop { TruckLoadId = id, WarehouseId = req.WarehouseId, ExpectedDeliveryDate = req.ExpectedDeliveryDate };
+        _db.TruckLoadDrops.Add(drop);
         await _db.SaveChangesAsync();
-
-        var driver = req.DriverId.HasValue ? await _db.Drivers.FindAsync(req.DriverId.Value) : null;
-        return Ok(new TruckLoadSummary(load.Id, truck.PlateNo, driver?.Name, load.LoadDate, 0, 0));
+        return Ok(new { id = drop.Id });
     }
 
     [HttpGet("{id:int}")]
@@ -98,7 +133,7 @@ public class TruckLoadController : ControllerBase
                 return new TruckLoadItemSummary(i.Id, i.WarehouseAllocationId, product, unit, i.Qty, i.InHousePrice, i.ParallelMarketPrice);
             }).ToList();
 
-            dropDetails.Add(new TruckLoadDropDetail(drop.Id, drop.WarehouseId, drop.Warehouse!.Name, drop.Warehouse.City?.Name, itemSummaries));
+            dropDetails.Add(new TruckLoadDropDetail(drop.Id, drop.WarehouseId, drop.Warehouse!.Name, drop.Warehouse.City?.Name, drop.ExpectedDeliveryDate, itemSummaries));
         }
 
         return Ok(new TruckLoadDetailResponse(load.Id, load.TruckId, load.Truck!.PlateNo, load.DriverId, load.Driver?.Name, load.LoadDate, load.Notes, dropDetails));
