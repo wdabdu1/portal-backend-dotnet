@@ -49,6 +49,9 @@ public class ShippingPortalDbContext : IdentityDbContext<ApplicationUser>
     public DbSet<Truck> Trucks => Set<Truck>();
     public DbSet<Warehouse> Warehouses => Set<Warehouse>();
     public DbSet<ShippingPortal.Api.Models.Logistics.WarehouseAllocation> WarehouseAllocations => Set<ShippingPortal.Api.Models.Logistics.WarehouseAllocation>();
+    public DbSet<ShippingPortal.Api.Models.Logistics.TruckLoad> TruckLoads => Set<ShippingPortal.Api.Models.Logistics.TruckLoad>();
+    public DbSet<ShippingPortal.Api.Models.Logistics.TruckLoadDrop> TruckLoadDrops => Set<ShippingPortal.Api.Models.Logistics.TruckLoadDrop>();
+    public DbSet<ShippingPortal.Api.Models.Logistics.TruckLoadItem> TruckLoadItems => Set<ShippingPortal.Api.Models.Logistics.TruckLoadItem>();
     public DbSet<ShippingLine> ShippingLines => Set<ShippingLine>();
     public DbSet<ShippingLineDemurrageTariff> ShippingLineDemurrageTariffs => Set<ShippingLineDemurrageTariff>();
     public DbSet<TariffGroup> TariffGroups => Set<TariffGroup>();
@@ -280,6 +283,33 @@ public class ShippingPortalDbContext : IdentityDbContext<ApplicationUser>
 
         builder.Entity<ShippingPortal.Api.Models.Logistics.WarehouseAllocation>()
             .HasOne(a => a.Warehouse)
+            .WithMany()
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder.Entity<ShippingPortal.Api.Models.Logistics.TruckLoad>()
+            .HasOne(t => t.Truck)
+            .WithMany()
+            .OnDelete(DeleteBehavior.Restrict);
+        builder.Entity<ShippingPortal.Api.Models.Logistics.TruckLoad>()
+            .HasOne(t => t.Driver)
+            .WithMany()
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder.Entity<ShippingPortal.Api.Models.Logistics.TruckLoadDrop>()
+            .HasOne(d => d.TruckLoad)
+            .WithMany()
+            .OnDelete(DeleteBehavior.Cascade);
+        builder.Entity<ShippingPortal.Api.Models.Logistics.TruckLoadDrop>()
+            .HasOne(d => d.Warehouse)
+            .WithMany()
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder.Entity<ShippingPortal.Api.Models.Logistics.TruckLoadItem>()
+            .HasOne(i => i.TruckLoadDrop)
+            .WithMany()
+            .OnDelete(DeleteBehavior.Cascade);
+        builder.Entity<ShippingPortal.Api.Models.Logistics.TruckLoadItem>()
+            .HasOne(i => i.WarehouseAllocation)
             .WithMany()
             .OnDelete(DeleteBehavior.Restrict);
         builder.Entity<ShipmentBanking>().HasOne(b => b.OsDocDispatchedVia).WithMany().OnDelete(DeleteBehavior.Restrict);
