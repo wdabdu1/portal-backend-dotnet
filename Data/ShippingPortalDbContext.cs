@@ -75,6 +75,8 @@ public class ShippingPortalDbContext : IdentityDbContext<ApplicationUser>
     public DbSet<ShipmentBanking> ShipmentBankings => Set<ShipmentBanking>();
     public DbSet<ShipmentCollectionRecord> ShipmentCollectionRecords => Set<ShipmentCollectionRecord>();
     public DbSet<ShipmentOffshoreErpInfo> ShipmentOffshoreErpInfos => Set<ShipmentOffshoreErpInfo>();
+    public DbSet<LastOffshoreDetail> LastOffshoreDetails => Set<LastOffshoreDetail>();
+    public DbSet<LastOffshoreItemDetail> LastOffshoreItemDetails => Set<LastOffshoreItemDetail>();
 
     // Clearance
     public DbSet<ShippingPortal.Api.Models.Clearance.Clearance> Clearances => Set<ShippingPortal.Api.Models.Clearance.Clearance>();
@@ -201,6 +203,26 @@ public class ShippingPortalDbContext : IdentityDbContext<ApplicationUser>
             .HasOne(x => x.PurchaseOrderOffshorePartner)
             .WithMany()
             .OnDelete(DeleteBehavior.Restrict);
+
+        builder.Entity<LastOffshoreDetail>()
+            .HasIndex(x => x.ShipmentId)
+            .IsUnique();
+        builder.Entity<LastOffshoreDetail>()
+            .HasOne(x => x.Shipment)
+            .WithMany()
+            .OnDelete(DeleteBehavior.Cascade);
+        builder.Entity<LastOffshoreDetail>()
+            .HasOne(x => x.Currency)
+            .WithMany()
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder.Entity<LastOffshoreItemDetail>()
+            .HasIndex(x => x.ShipmentLineItemId)
+            .IsUnique();
+        builder.Entity<LastOffshoreItemDetail>()
+            .HasOne(x => x.ShipmentLineItem)
+            .WithMany()
+            .OnDelete(DeleteBehavior.Cascade);
 
         builder.Entity<ProductCategory>()
             .HasOne(x => x.TariffGroup)
