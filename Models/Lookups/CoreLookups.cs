@@ -204,3 +204,42 @@ public class AcdCostSetting
     public decimal Rate40Usd { get; set; }
     public DateOnly EffectiveDate { get; set; }
 }
+
+// Logistics module — Settings sub-section
+public class LogisticsCity
+{
+    public int Id { get; set; }
+    [Required, MaxLength(120)] public string Name { get; set; } = "";
+    public bool IsActive { get; set; } = true;
+}
+
+public class Driver
+{
+    public int Id { get; set; }
+    [Required, MaxLength(120)] public string Name { get; set; } = "";
+    public string? Phone { get; set; }
+    public bool IsActive { get; set; } = true;
+}
+
+// IsActive doubles as "available for allocation" — set false when a truck
+// is out of service, so it drops out of selection lists without deleting
+// its history.
+public class Truck
+{
+    public int Id { get; set; }
+    [Required, MaxLength(30)] public string PlateNo { get; set; } = "";
+    public int? DriverId { get; set; }
+    public Driver? Driver { get; set; }
+    public bool IsActive { get; set; } = true;
+}
+
+public class Warehouse
+{
+    public int Id { get; set; }
+    [Required, MaxLength(120)] public string Name { get; set; } = "";
+    public int? CityId { get; set; }
+    public LogisticsCity? City { get; set; }
+    public string? ContactName { get; set; }
+    public string? ContactPhone { get; set; }
+    public bool IsActive { get; set; } = true;
+}
