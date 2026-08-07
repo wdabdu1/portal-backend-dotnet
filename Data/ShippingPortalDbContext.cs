@@ -48,6 +48,7 @@ public class ShippingPortalDbContext : IdentityDbContext<ApplicationUser>
     public DbSet<Driver> Drivers => Set<Driver>();
     public DbSet<Truck> Trucks => Set<Truck>();
     public DbSet<Warehouse> Warehouses => Set<Warehouse>();
+    public DbSet<ShippingPortal.Api.Models.Logistics.WarehouseAllocation> WarehouseAllocations => Set<ShippingPortal.Api.Models.Logistics.WarehouseAllocation>();
     public DbSet<ShippingLine> ShippingLines => Set<ShippingLine>();
     public DbSet<ShippingLineDemurrageTariff> ShippingLineDemurrageTariffs => Set<ShippingLineDemurrageTariff>();
     public DbSet<TariffGroup> TariffGroups => Set<TariffGroup>();
@@ -266,6 +267,21 @@ public class ShippingPortalDbContext : IdentityDbContext<ApplicationUser>
             .HasOne(w => w.City)
             .WithMany()
             .OnDelete(DeleteBehavior.SetNull);
+
+        builder.Entity<ShippingPortal.Api.Models.Logistics.WarehouseAllocation>()
+            .HasOne(a => a.ShipmentLineItem)
+            .WithMany()
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder.Entity<ShippingPortal.Api.Models.Logistics.WarehouseAllocation>()
+            .HasOne(a => a.WithdrawalLineItem)
+            .WithMany()
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder.Entity<ShippingPortal.Api.Models.Logistics.WarehouseAllocation>()
+            .HasOne(a => a.Warehouse)
+            .WithMany()
+            .OnDelete(DeleteBehavior.Restrict);
         builder.Entity<ShipmentBanking>().HasOne(b => b.OsDocDispatchedVia).WithMany().OnDelete(DeleteBehavior.Restrict);
         builder.Entity<ShipmentBanking>().HasOne(b => b.ReceivingBank).WithMany().OnDelete(DeleteBehavior.Restrict);
         builder.Entity<ShipmentBanking>().HasOne(b => b.CollectionCurrency).WithMany().OnDelete(DeleteBehavior.Restrict);
