@@ -38,6 +38,7 @@ public static class AppRoles
     public const string CorpFinance = "CorpFinance";     // narrow: view-only Supplier/Bank Dues + Clearance, all BUs
     public const string Manager = "Manager";             // broad view + Settings edit, all BUs
     public const string SuperUser = "SuperUser";         // full access everywhere, creates users
+    public const string LogisticsOfficer = "LogisticsOfficer"; // warehouse allocation + truck loading, all BUs
 
     public static readonly string[] All = { IpUser, IpSupervisor, ClrUsr, ClrSupervisor, Bu, Treasury, CorpFinance, Manager, SuperUser };
 
@@ -60,4 +61,7 @@ public static class AppRoles
 
     public const string BankDuesEditors = IpUser + "," + IpSupervisor + "," + SuperUser;
     public const string BankDuesViewers = IpUser + "," + IpSupervisor + "," + SuperUser + "," + Treasury + "," + CorpFinance + "," + Manager;
+
+    public const string LogisticsEditors = LogisticsOfficer + "," + SuperUser;
+    public const string LogisticsViewers = LogisticsOfficer + "," + Manager + "," + SuperUser;
 }
