@@ -25,7 +25,7 @@ public abstract class LookupCrudController<TEntity> : ControllerBase where TEnti
 
     [HttpPost]
     [Authorize(Roles = AppRoles.Manager + "," + AppRoles.SuperUser)]
-    public async Task<ActionResult<TEntity>> Create(TEntity entity)
+    public virtual async Task<ActionResult<TEntity>> Create(TEntity entity)
     {
         Db.Set<TEntity>().Add(entity);
         await Db.SaveChangesAsync();
@@ -34,7 +34,7 @@ public abstract class LookupCrudController<TEntity> : ControllerBase where TEnti
 
     [HttpPut("{id:int}")]
     [Authorize(Roles = AppRoles.Manager + "," + AppRoles.SuperUser)]
-    public async Task<IActionResult> Update(int id, TEntity entity)
+    public virtual async Task<IActionResult> Update(int id, TEntity entity)
     {
         var existing = await Db.Set<TEntity>().FindAsync(id);
         if (existing is null) return NotFound();
@@ -45,7 +45,7 @@ public abstract class LookupCrudController<TEntity> : ControllerBase where TEnti
 
     [HttpDelete("{id:int}")]
     [Authorize(Roles = AppRoles.Manager + "," + AppRoles.SuperUser)]
-    public async Task<IActionResult> Delete(int id)
+    public virtual async Task<IActionResult> Delete(int id)
     {
         var entity = await Db.Set<TEntity>().FindAsync(id);
         if (entity is null) return NotFound();
