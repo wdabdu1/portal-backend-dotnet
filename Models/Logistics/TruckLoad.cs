@@ -5,15 +5,14 @@ namespace ShippingPortal.Api.Models.Logistics;
 // One truck, one trip, one date — can carry items for multiple drops
 // (multi-drop). Driver is snapshotted here (not just read live off Truck)
 // so history stays accurate even if the truck's assigned driver changes later.
-public class TruckLoad
+public class TruckLoadDrop
 {
     public int Id { get; set; }
-    public int TruckId { get; set; }
-    public Truck? Truck { get; set; }
-    public int? DriverId { get; set; }
-    public Driver? Driver { get; set; }
-    public DateOnly LoadDate { get; set; }
-    public string? Notes { get; set; }
+    public int TruckLoadId { get; set; }
+    public TruckLoad? TruckLoad { get; set; }
+    public int WarehouseId { get; set; }
+    public Warehouse? Warehouse { get; set; }
+    public DateOnly? ExpectedDeliveryDate { get; set; }
 }
 
 // One stop within a truck's multi-drop trip.
