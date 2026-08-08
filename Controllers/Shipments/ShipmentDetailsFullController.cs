@@ -162,9 +162,6 @@ public class ShipmentDetailsFullController : ControllerBase
             erpColumns = offshorePartners
                 .Select(op =>
                 {
-                    erpColumns = offshorePartners
-                .Select(op =>
-                {
                     var isLast = op.SequenceOrder == maxSequence;
 
                     if (isLast)
