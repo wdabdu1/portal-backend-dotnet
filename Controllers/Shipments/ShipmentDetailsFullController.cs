@@ -145,6 +145,7 @@ public class ShipmentDetailsFullController : ControllerBase
             .ToListAsync();
 
         var erpRows = await _db.ShipmentOffshoreErpInfos.Where(e => e.ShipmentId == id).ToListAsync();
+        var lastOffshoreDetail = await _db.LastOffshoreDetails.Include(d => d.Currency).FirstOrDefaultAsync(d => d.ShipmentId == id);
         var maxSequence = offshorePartners.Count > 0 ? offshorePartners.Max(o => o.SequenceOrder) : 0;
 
         List<ErpColumnDetail> erpColumns = new();
