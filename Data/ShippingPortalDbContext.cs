@@ -77,6 +77,7 @@ public class ShippingPortalDbContext : IdentityDbContext<ApplicationUser>
     public DbSet<ShipmentOffshoreErpInfo> ShipmentOffshoreErpInfos => Set<ShipmentOffshoreErpInfo>();
     public DbSet<LastOffshoreDetail> LastOffshoreDetails => Set<LastOffshoreDetail>();
     public DbSet<LastOffshoreItemDetail> LastOffshoreItemDetails => Set<LastOffshoreItemDetail>();
+    public DbSet<TransferPricingEntry> TransferPricingEntries => Set<TransferPricingEntry>();
 
     // Clearance
     public DbSet<ShippingPortal.Api.Models.Clearance.Clearance> Clearances => Set<ShippingPortal.Api.Models.Clearance.Clearance>();
@@ -223,6 +224,22 @@ public class ShippingPortalDbContext : IdentityDbContext<ApplicationUser>
             .HasOne(x => x.ShipmentLineItem)
             .WithMany()
             .OnDelete(DeleteBehavior.Cascade);
+
+        builder.Entity<ShippingPortal.Api.Models.TransferPricingEntry>()
+            .HasIndex(x => new { x.ShipmentLineItemId, x.PurchaseOrderOffshorePartnerId })
+            .IsUnique();
+        builder.Entity<ShippingPortal.Api.Models.TransferPricingEntry>()
+            .HasOne(x => x.ShipmentLineItem)
+            .WithMany()
+            .OnDelete(DeleteBehavior.Cascade);
+        builder.Entity<ShippingPortal.Api.Models.TransferPricingEntry>()
+            .HasOne(x => x.PurchaseOrderOffshorePartner)
+            .WithMany()
+            .OnDelete(DeleteBehavior.Restrict);
+        builder.Entity<ShippingPortal.Api.Models.TransferPricingEntry>()
+            .HasOne(x => x.Currency)
+            .WithMany()
+            .OnDelete(DeleteBehavior.Restrict);
 
         builder.Entity<ProductCategory>()
             .HasOne(x => x.TariffGroup)
