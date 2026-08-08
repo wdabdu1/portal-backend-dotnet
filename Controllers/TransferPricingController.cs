@@ -19,7 +19,9 @@ public record TpLineItemResponse(
 public record TpStageInput(int PurchaseOrderOffshorePartnerId, int CurrencyId, decimal? MarkupPercent);
 public record SaveTpLineItemRequest(List<TpStageInput> Stages);
 
-public record TpOrderSummary(int ShipmentId, string BlAwbNo, string PoNumber, string BusinessUnit, bool IsConfirmed);
+public record TpOrderSummary(
+    int ShipmentId, string BlAwbNo, string PoNumber, string BusinessUnit, string SupplierName,
+    decimal SupplierValueUsd, DateTime CreatedAt, List<string> RouteCompanyNames, bool IsConfirmed);
 
 public record BuStageAccumulated(int SequenceOrder, bool IsLast, decimal TotalUsd, decimal MarkupPercent);
 public record BuAccumulatedRow(string BusinessUnit, decimal TotalSupplierUsd, List<BuStageAccumulated> Stages);
@@ -224,6 +226,7 @@ public class TransferPricingController : ControllerBase
         var shipments = await _db.Shipments
             .Where(s => eligiblePoIds.Contains(s.PurchaseOrderId))
             .Include(s => s.PurchaseOrder).ThenInclude(p => p!.BusinessUnit)
+            .Include(s => s.PurchaseOrder).ThenInclude(p => p!.Supplier)
             .ToListAsync();
 
         var lockedShipmentIds = await _db.SectionLocks
@@ -231,9 +234,27 @@ public class TransferPricingController : ControllerBase
             .Select(l => l.EntityId)
             .ToListAsync();
 
-        return Ok(shipments.Select(s => new TpOrderSummary(
-            s.Id, s.BlAwbNo, s.PurchaseOrder!.PoNumber, s.PurchaseOrder.BusinessUnit!.Name, lockedShipmentIds.Contains(s.Id)
-        )).OrderBy(o => o.BlAwbNo).ToList());
+        var poIds = shipments.Select(s => s.PurchaseOrderId).Distinct().ToList();
+        var offshoreChains = await _db.PurchaseOrderOffshorePartners
+            .Where(op => poIds.Contains(op.PurchaseOrderId))
+            .Include(op => op.BusinessPartner)
+            .OrderBy(op => op.SequenceOrder)
+            .ToListAsync();
+
+        var supplierValueByShipment = await _db.ShipmentLineItems
+            .Where(li => shipments.Select(s => s.Id).Contains(li.ShipmentId))
+            .Include(li => li.PurchaseOrderLineItem)
+            .GroupBy(li => li.ShipmentId)
+            .Select(g => new { ShipmentId = g.Key, TotalUsd = g.Sum(li => li.PurchaseOrderLineItem!.TotalUsd) })
+            .ToDictionaryAsync(x => x.ShipmentId, x => x.TotalUsd);
+
+        return Ok(shipments.Select(s =>
+        {
+            var route = offshoreChains.Where(op => op.PurchaseOrderId == s.PurchaseOrderId).Select(op => op.BusinessPartner!.Name).ToList();
+            return new TpOrderSummary(
+                s.Id, s.BlAwbNo, s.PurchaseOrder!.PoNumber, s.PurchaseOrder.BusinessUnit!.Name, s.PurchaseOrder.Supplier?.Name ?? "",
+                supplierValueByShipment.GetValueOrDefault(s.Id), s.CreatedAt, route, lockedShipmentIds.Contains(s.Id));
+        }).OrderByDescending(o => o.CreatedAt).ToList());
     }
 
     // "Accumulated Orders History" — grouped by BU, across every CONFIRMED
