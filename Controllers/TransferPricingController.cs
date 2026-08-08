@@ -257,8 +257,8 @@ public class TransferPricingController : ControllerBase
                     var key = (item.BusinessUnit, stage.SequenceOrder);
                     var totalUsd = stage.TotalUsd ?? 0;
 
-                    var existing = stageByBuAndSeq.GetValueOrDefault(key, (0m, stage.IsLast));
-                    stageByBuAndSeq[key] = (existing.TotalUsd + totalUsd, stage.IsLast);
+                    var existing = stageByBuAndSeq.GetValueOrDefault(key, (TotalUsd: 0m, IsLast: stage.IsLast));
+                    stageByBuAndSeq[key] = (TotalUsd: existing.TotalUsd + totalUsd, IsLast: stage.IsLast);
                     previousByBuAndSeq[key] = previousByBuAndSeq.GetValueOrDefault(key) + running;
 
                     running = totalUsd;
