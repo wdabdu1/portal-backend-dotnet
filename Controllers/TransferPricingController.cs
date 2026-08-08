@@ -25,9 +25,14 @@ public record SaveTpLineItemRequest(List<TpStageInput> Stages);
 public class TransferPricingController : ControllerBase
 {
     private readonly ShippingPortalDbContext _db;
+    private readonly ShippingPortal.Api.Services.SectionLockService _sectionLock;
     private readonly Dictionary<int, decimal> _fxCache = new();
 
-    public TransferPricingController(ShippingPortalDbContext db) => _db = db;
+    public TransferPricingController(ShippingPortalDbContext db, ShippingPortal.Api.Services.SectionLockService sectionLock)
+    {
+        _db = db;
+        _sectionLock = sectionLock;
+    }
 
     // RateToUsd = units of this currency per 1 USD (matches the existing
     // convention used elsewhere in the app, e.g. Bank Dues' AED conversion).
@@ -169,6 +174,9 @@ public class TransferPricingController : ControllerBase
     {
         var li = await _db.ShipmentLineItems.Include(x => x.PurchaseOrderLineItem).FirstOrDefaultAsync(x => x.Id == shipmentLineItemId);
         if (li is null) return NotFound();
+
+        var lockDenied = await _sectionLock.EnsureNotLockedAsync("Shipment", li.ShipmentId, "transferPricing");
+        if (lockDenied is not null) return lockDenied;
 
         foreach (var input in req.Stages)
         {
