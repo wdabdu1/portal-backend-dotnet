@@ -26,6 +26,11 @@ public record TpOrderSummary(
 public record BuStageAccumulated(int SequenceOrder, bool IsLast, decimal TotalUsd, decimal MarkupPercent);
 public record BuAccumulatedRow(string BusinessUnit, decimal TotalSupplierUsd, List<BuStageAccumulated> Stages);
 
+// One row per offshore company, across every BU and every chain position
+// it's ever occupied — answers "which entity is profitable" directly,
+// independent of where in a given chain they happened to sit.
+public record OffshoreCompanyAccumulated(string CompanyName, decimal AccumulatedRevenueUsd, decimal AccumulatedMarkupUsd, decimal MarkupPercent);
+
 [ApiController]
 [Authorize(Roles = AppRoles.Manager + "," + AppRoles.SuperUser + "," + AppRoles.CorpFinance)]
 [Route("api/transfer-pricing")]
@@ -312,6 +317,45 @@ public class TransferPricingController : ControllerBase
 
             return new BuAccumulatedRow(bu, supplierByBu[bu], stages);
         }).OrderBy(r => r.BusinessUnit).ToList();
+
+        return Ok(result);
+    }
+
+    [HttpGet("accumulated-by-offshore")]
+    public async Task<ActionResult<IEnumerable<OffshoreCompanyAccumulated>>> GetAccumulatedByOffshore()
+    {
+        var confirmedShipmentIds = await _db.SectionLocks
+            .Where(l => l.EntityType == "Shipment" && l.SectionKey == "transferPricing")
+            .Select(l => l.EntityId)
+            .ToListAsync();
+
+        var revenueByCompany = new Dictionary<string, decimal>();
+        var previousTotalByCompany = new Dictionary<string, decimal>();
+
+        foreach (var shipmentId in confirmedShipmentIds)
+        {
+            var items = await ComputeShipmentAsync(shipmentId);
+            foreach (var item in items)
+            {
+                var running = item.SupplierCnfUsd;
+                foreach (var stage in item.Stages)
+                {
+                    var totalUsd = stage.TotalUsd ?? 0;
+                    revenueByCompany[stage.CompanyName] = revenueByCompany.GetValueOrDefault(stage.CompanyName) + totalUsd;
+                    previousTotalByCompany[stage.CompanyName] = previousTotalByCompany.GetValueOrDefault(stage.CompanyName) + running;
+                    running = totalUsd;
+                }
+            }
+        }
+
+        var result = revenueByCompany.Keys.Select(company =>
+        {
+            var revenue = revenueByCompany[company];
+            var previousTotal = previousTotalByCompany.GetValueOrDefault(company);
+            var markupUsd = revenue - previousTotal;
+            var markupPercent = previousTotal == 0 ? 0 : markupUsd / previousTotal * 100;
+            return new OffshoreCompanyAccumulated(company, revenue, markupUsd, markupPercent);
+        }).OrderByDescending(r => r.AccumulatedMarkupUsd).ToList();
 
         return Ok(result);
     }
