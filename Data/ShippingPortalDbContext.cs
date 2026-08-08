@@ -77,7 +77,7 @@ public class ShippingPortalDbContext : IdentityDbContext<ApplicationUser>
     public DbSet<ShipmentOffshoreErpInfo> ShipmentOffshoreErpInfos => Set<ShipmentOffshoreErpInfo>();
     public DbSet<LastOffshoreDetail> LastOffshoreDetails => Set<LastOffshoreDetail>();
     public DbSet<LastOffshoreItemDetail> LastOffshoreItemDetails => Set<LastOffshoreItemDetail>();
-    public DbSet<TransferPricingEntry> TransferPricingEntries => Set<TransferPricingEntry>();
+    public DbSet<ShippingPortal.Api.Models.TransferPricingEntry> TransferPricingEntries => Set<ShippingPortal.Api.Models.TransferPricingEntry>();
 
     // Clearance
     public DbSet<ShippingPortal.Api.Models.Clearance.Clearance> Clearances => Set<ShippingPortal.Api.Models.Clearance.Clearance>();
