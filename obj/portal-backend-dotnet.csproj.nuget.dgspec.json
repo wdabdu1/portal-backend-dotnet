@@ -1,20 +1,20 @@
 {
   "format": 1,
   "restore": {
-    "/workspaces/portal-backend-dotnet/portal-backend-dotnet.csproj": {}
+    "/Users/Wdabdu/Desktop/portal-backend-dotnet/portal-backend-dotnet.csproj": {}
   },
   "projects": {
-    "/workspaces/portal-backend-dotnet/portal-backend-dotnet.csproj": {
+    "/Users/Wdabdu/Desktop/portal-backend-dotnet/portal-backend-dotnet.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "/workspaces/portal-backend-dotnet/portal-backend-dotnet.csproj",
+        "projectUniqueName": "/Users/Wdabdu/Desktop/portal-backend-dotnet/portal-backend-dotnet.csproj",
         "projectName": "portal-backend-dotnet",
-        "projectPath": "/workspaces/portal-backend-dotnet/portal-backend-dotnet.csproj",
-        "packagesPath": "/home/codespace/.nuget/packages/",
-        "outputPath": "/workspaces/portal-backend-dotnet/obj/",
+        "projectPath": "/Users/Wdabdu/Desktop/portal-backend-dotnet/portal-backend-dotnet.csproj",
+        "packagesPath": "/Users/Wdabdu/.nuget/packages/",
+        "outputPath": "/Users/Wdabdu/Desktop/portal-backend-dotnet/obj/",
         "projectStyle": "PackageReference",
         "configFilePaths": [
-          "/home/codespace/.nuget/NuGet/NuGet.Config"
+          "/Users/Wdabdu/.nuget/NuGet/NuGet.Config"
         ],
         "originalTargetFrameworks": [
           "net10.0"
@@ -24,6 +24,7 @@
         },
         "frameworks": {
           "net10.0": {
+            "framework": "net10.0",
             "targetAlias": "net10.0",
             "projectReferences": {}
           }
@@ -38,15 +39,36 @@
           "auditLevel": "low",
           "auditMode": "all"
         },
-        "SdkAnalysisLevel": "10.0.200"
+        "SdkAnalysisLevel": "10.0.300"
       },
       "frameworks": {
         "net10.0": {
+          "framework": "net10.0",
           "targetAlias": "net10.0",
           "dependencies": {
+            "Microsoft.AspNetCore.Authentication.JwtBearer": {
+              "target": "Package",
+              "version": "[9.0.0, )"
+            },
+            "Microsoft.AspNetCore.Identity.EntityFrameworkCore": {
+              "target": "Package",
+              "version": "[9.0.0, )"
+            },
             "Microsoft.AspNetCore.OpenApi": {
               "target": "Package",
               "version": "[10.0.4, )"
+            },
+            "Microsoft.EntityFrameworkCore.Design": {
+              "include": "Runtime, Build, Native, ContentFiles, Analyzers, BuildTransitive",
+              "suppressParent": "All",
+              "target": "Package",
+              "version": "[9.0.0, )"
+            },
+            "Microsoft.EntityFrameworkCore.Tools": {
+              "include": "Runtime, Build, Native, ContentFiles, Analyzers, BuildTransitive",
+              "suppressParent": "All",
+              "target": "Package",
+              "version": "[9.0.0, )"
             },
             "Pomelo.EntityFrameworkCore.MySql": {
               "target": "Package",
@@ -72,7 +94,7 @@
               "privateAssets": "all"
             }
           },
-          "runtimeIdentifierGraphPath": "/usr/share/dotnet/sdk/10.0.200/PortableRuntimeIdentifierGraph.json",
+          "runtimeIdentifierGraphPath": "/usr/local/share/dotnet/sdk/10.0.302/PortableRuntimeIdentifierGraph.json",
           "packagesToPrune": {
             "Microsoft.AspNetCore": "(,10.0.32767]",
             "Microsoft.AspNetCore.Antiforgery": "(,10.0.32767]",
