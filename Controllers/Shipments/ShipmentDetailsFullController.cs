@@ -174,12 +174,12 @@ public class ShipmentDetailsFullController : ControllerBase
                         // there instead of showing blank dashes.
                         object? lastData = lastOffshoreDetail is null && mot?.OffshoreApprovedPiNumber is null ? null : new
                         {
-                            PiNo = mot?.OffshoreApprovedPiNumber,
-                            lastOffshoreDetail?.InspectionNo,
-                            lastOffshoreDetail?.Grn,
-                            lastOffshoreDetail?.InvoiceNo,
-                            lastOffshoreDetail?.Remarks,
-                            CurrencyCode = lastOffshoreDetail?.Currency?.Code
+                            PiNo = mot != null ? mot.OffshoreApprovedPiNumber : null,
+                            InspectionNo = lastOffshoreDetail != null ? lastOffshoreDetail.InspectionNo : null,
+                            Grn = lastOffshoreDetail != null ? lastOffshoreDetail.Grn : null,
+                            InvoiceNo = lastOffshoreDetail != null ? lastOffshoreDetail.InvoiceNo : null,
+                            Remarks = lastOffshoreDetail != null ? lastOffshoreDetail.Remarks : null,
+                            CurrencyCode = lastOffshoreDetail != null && lastOffshoreDetail.Currency != null ? lastOffshoreDetail.Currency.Code : null
                         };
                         return new ErpColumnDetail(op.BusinessPartner?.Name ?? "", op.SequenceOrder, true, lastData);
                     }
