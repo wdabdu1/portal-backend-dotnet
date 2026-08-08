@@ -13,7 +13,7 @@ public record TpStageResponse(
 
 public record TpLineItemResponse(
     int ShipmentLineItemId, string BusinessUnit, string Category, string ModelProduct,
-    string BlAwbNo, decimal SupplierTotal, string SupplierCurrencyCode, decimal SupplierCnfUsd,
+    string BlAwbNo, decimal SupplierTotal, string SupplierCurrencyCode, decimal SupplierTotalUsd, decimal SupplierCnfUsd,
     List<TpStageResponse> Stages);
 
 public record TpStageInput(int PurchaseOrderOffshorePartnerId, int CurrencyId, decimal? MarkupPercent);
@@ -166,7 +166,7 @@ public class TransferPricingController : ControllerBase
 
             result.Add(new TpLineItemResponse(
                 li.Id, shipment.PurchaseOrder!.BusinessUnit!.Name, pli.ProductCategory?.Name ?? "", pli.ModelProduct?.Name ?? "",
-                shipment.BlAwbNo, pli.Total, pli.Currency?.Code ?? "", supplierCnfUsd, stages));
+                shipment.BlAwbNo, pli.Total, pli.Currency?.Code ?? "", supplierTotalUsd, supplierCnfUsd, stages));
         }
 
         return Ok(result);
