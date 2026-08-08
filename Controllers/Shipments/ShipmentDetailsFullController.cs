@@ -162,12 +162,33 @@ public class ShipmentDetailsFullController : ControllerBase
             erpColumns = offshorePartners
                 .Select(op =>
                 {
-                    var row = erpRows.FirstOrDefault(e => e.PurchaseOrderOffshorePartnerId == op.Id);
+                    erpColumns = offshorePartners
+                .Select(op =>
+                {
                     var isLast = op.SequenceOrder == maxSequence;
-                    object? data = row is null ? null : (isLast || op.SequenceOrder == 1
+
+                    if (isLast)
+                    {
+                        // Last offshore's data lives in Last Offshore Details
+                        // now, not the old per-partner ERP table — pull from
+                        // there instead of showing blank dashes.
+                        object? lastData = lastOffshoreDetail is null && mot?.OffshoreApprovedPiNumber is null ? null : new
+                        {
+                            PiNo = mot?.OffshoreApprovedPiNumber,
+                            lastOffshoreDetail?.InspectionNo,
+                            lastOffshoreDetail?.Grn,
+                            lastOffshoreDetail?.InvoiceNo,
+                            lastOffshoreDetail?.Remarks,
+                            CurrencyCode = lastOffshoreDetail?.Currency?.Code
+                        };
+                        return new ErpColumnDetail(op.BusinessPartner?.Name ?? "", op.SequenceOrder, true, lastData);
+                    }
+
+                    var row = erpRows.FirstOrDefault(e => e.PurchaseOrderOffshorePartnerId == op.Id);
+                    object? data = row is null ? null : (op.SequenceOrder == 1
                         ? new { row.PrNo, row.PoNo, row.Sa, row.BillReg, row.Grn, row.InvoiceNo }
                         : new { row.InspectionNo, row.Grn, row.InvoiceNo, row.Remarks });
-                    return new ErpColumnDetail(op.BusinessPartner?.Name ?? "", op.SequenceOrder, isLast, data);
+                    return new ErpColumnDetail(op.BusinessPartner?.Name ?? "", op.SequenceOrder, false, data);
                 })
                 .ToList();
         }
