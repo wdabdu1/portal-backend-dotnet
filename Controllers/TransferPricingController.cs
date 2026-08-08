@@ -32,7 +32,15 @@ public class TransferPricingController : ControllerBase
     private readonly ShippingPortalDbContext _db;
     private readonly ShippingPortal.Api.Services.SectionLockService _sectionLock;
     private readonly Dictionary<int, decimal> _fxCache = new();
+    private Dictionary<int, string>? _currencyCodeCache;
     private int? _usdCurrencyId;
+
+    private async Task<Dictionary<int, string>> GetCurrencyCodesAsync()
+    {
+        if (_currencyCodeCache is not null) return _currencyCodeCache;
+        _currencyCodeCache = await _db.Currencies.ToDictionaryAsync(c => c.Id, c => c.Code);
+        return _currencyCodeCache;
+    }
 
     public TransferPricingController(ShippingPortalDbContext db, ShippingPortal.Api.Services.SectionLockService sectionLock)
     {
@@ -134,7 +142,8 @@ public class TransferPricingController : ControllerBase
                     var stageValueInCurrency = await FromUsdAsync(runningUsd, stageCurrencyId);
                     var total = stageValueInCurrency * (1 + markup / 100);
                     var totalUsd = await ToUsdAsync(total, stageCurrencyId);
-                    var currencyCode = (await _db.Currencies.FindAsync(stageCurrencyId))?.Code;
+                    var currencyCodes = await GetCurrencyCodesAsync();
+                    currencyCodes.TryGetValue(stageCurrencyId, out var currencyCode);
 
                     stages.Add(new TpStageResponse(partner.Id, partner.BusinessPartner!.Name, partner.SequenceOrder, false,
                         entry?.MarkupPercent, entry?.CurrencyId, entry != null ? currencyCode : null, total, totalUsd));
@@ -150,7 +159,8 @@ public class TransferPricingController : ControllerBase
                     {
                         var lastTotalUsd = await ToUsdAsync(lastTotal.Value, lastCurrencyId.Value);
                         var markupPercent = runningUsd == 0 ? 0 : (lastTotalUsd - runningUsd) / runningUsd * 100;
-                        var currencyCode = (await _db.Currencies.FindAsync(lastCurrencyId.Value))?.Code;
+                        var currencyCodes = await GetCurrencyCodesAsync();
+                        currencyCodes.TryGetValue(lastCurrencyId.Value, out var currencyCode);
 
                         stages.Add(new TpStageResponse(partner.Id, partner.BusinessPartner!.Name, partner.SequenceOrder, true,
                             markupPercent, lastCurrencyId, currencyCode, lastTotal, lastTotalUsd));
