@@ -27,6 +27,15 @@ public class TransferPricingController : ControllerBase
     private readonly ShippingPortalDbContext _db;
     private readonly ShippingPortal.Api.Services.SectionLockService _sectionLock;
     private readonly Dictionary<int, decimal> _fxCache = new();
+    private int? _usdCurrencyId;
+
+    private async Task<int> GetUsdCurrencyIdAsync()
+    {
+        if (_usdCurrencyId.HasValue) return _usdCurrencyId.Value;
+        var usd = await _db.Currencies.FirstOrDefaultAsync(c => c.Code == "USD");
+        _usdCurrencyId = usd?.Id ?? 0;
+        return _usdCurrencyId.Value;
+    }
 
     public TransferPricingController(ShippingPortalDbContext db, ShippingPortal.Api.Services.SectionLockService sectionLock)
     {
@@ -114,27 +123,21 @@ public class TransferPricingController : ControllerBase
 
                 if (!isLast)
                 {
-                    if (entry is not null)
-                    {
-                        // Recompute fresh from the current running USD base,
-                        // so an upstream markup change correctly cascades
-                        // through every downstream stage.
-                        var stageValueInCurrency = await FromUsdAsync(runningUsd, entry.CurrencyId);
-                        var markup = entry.MarkupPercent ?? 0;
-                        var total = stageValueInCurrency * (1 + markup / 100);
-                        var totalUsd = await ToUsdAsync(total, entry.CurrencyId);
+                    // No saved entry yet? Default to 0% markup, USD as the
+                    // currency — the chain always continues through every
+                    // stage so the whole picture is visible immediately,
+                    // not just up to whatever's been saved so far.
+                    var stageCurrencyId = entry?.CurrencyId ?? await GetUsdCurrencyIdAsync();
+                    var markup = entry?.MarkupPercent ?? 0;
 
-                        stages.Add(new TpStageResponse(partner.Id, partner.BusinessPartner!.Name, partner.SequenceOrder, false,
-                            entry.MarkupPercent, entry.CurrencyId, (await _db.Currencies.FindAsync(entry.CurrencyId))?.Code, total, totalUsd));
-                        runningUsd = totalUsd;
-                    }
-                    else
-                    {
-                        stages.Add(new TpStageResponse(partner.Id, partner.BusinessPartner!.Name, partner.SequenceOrder, false,
-                            null, null, null, null, null));
-                        // No entry yet for this stage — chain can't continue past this point.
-                        break;
-                    }
+                    var stageValueInCurrency = await FromUsdAsync(runningUsd, stageCurrencyId);
+                    var total = stageValueInCurrency * (1 + markup / 100);
+                    var totalUsd = await ToUsdAsync(total, stageCurrencyId);
+                    var currencyCode = (await _db.Currencies.FindAsync(stageCurrencyId))?.Code;
+
+                    stages.Add(new TpStageResponse(partner.Id, partner.BusinessPartner!.Name, partner.SequenceOrder, false,
+                        entry?.MarkupPercent, entry?.CurrencyId, entry != null ? currencyCode : null, total, totalUsd));
+                    runningUsd = totalUsd;
                 }
                 else
                 {
