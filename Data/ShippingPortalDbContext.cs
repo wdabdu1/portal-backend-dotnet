@@ -72,6 +72,7 @@ public class ShippingPortalDbContext : IdentityDbContext<ApplicationUser>
     public DbSet<ShipmentMot> ShipmentMots => Set<ShipmentMot>();
     public DbSet<ShipmentSupplierFullSet> ShipmentSupplierFullSets => Set<ShipmentSupplierFullSet>();
     public DbSet<ShipmentSupplierPaymentRecord> ShipmentSupplierPaymentRecords => Set<ShipmentSupplierPaymentRecord>();
+    public DbSet<ShipmentPaymentDue> ShipmentPaymentDues => Set<ShipmentPaymentDue>();
     public DbSet<ShipmentBanking> ShipmentBankings => Set<ShipmentBanking>();
     public DbSet<ShipmentCollectionRecord> ShipmentCollectionRecords => Set<ShipmentCollectionRecord>();
     public DbSet<ShipmentOffshoreErpInfo> ShipmentOffshoreErpInfos => Set<ShipmentOffshoreErpInfo>();
@@ -182,6 +183,21 @@ public class ShippingPortalDbContext : IdentityDbContext<ApplicationUser>
             .OnDelete(DeleteBehavior.Cascade);
 
         builder.Entity<ShipmentSupplierPaymentRecord>()
+            .HasOne(x => x.Currency)
+            .WithMany()
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder.Entity<ShipmentSupplierPaymentRecord>()
+            .HasOne(x => x.PaymentDue)
+            .WithMany()
+            .OnDelete(DeleteBehavior.SetNull);
+
+        builder.Entity<ShipmentPaymentDue>()
+            .HasOne(x => x.Shipment)
+            .WithMany()
+            .OnDelete(DeleteBehavior.Cascade);
+
+        builder.Entity<ShipmentPaymentDue>()
             .HasOne(x => x.Currency)
             .WithMany()
             .OnDelete(DeleteBehavior.Restrict);
