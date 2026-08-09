@@ -274,7 +274,8 @@ public class WithdrawalController : ControllerBase
             var (completedElsewhere, reservedElsewhere) = allocations[li.Id];
             var withdrawnTotal = completedElsewhere; // shown as "Withdrawn" — completed only
             var available = li.QtyInBl - completedElsewhere - reservedElsewhere;
-            return new FzBalanceLine(li.Id, li.PurchaseOrderLineItem?.ModelProduct?.Name ?? "", li.QtyInBl, withdrawnTotal, reservedElsewhere, available);
+            var myQty = thisWithdrawalQty.GetValueOrDefault(li.Id);
+            return new FzBalanceLine(li.Id, li.PurchaseOrderLineItem?.ModelProduct?.Name ?? "", li.QtyInBl, withdrawnTotal, reservedElsewhere, available, myQty);
         }).Where(l => l.Available > 0 || thisWithdrawalQty.ContainsKey(l.ShipmentLineItemId)).ToList();
 
         return Ok(result);
