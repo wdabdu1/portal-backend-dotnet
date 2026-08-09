@@ -17,6 +17,141 @@ public class ClearanceScheduleService
     private readonly ShippingPortalDbContext _db;
     public ClearanceScheduleService(ShippingPortalDbContext db) => _db = db;
 
+    // Batch version of GetScheduleAsync, computing ONLY the estimated
+    // completion date (what Logistics actually needs) for many shipments
+    // at once — every input is fetched in bulk instead of ~9 round-trips
+    // per shipment, which is what made lists with many rows slow.
+    public async Task<Dictionary<int, DateOnly?>> GetEstimatedCompletionDatesAsync(List<int> shipmentIds)
+    {
+        var result = new Dictionary<int, DateOnly?>();
+        if (shipmentIds.Count == 0) return result;
+
+        var shipments = await _db.Shipments.Where(s => shipmentIds.Contains(s.Id)).ToListAsync();
+        var clearances = await _db.Clearances.Where(c => shipmentIds.Contains(c.ShipmentId)).ToDictionaryAsync(c => c.ShipmentId);
+        var clearanceIds = clearances.Values.Select(c => c.Id).ToList();
+
+        var deliveryOrders = await _db.ClearanceDeliveryOrders.Where(d => clearanceIds.Contains(d.ClearanceId)).ToDictionaryAsync(d => d.ClearanceId);
+        var costEstimates = await _db.ClearanceCostEstimates.Where(c => clearanceIds.Contains(c.ClearanceId)).ToDictionaryAsync(c => c.ClearanceId);
+        var certEntries = await _db.ClearanceCertificateEntries.Where(e => clearanceIds.Contains(e.ClearanceId)).ToDictionaryAsync(e => e.ClearanceId);
+        var route1Details = await _db.ClearanceRoute1Details.Where(r => clearanceIds.Contains(r.ClearanceId)).ToDictionaryAsync(r => r.ClearanceId);
+        var route2Details = await _db.ClearanceRoute2Details.Where(r => clearanceIds.Contains(r.ClearanceId)).ToDictionaryAsync(r => r.ClearanceId);
+        var route3Details = await _db.ClearanceRoute3Details.Where(r => clearanceIds.Contains(r.ClearanceId)).ToDictionaryAsync(r => r.ClearanceId);
+
+        var slaRows = await _db.ClearanceSlaSettings.Where(s => s.IsActive).OrderBy(s => s.SequenceOrder).ToListAsync();
+        var holidaySet = (await _db.PublicHolidays.Where(h => h.AffectsClr).Select(h => h.Date).ToListAsync()).ToHashSet();
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+
+        foreach (var shipment in shipments)
+        {
+            clearances.TryGetValue(shipment.Id, out var clearance);
+            var route = clearance?.Route ?? ClearanceRouteType.NotSelected;
+
+            DateOnly? anchor;
+            if (route == ClearanceRouteType.Route3ClearFromFz)
+            {
+                anchor = clearance?.WithdrawalRequestDate;
+            }
+            else
+            {
+                var deliveryOrder = clearance is not null ? deliveryOrders.GetValueOrDefault(clearance.Id) : null;
+                anchor = deliveryOrder?.ActualArrivalDate ?? shipment.Eta;
+            }
+
+            if (!anchor.HasValue || route == ClearanceRouteType.NotSelected)
+            {
+                result[shipment.Id] = null;
+                continue;
+            }
+
+            var routeDivision = route switch
+            {
+                ClearanceRouteType.Route1ClearAtPort => ClearanceDivision.Route1,
+                ClearanceRouteType.Route2FzDeposit => ClearanceDivision.Route2,
+                _ => ClearanceDivision.Route3
+            };
+
+            var orderedRows = new List<ClearanceSlaSetting>();
+            if (routeDivision != ClearanceDivision.Route3)
+                orderedRows.AddRange(slaRows.Where(s => s.Division == ClearanceDivision.General));
+            orderedRows.AddRange(slaRows.Where(s => s.Division == routeDivision));
+
+            var chainFrom = anchor.Value;
+            foreach (var row in orderedRows)
+            {
+                var wholeDays = (int)Math.Ceiling(row.TargetDays);
+                var targetDate = AddBusinessDays(chainFrom, wholeDays, holidaySet);
+
+                DateOnly? actualDate = null;
+                if (clearance is not null)
+                {
+                    if (routeDivision != ClearanceDivision.Route3 && row.Division == ClearanceDivision.General)
+                    {
+                        actualDate = row.GroupItem switch
+                        {
+                            "Delivery Order" => deliveryOrders.GetValueOrDefault(clearance.Id)?.DoReceivedDate,
+                            "Clearance Cost Estimate" => costEstimates.GetValueOrDefault(clearance.Id)?.AmountSettledDate,
+                            "Customs Certificate Entry" => certEntries.GetValueOrDefault(clearance.Id)?.CertificateEntryDate,
+                            _ => null
+                        };
+                    }
+                    else if (routeDivision == ClearanceDivision.Route1)
+                    {
+                        var r1 = route1Details.GetValueOrDefault(clearance.Id);
+                        actualDate = row.GroupItem switch
+                        {
+                            "Containers Move Process" => r1?.BillSettlementDate,
+                            "SSMO File Process" => r1?.SsmoFeesSettlementDate,
+                            "Customs Examination (Form 48)" => r1?.CustExamCompletedDate,
+                            "Customs Lab" => r1?.LabResultIssuanceDate,
+                            "SSMO Examination" => r1?.SsmoCertIssuanceDate,
+                            "Customs Evaluation" => r1?.ReleaseExitPassDate,
+                            "SPC Bill" => r1?.SpcBillSettlementDate,
+                            "Truck & Containers" => r1?.ClearanceActualCompletedDate,
+                            _ => null
+                        };
+                    }
+                    else if (routeDivision == ClearanceDivision.Route2)
+                    {
+                        var r2 = route2Details.GetValueOrDefault(clearance.Id);
+                        actualDate = row.GroupItem switch
+                        {
+                            "FZ Deposit Request" => r2?.RequestApprovalDate,
+                            "Customs Inspection" => r2?.InspectionDate,
+                            "SPC Bill" => r2?.SpcBillSettlementDate,
+                            "Truck & Containers" => r2?.ClearanceActualCompletedDate,
+                            _ => null
+                        };
+                    }
+                    else if (routeDivision == ClearanceDivision.Route3)
+                    {
+                        var r3 = route3Details.GetValueOrDefault(clearance.Id);
+                        actualDate = row.GroupItem switch
+                        {
+                            "Customs Certificate Entry" => r3?.CertificateEntryDate,
+                            "SSMO File Process" => r3?.SsmoFeesSettlementDate,
+                            "Customs Examination (Form 48)" => r3?.CustExamCompletedDate,
+                            "Customs Lab" => r3?.LabResultIssuanceDate,
+                            "SSMO Examination" => r3?.SsmoCertIssuanceDate,
+                            "Customs Evaluation" => r3?.ReleaseExitPassDate,
+                            "Truck & Containers" => r3?.ClearanceActualCompletedDate,
+                            _ => null
+                        };
+                    }
+                }
+
+                chainFrom = actualDate ?? targetDate;
+                if (row == orderedRows[^1])
+                {
+                    result[shipment.Id] = targetDate;
+                }
+            }
+
+            if (orderedRows.Count == 0) result[shipment.Id] = null;
+        }
+
+        return result;
+    }
+
     public async Task<ClearanceScheduleResult> GetScheduleAsync(int shipmentId)
     {
         var shipment = await _db.Shipments.FirstOrDefaultAsync(s => s.Id == shipmentId);
