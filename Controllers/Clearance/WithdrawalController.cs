@@ -230,8 +230,6 @@ public class WithdrawalController : ControllerBase
         return NoContent();
     }
 
-    [HttpGet("{id:int}/line-items")]
-    [Authorize(Roles = AppRoles.ClearanceViewers)]
     // Reusable across GET (display) and PUT (validation): everything
     // currently allocated to this deposited item EXCLUDING this specific
     // withdrawal's own entries, split into completed (permanent) vs
@@ -253,6 +251,8 @@ public class WithdrawalController : ControllerBase
         });
     }
 
+    [HttpGet("{id:int}/line-items")]
+    [Authorize(Roles = AppRoles.ClearanceViewers)]
     public async Task<ActionResult<IEnumerable<FzBalanceLine>>> GetLineItems(int id)
     {
         var w = await _db.Withdrawals.FindAsync(id);
