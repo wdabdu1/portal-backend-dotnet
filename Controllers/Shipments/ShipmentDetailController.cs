@@ -344,7 +344,7 @@ public class ShipmentDetailController : ControllerBase
             .Where(r => r.ShipmentId == shipmentId)
             .Include(r => r.Currency)
             .OrderBy(r => r.PaymentDate)
-            .Select(r => new PaymentRecordResponse(r.Id, r.PaymentDate, r.CurrencyId, r.Currency!.Code, r.Value, r.ValueUsd))
+            .Select(r => new PaymentRecordResponse(r.Id, r.PaymentDate, r.CurrencyId, r.Currency!.Code, r.Value, r.ValueUsd, r.PaymentDueId))
             .ToListAsync();
     }
 
@@ -357,6 +357,9 @@ public class ShipmentDetailController : ControllerBase
         if (lockDenied is not null) return lockDenied;
         if (!await _db.Shipments.AnyAsync(s => s.Id == shipmentId)) return NotFound();
 
+        if (req.PaymentDueId.HasValue && !await _db.ShipmentPaymentDues.AnyAsync(d => d.Id == req.PaymentDueId && d.ShipmentId == shipmentId))
+            return BadRequest(new { message = "This due schedule row does not belong to this shipment." });
+
         var rate = await GetFxRateAsync(req.CurrencyId);
         var record = new ShipmentSupplierPaymentRecord
         {
@@ -364,13 +367,14 @@ public class ShipmentDetailController : ControllerBase
             PaymentDate = req.PaymentDate,
             CurrencyId = req.CurrencyId,
             Value = req.Value,
-            ValueUsd = req.Value / rate
+            ValueUsd = req.Value / rate,
+            PaymentDueId = req.PaymentDueId
         };
         _db.ShipmentSupplierPaymentRecords.Add(record);
         await _db.SaveChangesAsync();
 
         var currency = await _db.Currencies.FindAsync(req.CurrencyId);
-        return Ok(new PaymentRecordResponse(record.Id, record.PaymentDate, record.CurrencyId, currency?.Code ?? "", record.Value, record.ValueUsd));
+        return Ok(new PaymentRecordResponse(record.Id, record.PaymentDate, record.CurrencyId, currency?.Code ?? "", record.Value, record.ValueUsd, record.PaymentDueId));
     }
 
     [HttpDelete("supplier-payment/records/{recordId:int}")]
@@ -383,6 +387,85 @@ public class ShipmentDetailController : ControllerBase
         if (record is null) return NotFound();
 
         _db.ShipmentSupplierPaymentRecords.Remove(record);
+        await _db.SaveChangesAsync();
+        return NoContent();
+    }
+
+    // --- Payment Due Schedule ---
+
+    [HttpGet("supplier-payment/dues")]
+    public async Task<ActionResult<IEnumerable<PaymentDueResponse>>> GetPaymentDues(int shipmentId)
+    {
+        var dues = await _db.ShipmentPaymentDues
+            .Where(d => d.ShipmentId == shipmentId)
+            .Include(d => d.Currency)
+            .OrderBy(d => d.DueDate)
+            .ToListAsync();
+
+        var paidByDue = await _db.ShipmentSupplierPaymentRecords
+            .Where(r => r.ShipmentId == shipmentId && r.PaymentDueId != null)
+            .GroupBy(r => r.PaymentDueId!.Value)
+            .Select(g => new { DueId = g.Key, PaidUsd = g.Sum(r => r.ValueUsd) })
+            .ToDictionaryAsync(x => x.DueId, x => x.PaidUsd);
+
+        var rate = new Dictionary<int, decimal>();
+        var result = new List<PaymentDueResponse>();
+        foreach (var d in dues)
+        {
+            var r = await GetFxRateAsync(d.CurrencyId);
+            var amountUsd = d.Amount / r;
+            result.Add(new PaymentDueResponse(d.Id, d.DueDate, d.Amount, d.CurrencyId, d.Currency?.Code ?? "", d.Label, paidByDue.GetValueOrDefault(d.Id), amountUsd));
+        }
+        return Ok(result);
+    }
+
+    [HttpPost("supplier-payment/dues")]
+    public async Task<ActionResult<PaymentDueResponse>> AddPaymentDue(int shipmentId, PaymentDueRequest req)
+    {
+        var denied = await CheckWriteAccessAsync(shipmentId);
+        if (denied is not null) return denied;
+        if (!await _db.Shipments.AnyAsync(s => s.Id == shipmentId)) return NotFound();
+
+        var due = new ShipmentPaymentDue { ShipmentId = shipmentId, DueDate = req.DueDate, Amount = req.Amount, CurrencyId = req.CurrencyId, Label = req.Label };
+        _db.ShipmentPaymentDues.Add(due);
+        await _db.SaveChangesAsync();
+
+        var currency = await _db.Currencies.FindAsync(req.CurrencyId);
+        var rate = await GetFxRateAsync(req.CurrencyId);
+        return Ok(new PaymentDueResponse(due.Id, due.DueDate, due.Amount, due.CurrencyId, currency?.Code ?? "", due.Label, 0, due.Amount / rate));
+    }
+
+    [HttpPut("supplier-payment/dues/{dueId:int}")]
+    public async Task<ActionResult<PaymentDueResponse>> UpdatePaymentDue(int shipmentId, int dueId, PaymentDueRequest req)
+    {
+        var denied = await CheckWriteAccessAsync(shipmentId);
+        if (denied is not null) return denied;
+
+        var due = await _db.ShipmentPaymentDues.FirstOrDefaultAsync(d => d.Id == dueId && d.ShipmentId == shipmentId);
+        if (due is null) return NotFound();
+
+        due.DueDate = req.DueDate;
+        due.Amount = req.Amount;
+        due.CurrencyId = req.CurrencyId;
+        due.Label = req.Label;
+        await _db.SaveChangesAsync();
+
+        var currency = await _db.Currencies.FindAsync(req.CurrencyId);
+        var rate = await GetFxRateAsync(req.CurrencyId);
+        var paidUsd = await _db.ShipmentSupplierPaymentRecords.Where(r => r.PaymentDueId == dueId).SumAsync(r => (decimal?)r.ValueUsd) ?? 0;
+        return Ok(new PaymentDueResponse(due.Id, due.DueDate, due.Amount, due.CurrencyId, currency?.Code ?? "", due.Label, paidUsd, due.Amount / rate));
+    }
+
+    [HttpDelete("supplier-payment/dues/{dueId:int}")]
+    public async Task<IActionResult> DeletePaymentDue(int shipmentId, int dueId)
+    {
+        var denied = await CheckWriteAccessAsync(shipmentId);
+        if (denied is not null) return denied;
+
+        var due = await _db.ShipmentPaymentDues.FirstOrDefaultAsync(d => d.Id == dueId && d.ShipmentId == shipmentId);
+        if (due is null) return NotFound();
+
+        _db.ShipmentPaymentDues.Remove(due);
         await _db.SaveChangesAsync();
         return NoContent();
     }
