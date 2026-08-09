@@ -91,6 +91,25 @@ public class ShipmentSupplierFullSet
 // Invoice Value/Currency are fully computed (sum of ShipmentLineItem
 // subtotals) — nothing stored here for the invoice header anymore.
 // Only the actual payment records are real data now.
+// Freely-entered — no formula/anchor-date logic. Real supplier terms
+// (e.g. 30% advance / 70% on shipment) vary too much per shipment to
+// compute automatically, so the user enters exactly what was agreed.
+public class ShipmentPaymentDue
+{
+    public int Id { get; set; }
+    public int ShipmentId { get; set; }
+    public Shipment? Shipment { get; set; }
+
+    public DateOnly DueDate { get; set; }
+    public decimal Amount { get; set; }
+    public int CurrencyId { get; set; }
+    public Currency? Currency { get; set; }
+    public string? Label { get; set; } // e.g. "30% Advance", "Balance on BL"
+}
+
+// Invoice Value/Currency are fully computed (sum of ShipmentLineItem
+// subtotals) — nothing stored here for the invoice header anymore.
+// Only the actual payment records are real data now.
 public class ShipmentSupplierPaymentRecord
 {
     public int Id { get; set; }
@@ -102,6 +121,13 @@ public class ShipmentSupplierPaymentRecord
     public Currency? Currency { get; set; }
     public decimal Value { get; set; }
     public decimal ValueUsd { get; set; }
+
+    // Optional — links this actual payment to a specific due-schedule
+    // row, so Supplier Dues can show Due vs. Paid vs. Remaining per
+    // milestone. Left null, a payment is just an unlinked lump payment,
+    // same as it works today.
+    public int? PaymentDueId { get; set; }
+    public ShipmentPaymentDue? PaymentDue { get; set; }
 }
 public class ShipmentBanking
 {
