@@ -7,7 +7,7 @@ using ShippingPortal.Api.Models.Identity;
 namespace ShippingPortal.Api.Controllers.Clearance;
 
 public record FzDepositOption(int ShipmentId, string BlAwbNo, string? DepositRefNo);
-public record FzBalanceLine(int ShipmentLineItemId, string ModelProduct, decimal Deposited, decimal Withdrawn, decimal UnderClearance, decimal Available);
+public record FzBalanceLine(int ShipmentLineItemId, string ModelProduct, decimal Deposited, decimal Withdrawn, decimal UnderClearance, decimal Available, decimal ThisWithdrawalQty);
 
 public record FzOpenDeposit(
     int ShipmentId, string BusinessUnit, string BlAwbNo, string? DepositRefNo, DateOnly? DateOfDeposit,
