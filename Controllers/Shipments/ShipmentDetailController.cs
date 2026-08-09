@@ -33,7 +33,7 @@ public record ShipmentDetailResponse(
     ShipmentBanking? Banking,
     List<string> OffshorePartnerNames,
     string BusinessUnit, string Supplier, string Category, DateOnly? SobActualDate,
-    List<ShipmentLineItemHsCode> LineItemHsCodes);
+    List<ShipmentLineItemHsCode> LineItemHsCodes, decimal? BuShippingBudget, string? OffshorePoNo);
 
 public record SaveHsCodesRequest(List<ShipmentLineItemHsCode> LineItemHsCodes);
 
@@ -103,7 +103,7 @@ public class ShipmentDetailController : ControllerBase
         return new ShipmentDetailResponse(shipment.Id, shipment.BlAwbNo, shipment.PurchaseOrder!.PoNumber, shipment.Status.ToString(),
             forwarder, acd, draftDocs, ssmo, mot, fullSet, banking, offshorePartnerNames,
             shipment.PurchaseOrder.BusinessUnit!.Name, shipment.PurchaseOrder.Supplier!.Name, category, shipment.SobActualDate,
-            lineItemHsCodes);
+            lineItemHsCodes, shipment.PurchaseOrder.BuShippingBudget, shipment.PurchaseOrder.OffshorePoNo);
     }
 
     [HttpPut("hs-codes")]
