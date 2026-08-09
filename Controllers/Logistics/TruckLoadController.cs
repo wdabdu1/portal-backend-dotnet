@@ -85,10 +85,10 @@ public class TruckLoadController : ControllerBase
 
             return new TruckLoadItemRow(
                 i.Id, load.Id, load.Truck!.PlateNo, load.Driver?.Name, load.LoadDate,
-                drop.Warehouse!.Name, drop.Warehouse.City?.Name, drop.ExpectedDeliveryDate,
+                drop.Warehouse!.Name, drop.Warehouse.City?.Name, drop.ExpectedDeliveryDate, drop.ActualDropOffDate,
                 portLi?.ModelProduct?.Name ?? withdrawalLi?.ModelProduct?.Name ?? "",
                 portLi?.UnitOfMeasure?.Code ?? withdrawalLi?.UnitOfMeasure?.Code ?? "",
-                i.Qty, i.InHousePrice, i.ParallelMarketPrice);
+                i.Qty, i.InHousePrice, i.ParallelMarketPrice, drop.ActualDropOffDate.HasValue);
         }).ToList();
 
         return Ok(result);
@@ -137,7 +137,7 @@ public class TruckLoadController : ControllerBase
                 return new TruckLoadItemSummary(i.Id, i.WarehouseAllocationId, product, unit, i.Qty, i.InHousePrice, i.ParallelMarketPrice);
             }).ToList();
 
-            dropDetails.Add(new TruckLoadDropDetail(drop.Id, drop.WarehouseId, drop.Warehouse!.Name, drop.Warehouse.City?.Name, drop.ExpectedDeliveryDate, itemSummaries));
+            dropDetails.Add(new TruckLoadDropDetail(drop.Id, drop.WarehouseId, drop.Warehouse!.Name, drop.Warehouse.City?.Name, drop.ExpectedDeliveryDate, drop.ActualDropOffDate, itemSummaries));
         }
 
         return Ok(new TruckLoadDetailResponse(load.Id, load.TruckId, load.Truck!.PlateNo, load.DriverId, load.Driver?.Name, load.LoadDate, load.Notes, dropDetails));
@@ -153,6 +153,18 @@ public class TruckLoadController : ControllerBase
         _db.TruckLoadDrops.Add(drop);
         await _db.SaveChangesAsync();
         return Ok(new { id = drop.Id });
+    }
+
+    [HttpPut("drops/{dropId:int}/actual-dropoff")]
+    [Authorize(Roles = AppRoles.LogisticsEditors)]
+    public async Task<IActionResult> SetActualDropOff(int dropId, SetActualDropOffRequest req)
+    {
+        var drop = await _db.TruckLoadDrops.FindAsync(dropId);
+        if (drop is null) return NotFound();
+
+        drop.ActualDropOffDate = req.ActualDropOffDate;
+        await _db.SaveChangesAsync();
+        return NoContent();
     }
 
     [HttpDelete("drops/{dropId:int}")]
