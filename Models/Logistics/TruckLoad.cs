@@ -17,6 +17,7 @@ public class TruckLoad
 }
 
 // One stop within a truck's multi-drop trip.
+// One stop within a truck's multi-drop trip.
 public class TruckLoadDrop
 {
     public int Id { get; set; }
@@ -25,6 +26,7 @@ public class TruckLoadDrop
     public int WarehouseId { get; set; }
     public Warehouse? Warehouse { get; set; }
     public DateOnly? ExpectedDeliveryDate { get; set; }
+    public DateOnly? ActualDropOffDate { get; set; }
 }
 
 // A portion of one WarehouseAllocation being physically carried in this
