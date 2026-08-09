@@ -145,6 +145,7 @@ public class ShipmentDetailsFullController : ControllerBase
             .ToListAsync();
 
         var erpRows = await _db.ShipmentOffshoreErpInfos.Where(e => e.ShipmentId == id).ToListAsync();
+        var lastOffshoreDetail = await _db.LastOffshoreDetails.Include(d => d.Currency).FirstOrDefaultAsync(d => d.ShipmentId == id);
         var maxSequence = offshorePartners.Count > 0 ? offshorePartners.Max(o => o.SequenceOrder) : 0;
 
         List<ErpColumnDetail> erpColumns = new();
@@ -161,12 +162,30 @@ public class ShipmentDetailsFullController : ControllerBase
             erpColumns = offshorePartners
                 .Select(op =>
                 {
-                    var row = erpRows.FirstOrDefault(e => e.PurchaseOrderOffshorePartnerId == op.Id);
                     var isLast = op.SequenceOrder == maxSequence;
-                    object? data = row is null ? null : (isLast || op.SequenceOrder == 1
+
+                    if (isLast)
+                    {
+                        // Last offshore's data lives in Last Offshore Details
+                        // now, not the old per-partner ERP table — pull from
+                        // there instead of showing blank dashes.
+                        object? lastData = lastOffshoreDetail is null && mot?.OffshoreApprovedPiNumber is null ? null : new
+                        {
+                            PiNo = mot != null ? mot.OffshoreApprovedPiNumber : null,
+                            InspectionNo = lastOffshoreDetail != null ? lastOffshoreDetail.InspectionNo : null,
+                            Grn = lastOffshoreDetail != null ? lastOffshoreDetail.Grn : null,
+                            InvoiceNo = lastOffshoreDetail != null ? lastOffshoreDetail.InvoiceNo : null,
+                            Remarks = lastOffshoreDetail != null ? lastOffshoreDetail.Remarks : null,
+                            CurrencyCode = lastOffshoreDetail != null && lastOffshoreDetail.Currency != null ? lastOffshoreDetail.Currency.Code : null
+                        };
+                        return new ErpColumnDetail(op.BusinessPartner?.Name ?? "", op.SequenceOrder, true, lastData);
+                    }
+
+                    var row = erpRows.FirstOrDefault(e => e.PurchaseOrderOffshorePartnerId == op.Id);
+                    object? data = row is null ? null : (op.SequenceOrder == 1
                         ? new { row.PrNo, row.PoNo, row.Sa, row.BillReg, row.Grn, row.InvoiceNo }
                         : new { row.InspectionNo, row.Grn, row.InvoiceNo, row.Remarks });
-                    return new ErpColumnDetail(op.BusinessPartner?.Name ?? "", op.SequenceOrder, isLast, data);
+                    return new ErpColumnDetail(op.BusinessPartner?.Name ?? "", op.SequenceOrder, false, data);
                 })
                 .ToList();
         }
