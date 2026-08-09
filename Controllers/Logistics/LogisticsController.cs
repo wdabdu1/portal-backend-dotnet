@@ -78,13 +78,12 @@ public class LogisticsController : ControllerBase
             .GroupBy(li => li.ShipmentId)
             .ToDictionary(g => g.Key, g => g.ToList());
 
+        var estimatedCompletionByShipment = await _schedule.GetEstimatedCompletionDatesAsync(portShipmentIds);
+
         foreach (var clearance in portClearances)
         {
             var shipment = clearance.Shipment!;
-            // SLA schedule genuinely needs its own per-shipment cascade
-            // calculation (delivery order dates, division targets) — left
-            // as one call per shipment rather than batched.
-            var schedule = await _schedule.GetScheduleAsync(shipment.Id);
+            var estimatedCompletion = estimatedCompletionByShipment.GetValueOrDefault(shipment.Id);
             var lineItems = portLineItemsByShipment.GetValueOrDefault(shipment.Id, new List<ShipmentLineItem>());
 
             foreach (var li in lineItems)
@@ -94,7 +93,7 @@ public class LogisticsController : ControllerBase
                     "Port", li.Id,
                     shipment.PurchaseOrder?.BusinessUnit?.Name ?? "", shipment.PurchaseOrder?.Consignee?.Name ?? "",
                     li.PurchaseOrderLineItem?.ProductCategory?.Name ?? "", li.PurchaseOrderLineItem?.ModelProduct?.Name ?? "",
-                    shipment.BlAwbNo, schedule.EstimatedCompletionDate, clearance.ClearanceCompleteDate,
+                    shipment.BlAwbNo, estimatedCompletion, clearance.ClearanceCompleteDate,
                     li.QtyInBl, li.PurchaseOrderLineItem?.UnitOfMeasure?.Code ?? "", "Clear at Port", null,
                     allocated, li.QtyInBl - allocated));
             }
