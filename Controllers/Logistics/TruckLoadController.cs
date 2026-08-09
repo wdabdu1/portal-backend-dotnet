@@ -35,6 +35,13 @@ public record TruckLoadDropDetail(int Id, int WarehouseId, string WarehouseName,
 // warehouse it was actually allocated to.
 public record LoadableAllocation(int WarehouseAllocationId, string ModelProduct, string Unit, string BlAwbNo, decimal RemainingToLoad);
 
+// Every warehouse allocation still waiting for a truck — the queue that
+// closes the gap between "item allocated to a warehouse" and "someone
+// notices it needs a truck."
+public record ReadyForTruckAssignment(
+    int WarehouseAllocationId, string BusinessUnit, string ModelProduct, string Unit, string BlAwbNo,
+    string WarehouseName, decimal AllocatedQty, decimal LoadedQty, decimal RemainingQty, DateTime AllocatedAt);
+
 [ApiController]
 [Authorize(Roles = AppRoles.LogisticsViewers)]
 [Route("api/truck-loads")]
@@ -177,6 +184,44 @@ public class TruckLoadController : ControllerBase
         _db.TruckLoadDrops.Remove(drop);
         await _db.SaveChangesAsync();
         return NoContent();
+    }
+
+    [HttpGet("ready-for-assignment")]
+    public async Task<ActionResult<IEnumerable<ReadyForTruckAssignment>>> GetReadyForAssignment()
+    {
+        var allocations = await _db.WarehouseAllocations
+            .Include(a => a.Warehouse)
+            .Include(a => a.ShipmentLineItem).ThenInclude(li => li!.PurchaseOrderLineItem).ThenInclude(pli => pli!.ModelProduct)
+            .Include(a => a.ShipmentLineItem).ThenInclude(li => li!.PurchaseOrderLineItem).ThenInclude(pli => pli!.UnitOfMeasure)
+            .Include(a => a.ShipmentLineItem).ThenInclude(li => li!.Shipment).ThenInclude(s => s!.PurchaseOrder).ThenInclude(p => p!.BusinessUnit)
+            .Include(a => a.WithdrawalLineItem).ThenInclude(li => li!.DepositShipmentLineItem).ThenInclude(li => li!.PurchaseOrderLineItem).ThenInclude(pli => pli!.ModelProduct)
+            .Include(a => a.WithdrawalLineItem).ThenInclude(li => li!.DepositShipmentLineItem).ThenInclude(li => li!.PurchaseOrderLineItem).ThenInclude(pli => pli!.UnitOfMeasure)
+            .Include(a => a.WithdrawalLineItem).ThenInclude(li => li!.DepositShipmentLineItem).ThenInclude(li => li!.Shipment).ThenInclude(s => s!.PurchaseOrder).ThenInclude(p => p!.BusinessUnit)
+            .ToListAsync();
+
+        var loadedByAllocation = await _db.TruckLoadItems
+            .GroupBy(i => i.WarehouseAllocationId)
+            .Select(g => new { AllocationId = g.Key, Total = g.Sum(i => i.Qty) })
+            .ToDictionaryAsync(x => x.AllocationId, x => x.Total);
+
+        var result = new List<ReadyForTruckAssignment>();
+        foreach (var a in allocations)
+        {
+            var loaded = loadedByAllocation.GetValueOrDefault(a.Id);
+            var remaining = a.Qty - loaded;
+            if (remaining <= 0) continue;
+
+            var portLi = a.ShipmentLineItem?.PurchaseOrderLineItem;
+            var withdrawalLi = a.WithdrawalLineItem?.DepositShipmentLineItem?.PurchaseOrderLineItem;
+            var blAwbNo = a.ShipmentLineItem?.Shipment?.BlAwbNo ?? a.WithdrawalLineItem?.DepositShipmentLineItem?.Shipment?.BlAwbNo ?? "";
+            var businessUnit = a.ShipmentLineItem?.Shipment?.PurchaseOrder?.BusinessUnit?.Name ?? a.WithdrawalLineItem?.DepositShipmentLineItem?.Shipment?.PurchaseOrder?.BusinessUnit?.Name ?? "";
+
+            result.Add(new ReadyForTruckAssignment(
+                a.Id, businessUnit, portLi?.ModelProduct?.Name ?? withdrawalLi?.ModelProduct?.Name ?? "",
+                portLi?.UnitOfMeasure?.Code ?? withdrawalLi?.UnitOfMeasure?.Code ?? "", blAwbNo,
+                a.Warehouse!.Name, a.Qty, loaded, remaining, a.AllocatedAt));
+        }
+        return Ok(result.OrderBy(r => r.AllocatedAt).ToList());
     }
 
     [HttpGet("drops/{dropId:int}/loadable-allocations")]
