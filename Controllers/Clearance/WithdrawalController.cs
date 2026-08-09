@@ -280,6 +280,18 @@ public class WithdrawalController : ControllerBase
         return Ok(result);
     }
 
+    [HttpDelete("{id:int}/line-items/{lineItemId:int}")]
+    [Authorize(Roles = AppRoles.ClearanceEditors)]
+    public async Task<IActionResult> DeleteLineItem(int id, int lineItemId)
+    {
+        var entity = await _db.WithdrawalLineItems.FirstOrDefaultAsync(x => x.WithdrawalId == id && x.DepositShipmentLineItemId == lineItemId);
+        if (entity is null) return NotFound();
+
+        _db.WithdrawalLineItems.Remove(entity);
+        await _db.SaveChangesAsync();
+        return NoContent();
+    }
+
     [HttpPut("{id:int}/line-items")]
     [Authorize(Roles = AppRoles.ClearanceEditors)]
     public async Task<IActionResult> SaveLineItems(int id, SaveWithdrawalLineItemsRequest req)
