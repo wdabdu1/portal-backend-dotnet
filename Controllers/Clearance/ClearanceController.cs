@@ -293,6 +293,31 @@ public class ClearanceController : ControllerBase
     }
     [HttpPut("{shipmentId:int}/general-info")]
     [Authorize(Roles = AppRoles.ClearanceEditors)]
+    [HttpPost("{shipmentId:int}/complete")]
+    [Authorize(Roles = AppRoles.ClearanceEditors)]
+    public async Task<IActionResult> CompleteClearance(int shipmentId)
+    {
+        var clearance = await _db.Clearances.FirstOrDefaultAsync(c => c.ShipmentId == shipmentId);
+        if (clearance is null) return NotFound(new { message = "Clearance record not found." });
+
+        // Deliberately not reusing General Info's own lock/save endpoint —
+        // that section is normally already locked by this point in the
+        // flow. Also deliberately one-way: once set, this can't be
+        // re-triggered, since re-pressing would silently overwrite the
+        // real completion date with "today" and corrupt SLA history.
+        if (clearance.ClearanceCompleteDate.HasValue)
+        {
+            return Conflict(new { message = "This clearance is already marked complete." });
+        }
+
+        clearance.ClearanceCompleteDate = DateOnly.FromDateTime(DateTime.UtcNow);
+        clearance.UpdatedAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync();
+        return NoContent();
+    }
+
+    [HttpPut("{shipmentId:int}/general-info")]
+    [Authorize(Roles = AppRoles.ClearanceEditors)]
     public async Task<IActionResult> UpsertGeneralInfo(int shipmentId, ClearanceGeneralInfoRequest req)
     {
         var lockDenied = await _sectionLock.EnsureNotLockedAsync("Clearance", shipmentId, "generalInfo");
