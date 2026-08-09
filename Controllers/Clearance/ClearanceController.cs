@@ -333,4 +333,15 @@ public class ClearanceController : ControllerBase
         if (daysSinceEta > targetDays * 0.7m) return "Amber";
         return "Green";
     }
+
+    // Not capped at 100 — a figure over 100% correctly signals overdue,
+    // consistent with the Red traffic light. Bar width is capped
+    // separately on the frontend so it doesn't visually overflow.
+    private static decimal ComputeSlaPercent(DateOnly? eta, DateOnly? clearanceCompleteDate, decimal targetDays)
+    {
+        if (clearanceCompleteDate.HasValue) return 100m;
+        if (!eta.HasValue || targetDays <= 0) return 0m;
+        var daysSinceEta = DateOnly.FromDateTime(DateTime.UtcNow).DayNumber - eta.Value.DayNumber;
+        return Math.Max(0m, (daysSinceEta / targetDays) * 100m);
+    }
 }
