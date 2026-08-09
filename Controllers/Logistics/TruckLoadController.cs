@@ -12,11 +12,12 @@ public record TruckLoadSummary(int Id, string PlateNo, string? DriverName, DateO
 
 public record TruckLoadItemRow(
     int TruckLoadItemId, int TruckLoadId, string PlateNo, string? DriverName, DateOnly LoadDate,
-    string WarehouseName, string? City, DateOnly? ExpectedDeliveryDate,
-    string ModelProduct, string Unit, decimal Qty, decimal? InHousePrice, decimal? ParallelMarketPrice);
+    string WarehouseName, string? City, DateOnly? ExpectedDeliveryDate, DateOnly? ActualDropOffDate,
+    string ModelProduct, string Unit, decimal Qty, decimal? InHousePrice, decimal? ParallelMarketPrice, bool IsCompleted);
 
 public record AddDropRequest(int WarehouseId, DateOnly? ExpectedDeliveryDate);
-public record DropSummary(int Id, int WarehouseId, string WarehouseName, string? City, DateOnly? ExpectedDeliveryDate);
+public record SetActualDropOffRequest(DateOnly? ActualDropOffDate);
+public record DropSummary(int Id, int WarehouseId, string WarehouseName, string? City, DateOnly? ExpectedDeliveryDate, DateOnly? ActualDropOffDate);
 
 public record AddTruckLoadItemRequest(int WarehouseAllocationId, decimal Qty, decimal? InHousePrice, decimal? ParallelMarketPrice);
 public record TruckLoadItemSummary(
@@ -26,7 +27,7 @@ public record TruckLoadItemSummary(
 public record TruckLoadDetailResponse(
     int Id, int TruckId, string PlateNo, int? DriverId, string? DriverName, DateOnly LoadDate, string? Notes,
     List<TruckLoadDropDetail> Drops);
-public record TruckLoadDropDetail(int Id, int WarehouseId, string WarehouseName, string? City, DateOnly? ExpectedDeliveryDate, List<TruckLoadItemSummary> Items);
+public record TruckLoadDropDetail(int Id, int WarehouseId, string WarehouseName, string? City, DateOnly? ExpectedDeliveryDate, DateOnly? ActualDropOffDate, List<TruckLoadItemSummary> Items);
 
 // Which WarehouseAllocations still have quantity not yet assigned to any
 // truck — the picker source when adding items to a drop. Filtered to the
