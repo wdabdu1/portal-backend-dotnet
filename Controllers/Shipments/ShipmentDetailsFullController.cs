@@ -7,7 +7,7 @@ using ShippingPortal.Api.Services;
 
 namespace ShippingPortal.Api.Controllers.Shipments;
 
-public record ShipmentLineItemDetail(string ProductCategory, string ModelProduct, decimal QtyInBl, string? UnitOfMeasure, string? HsCode);
+public record ShipmentLineItemDetail(string ProductCategory, string ModelProduct, decimal QtyInBl, string? UnitOfMeasure, string? HsCode, decimal? UnitPrice, string? Currency, decimal? Total);
 
 public record ErpColumnDetail(string CompanyName, int SequenceOrder, bool IsLast, object? Data);
 
@@ -15,7 +15,7 @@ public record ShipmentFullDetailResponse(
     int Id, string BlAwbNo, string? PoNumber, string Status,
     string BusinessUnit, string? Division, string? Supplier, string Consignee, string Category,
     string? VesselName, int Fcl20Count, int Fcl40Count, DateOnly? Etd, DateOnly? Eta, DateOnly? SobActualDate,
-    List<ShipmentLineItemDetail> LineItems,
+    List<ShipmentLineItemDetail> LineItems, decimal? PercentOfPoQty,
     object? Forwarder, object? Acd, object? DraftDocuments, object? Ssmo, object? Mot,
     object? SupplierFullSet, object? Banking,
     List<ErpColumnDetail> ErpInfo, string? LastOffshoreInvoiceNo);
@@ -38,6 +38,7 @@ public class ShipmentDetailsFullController : ControllerBase
             .Include(s => s.LineItems).ThenInclude(li => li.PurchaseOrderLineItem).ThenInclude(pli => pli!.ProductCategory)
             .Include(s => s.LineItems).ThenInclude(li => li.PurchaseOrderLineItem).ThenInclude(pli => pli!.ModelProduct)
             .Include(s => s.LineItems).ThenInclude(li => li.PurchaseOrderLineItem).ThenInclude(pli => pli!.UnitOfMeasure)
+            .Include(s => s.LineItems).ThenInclude(li => li.PurchaseOrderLineItem).ThenInclude(pli => pli!.Currency)
             .FirstOrDefaultAsync(s => s.Id == id);
 
         if (shipment is null) return NotFound();
@@ -195,10 +196,20 @@ public class ShipmentDetailsFullController : ControllerBase
             li.PurchaseOrderLineItem?.ModelProduct?.Name ?? "",
             li.QtyInBl,
             li.PurchaseOrderLineItem?.UnitOfMeasure?.Code,
-            li.HsCode
+            li.HsCode,
+            isClearance ? null : li.PurchaseOrderLineItem?.UnitPrice,
+            isClearance ? null : li.PurchaseOrderLineItem?.Currency?.Code,
+            isClearance ? null : li.ItemSubtotal
         )).ToList();
 
         var category = lineItems.FirstOrDefault()?.ProductCategory ?? "";
+
+        // % of the PO's originally ordered quantity that this shipment
+        // covers — compares this shipment's line items against their
+        // corresponding PO line items' own ordered Qty.
+        var shipmentQtyTotal = shipment.LineItems.Sum(li => li.QtyInBl);
+        var poQtyTotal = shipment.LineItems.Sum(li => li.PurchaseOrderLineItem?.Qty ?? 0);
+        decimal? percentOfPoQty = poQtyTotal > 0 ? (shipmentQtyTotal / poQtyTotal) * 100 : null;
 
         return new ShipmentFullDetailResponse(
             shipment.Id, shipment.BlAwbNo, isClearance ? null : shipment.PurchaseOrder!.PoNumber, shipment.Status.ToString(),
@@ -206,7 +217,7 @@ public class ShipmentDetailsFullController : ControllerBase
             isClearance ? null : shipment.PurchaseOrder.Supplier?.Name,
             shipment.PurchaseOrder.Consignee?.Name ?? "", category, shipment.VesselName,
             shipment.Fcl20Count, shipment.Fcl40Count, shipment.Etd, shipment.Eta, shipment.SobActualDate,
-            lineItems, forwarder, acdDto, draftDto, ssmoDto, motDto, supplierFullSet, banking, erpColumns,
+            lineItems, percentOfPoQty, forwarder, acdDto, draftDto, ssmoDto, motDto, supplierFullSet, banking, erpColumns,
             lastOffshoreInvoiceNo);
     }
 }
