@@ -91,6 +91,19 @@ public class ClearanceController : ControllerBase
             .Where(e => clearanceIds.Contains(e.ClearanceId))
             .ToDictionaryAsync(e => e.ClearanceId);
 
+        // "Done" for the list means the shipment's OWN route has reached
+        // Truck & Containers completion — not the rarely-used generic
+        // Clearance.ClearanceCompleteDate field.
+        var route1Completions = await _db.ClearanceRoute1Details
+            .Where(r => clearanceIds.Contains(r.ClearanceId))
+            .ToDictionaryAsync(r => r.ClearanceId, r => r.ClearanceActualCompletedDate);
+        var route2Completions = await _db.ClearanceRoute2Details
+            .Where(r => clearanceIds.Contains(r.ClearanceId))
+            .ToDictionaryAsync(r => r.ClearanceId, r => r.ClearanceActualCompletedDate);
+        var route3Completions = await _db.ClearanceRoute3Details
+            .Where(r => clearanceIds.Contains(r.ClearanceId))
+            .ToDictionaryAsync(r => r.ClearanceId, r => r.ClearanceActualCompletedDate);
+
         var results = shipments.Select(s =>
         {
             clearances.TryGetValue(s.Id, out var clearance);
@@ -124,14 +137,22 @@ public class ClearanceController : ControllerBase
                 ? routeDays
                 : generalDays + routeDays;
 
-            var trafficLight = ComputeTrafficLight(s.Eta, clearance?.ClearanceCompleteDate, targetDays);
-            var slaPercent = ComputeSlaPercent(s.Eta, clearance?.ClearanceCompleteDate, targetDays);
+            DateOnly? actualCompletedDate = clearance is null ? null : routeDivision switch
+            {
+                ShippingPortal.Api.Models.Clearance.ClearanceDivision.Route1 => route1Completions.GetValueOrDefault(clearance.Id),
+                ShippingPortal.Api.Models.Clearance.ClearanceDivision.Route2 => route2Completions.GetValueOrDefault(clearance.Id),
+                ShippingPortal.Api.Models.Clearance.ClearanceDivision.Route3 => route3Completions.GetValueOrDefault(clearance.Id),
+                _ => null
+            };
+
+            var trafficLight = ComputeTrafficLight(s.Eta, actualCompletedDate, targetDays);
+            var slaPercent = ComputeSlaPercent(s.Eta, actualCompletedDate, targetDays);
             var routeStatus = clearance is null || clearance.Route == 0 ? "Not Started" : clearance.Route.ToString();
 
             return new ClearanceShipmentSummary(
                 s.Id, s.BlAwbNo, s.PurchaseOrder?.BusinessUnit?.Name ?? "", firstLine?.ProductCategory?.Name ?? "",
                 s.Eta, s.Fcl20Count + s.Fcl40Count, declarationNo, firstLine?.ModelProduct?.Name ?? "", totalQty, firstLine?.UnitOfMeasure?.Code ?? "",
-                trafficLight, routeStatus, s.ShippingLine?.Name ?? "", slaPercent, clearance?.ClearanceCompleteDate.HasValue ?? false);
+                trafficLight, routeStatus, s.ShippingLine?.Name ?? "", slaPercent, actualCompletedDate.HasValue);
         })
         .Where(x => x is not null)
         .OrderBy(x => x!.Eta ?? DateOnly.MaxValue)
