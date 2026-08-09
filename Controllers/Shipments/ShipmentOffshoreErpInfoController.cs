@@ -83,28 +83,31 @@ public class ShipmentOffshoreErpInfoController : ControllerBase
             _db.ShipmentOffshoreErpInfos.Add(entity);
         }
 
-        if (offshorePartner.SequenceOrder == 1)
+        var maxSeq = await _db.PurchaseOrderOffshorePartners
+            .Where(op => op.PurchaseOrderId == shipment.PurchaseOrderId)
+            .MaxAsync(op => (int?)op.SequenceOrder) ?? 0;
+        var isFirst = offshorePartner.SequenceOrder == 1;
+        var isLast = offshorePartner.SequenceOrder == maxSeq;
+
+        // PR/PO/SA/Bill Reg — First-position fields only.
+        if (isFirst)
         {
             entity.PrNo = req.PrNo;
             entity.PoNo = req.PoNo;
             entity.Sa = req.Sa;
             entity.BillReg = req.BillReg;
-            entity.Grn = req.Grn;
-            entity.InvoiceNo = req.InvoiceNo;
         }
-        else
+        // Inspection No. — Middle or Last, never a pure First.
+        if (!isFirst)
         {
             entity.InspectionNo = req.InspectionNo;
-            entity.Grn = req.Grn;
-            entity.InvoiceNo = req.InvoiceNo;
-            entity.Remarks = req.Remarks;
         }
+        // GRN, Invoice No., Remarks — every position.
+        entity.Grn = req.Grn;
+        entity.InvoiceNo = req.InvoiceNo;
+        entity.Remarks = req.Remarks;
 
         await _db.SaveChangesAsync();
-
-        var maxSeq = await _db.PurchaseOrderOffshorePartners
-            .Where(op => op.PurchaseOrderId == shipment.PurchaseOrderId)
-            .MaxAsync(op => (int?)op.SequenceOrder) ?? 0;
 
         return Ok(new ErpColumnResponse(
             offshorePartnerId, offshorePartner.BusinessPartner!.Name, offshorePartner.SequenceOrder,
