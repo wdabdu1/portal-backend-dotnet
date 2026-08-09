@@ -87,6 +87,7 @@ public class BankDuesController : ControllerBase
         var bankings = await query.ToListAsync();
 
         var clearances = await _db.Clearances.ToDictionaryAsync(c => c.ShipmentId);
+        var lastOffshoreInvoicesByShipment = await _db.LastOffshoreDetails.ToDictionaryAsync(d => d.ShipmentId, d => d.InvoiceNo);
 
         var collectionsByShipment = new Dictionary<int, List<ShipmentCollectionRecord>>();
         foreach (var record in await _db.ShipmentCollectionRecords.ToListAsync())
@@ -125,7 +126,7 @@ public class BankDuesController : ControllerBase
 
             rows.Add(new BankDueRow(
                 shipment.Id, shipment.PurchaseOrder?.BusinessUnit?.Name ?? "", shipment.PurchaseOrder?.Consignee?.Name ?? "", banking.ReceivingBank?.Name, shipment.BlAwbNo,
-                shipment.SobActualDate, null /* Last Offshore Invoice No. — pending */, banking.Tenor?.Days, dueDate,
+                shipment.SobActualDate, lastOffshoreInvoicesByShipment.GetValueOrDefault(shipment.Id), banking.Tenor?.Days, dueDate,
                 clearance?.ImFormNo, clearance?.ImFormDate, banking.CollectionValue, banking.CollectionCurrency?.Code,
                 valueAed, paidAed, balanceAed));
         }
