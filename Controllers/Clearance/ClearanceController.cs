@@ -84,10 +84,19 @@ public class ClearanceController : ControllerBase
             .Where(c => shipmentIds.Contains(c.ShipmentId))
             .ToDictionaryAsync(c => c.ShipmentId);
 
+        var clearanceIds = clearances.Values.Select(c => c.Id).ToList();
+        var certificateEntries = await _db.ClearanceCertificateEntries
+            .Where(e => clearanceIds.Contains(e.ClearanceId))
+            .ToDictionaryAsync(e => e.ClearanceId);
+
         var results = shipments.Select(s =>
         {
             clearances.TryGetValue(s.Id, out var clearance);
-            var declarationNo = clearance?.DeclarationNo;
+            string? declarationNo = null;
+            if (clearance is not null && certificateEntries.TryGetValue(clearance.Id, out var certEntry))
+            {
+                declarationNo = certEntry.ScudaDeclarationNo;
+            }
 
             if (!string.IsNullOrWhiteSpace(search) && !string.IsNullOrEmpty(declarationNo)
                 && !s.BlAwbNo.Contains(search, StringComparison.OrdinalIgnoreCase)
