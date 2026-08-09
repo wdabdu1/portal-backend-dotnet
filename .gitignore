@@ -1,0 +1,8 @@
+cd ~/Desktop/portal-backend-dotnet
+cat > .gitignore << 'EOF'
+bin/
+obj/
+*.user
+.vs/
+appsettings.Development.json
+EOF
