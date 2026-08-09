@@ -7,7 +7,7 @@ using ShippingPortal.Api.Services;
 
 namespace ShippingPortal.Api.Controllers.Shipments;
 
-public record ShipmentLineItemDetail(string ProductCategory, string ModelProduct, decimal QtyInBl, string? UnitOfMeasure);
+public record ShipmentLineItemDetail(string ProductCategory, string ModelProduct, decimal QtyInBl, string? UnitOfMeasure, string? HsCode);
 
 public record ErpColumnDetail(string CompanyName, int SequenceOrder, bool IsLast, object? Data);
 
@@ -194,7 +194,8 @@ public class ShipmentDetailsFullController : ControllerBase
             li.PurchaseOrderLineItem?.ProductCategory?.Name ?? "",
             li.PurchaseOrderLineItem?.ModelProduct?.Name ?? "",
             li.QtyInBl,
-            li.PurchaseOrderLineItem?.UnitOfMeasure?.Code
+            li.PurchaseOrderLineItem?.UnitOfMeasure?.Code,
+            li.HsCode
         )).ToList();
 
         var category = lineItems.FirstOrDefault()?.ProductCategory ?? "";
