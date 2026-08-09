@@ -1,8 +1,3 @@
-cd ~/Desktop/portal-backend-dotnet
-cat > .gitignore << 'EOF'
-bin/
-obj/
-*.user
-.vs/
-appsettings.Development.json
-EOF
+git add .gitignore
+git commit -m "Fix .gitignore content"
+git push
