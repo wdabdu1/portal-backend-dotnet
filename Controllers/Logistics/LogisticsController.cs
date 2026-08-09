@@ -65,17 +65,26 @@ public class LogisticsController : ControllerBase
             .Include(c => c.Shipment).ThenInclude(s => s!.PurchaseOrder).ThenInclude(p => p!.Consignee)
             .ToListAsync();
 
+        var portShipmentIds = portClearances.Select(c => c.ShipmentId).ToList();
+
+        // Batched instead of one query per shipment inside the loop below.
+        var portLineItemsByShipment = (await _db.ShipmentLineItems
+            .Where(li => portShipmentIds.Contains(li.ShipmentId))
+            .Include(li => li.PurchaseOrderLineItem).ThenInclude(pli => pli!.ProductCategory)
+            .Include(li => li.PurchaseOrderLineItem).ThenInclude(pli => pli!.ModelProduct)
+            .Include(li => li.PurchaseOrderLineItem).ThenInclude(pli => pli!.UnitOfMeasure)
+            .ToListAsync())
+            .GroupBy(li => li.ShipmentId)
+            .ToDictionary(g => g.Key, g => g.ToList());
+
         foreach (var clearance in portClearances)
         {
             var shipment = clearance.Shipment!;
+            // SLA schedule genuinely needs its own per-shipment cascade
+            // calculation (delivery order dates, division targets) — left
+            // as one call per shipment rather than batched.
             var schedule = await _schedule.GetScheduleAsync(shipment.Id);
-
-            var lineItems = await _db.ShipmentLineItems
-                .Where(li => li.ShipmentId == shipment.Id)
-                .Include(li => li.PurchaseOrderLineItem).ThenInclude(pli => pli!.ProductCategory)
-                .Include(li => li.PurchaseOrderLineItem).ThenInclude(pli => pli!.ModelProduct)
-                .Include(li => li.PurchaseOrderLineItem).ThenInclude(pli => pli!.UnitOfMeasure)
-                .ToListAsync();
+            var lineItems = portLineItemsByShipment.GetValueOrDefault(shipment.Id, new List<ShipmentLineItem>());
 
             foreach (var li in lineItems)
             {
@@ -96,20 +105,30 @@ public class LogisticsController : ControllerBase
             .Include(w => w.DepositShipment).ThenInclude(s => s!.PurchaseOrder).ThenInclude(p => p!.Consignee)
             .ToListAsync();
 
+        var depositShipmentIds = withdrawals.Select(w => w.DepositShipmentId).ToList();
+        var withdrawalIds = withdrawals.Select(w => w.Id).ToList();
+
+        // Batched — was one query per withdrawal.
+        var route2ByShipmentId = await _db.ClearanceRoute2Details
+            .Include(r => r.Destination)
+            .Include(r => r.Clearance)
+            .Where(r => depositShipmentIds.Contains(r.Clearance!.ShipmentId))
+            .ToDictionaryAsync(r => r.Clearance!.ShipmentId, r => r);
+
+        var withdrawalLineItemsByWithdrawal = (await _db.WithdrawalLineItems
+            .Where(x => withdrawalIds.Contains(x.WithdrawalId))
+            .Include(x => x.DepositShipmentLineItem).ThenInclude(li => li!.PurchaseOrderLineItem).ThenInclude(pli => pli!.ProductCategory)
+            .Include(x => x.DepositShipmentLineItem).ThenInclude(li => li!.PurchaseOrderLineItem).ThenInclude(pli => pli!.ModelProduct)
+            .Include(x => x.DepositShipmentLineItem).ThenInclude(li => li!.PurchaseOrderLineItem).ThenInclude(pli => pli!.UnitOfMeasure)
+            .ToListAsync())
+            .GroupBy(x => x.WithdrawalId)
+            .ToDictionary(g => g.Key, g => g.ToList());
+
         foreach (var withdrawal in withdrawals)
         {
             var depositShipment = withdrawal.DepositShipment!;
-            var depositRoute2 = await _db.ClearanceRoute2Details
-                .Include(r => r.Destination)
-                .Include(r => r.Clearance)
-                .FirstOrDefaultAsync(r => r.Clearance!.ShipmentId == depositShipment.Id);
-
-            var withdrawalLineItems = await _db.WithdrawalLineItems
-                .Where(x => x.WithdrawalId == withdrawal.Id)
-                .Include(x => x.DepositShipmentLineItem).ThenInclude(li => li!.PurchaseOrderLineItem).ThenInclude(pli => pli!.ProductCategory)
-                .Include(x => x.DepositShipmentLineItem).ThenInclude(li => li!.PurchaseOrderLineItem).ThenInclude(pli => pli!.ModelProduct)
-                .Include(x => x.DepositShipmentLineItem).ThenInclude(li => li!.PurchaseOrderLineItem).ThenInclude(pli => pli!.UnitOfMeasure)
-                .ToListAsync();
+            var depositRoute2 = route2ByShipmentId.GetValueOrDefault(depositShipment.Id);
+            var withdrawalLineItems = withdrawalLineItemsByWithdrawal.GetValueOrDefault(withdrawal.Id, new List<WithdrawalLineItem>());
 
             foreach (var wli in withdrawalLineItems)
             {
