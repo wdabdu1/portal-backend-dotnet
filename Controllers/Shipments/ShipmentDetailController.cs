@@ -13,8 +13,11 @@ public record ShipmentDraftDocumentsRequest(DateOnly? InitialDraftReceivedDate, 
 public record ShipmentSsmoRequest(DateOnly? ApplicationDate, decimal? Cost, DateOnly? CostSettledDate, string? RefNumber, DateOnly? ApprovalDate);
 public record ShipmentMotRequest(DateOnly? ProcessDate, decimal? Cost, DateOnly? CostSettledDate, string? RefNumber, DateOnly? ApprovalDate, string? OffshoreApprovedPiNumber);
 public record ShipmentSupplierFullSetRequest(string? SupplierInvoiceNo, DateOnly? SupplierInvoiceDate, DateOnly? FsDispatchDate, int? FsDispatchedViaId, string? FsTrackingNumber, DateOnly? FsReceivedDate);
-public record PaymentRecordRequest(DateOnly PaymentDate, int CurrencyId, decimal Value);
-public record PaymentRecordResponse(int Id, DateOnly PaymentDate, int CurrencyId, string CurrencyCode, decimal Value, decimal ValueUsd);
+public record PaymentRecordRequest(DateOnly PaymentDate, int CurrencyId, decimal Value, int? PaymentDueId);
+public record PaymentRecordResponse(int Id, DateOnly PaymentDate, int CurrencyId, string CurrencyCode, decimal Value, decimal ValueUsd, int? PaymentDueId);
+
+public record PaymentDueRequest(DateOnly DueDate, decimal Amount, int CurrencyId, string? Label);
+public record PaymentDueResponse(int Id, DateOnly DueDate, decimal Amount, int CurrencyId, string CurrencyCode, string? Label, decimal PaidUsd, decimal AmountUsd);
 
 public record SupplierInvoiceSummary(
     string? SupplierInvoiceNo, decimal InvoiceValue, string InvoiceCurrency, decimal InvoiceValueUsd,
