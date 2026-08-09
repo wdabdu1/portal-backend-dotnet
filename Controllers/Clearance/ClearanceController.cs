@@ -9,7 +9,8 @@ namespace ShippingPortal.Api.Controllers.Clearance;
 
 public record ClearanceShipmentSummary(
     int ShipmentId, string BlAwbNo, string BusinessUnit, string Category, DateOnly? Eta,
-    int FclCount, string? DeclarationNo, string Product, decimal Qty, string Unit, string TrafficLight, string RouteStatus);
+    int FclCount, string? DeclarationNo, string Product, decimal Qty, string Unit, string TrafficLight, string RouteStatus,
+    string ShippingLine, decimal SlaPercent, bool IsCompleted);
 
 public record ClearanceGeneralInfoRequest(
     DateOnly? CopyOfBlReceivedDate, DateOnly? OriginalShipmentSetReceivedDate, string? LcNo,
@@ -64,6 +65,7 @@ public class ClearanceController : ControllerBase
             .Include(s => s.PurchaseOrder).ThenInclude(p => p!.BusinessUnit)
             .Include(s => s.LineItems).ThenInclude(li => li.PurchaseOrderLineItem).ThenInclude(pli => pli!.ProductCategory)
             .Include(s => s.LineItems).ThenInclude(li => li.PurchaseOrderLineItem).ThenInclude(pli => pli!.ModelProduct)
+            .Include(s => s.ShippingLine)
             .AsQueryable();
 
         if (!buAccess.SeesAllBus(User))
@@ -123,12 +125,13 @@ public class ClearanceController : ControllerBase
                 : generalDays + routeDays;
 
             var trafficLight = ComputeTrafficLight(s.Eta, clearance?.ClearanceCompleteDate, targetDays);
+            var slaPercent = ComputeSlaPercent(s.Eta, clearance?.ClearanceCompleteDate, targetDays);
             var routeStatus = clearance is null || clearance.Route == 0 ? "Not Started" : clearance.Route.ToString();
 
             return new ClearanceShipmentSummary(
                 s.Id, s.BlAwbNo, s.PurchaseOrder?.BusinessUnit?.Name ?? "", firstLine?.ProductCategory?.Name ?? "",
                 s.Eta, s.Fcl20Count + s.Fcl40Count, declarationNo, firstLine?.ModelProduct?.Name ?? "", totalQty, firstLine?.UnitOfMeasure?.Code ?? "",
-                trafficLight, routeStatus);
+                trafficLight, routeStatus, s.ShippingLine?.Name ?? "", slaPercent, clearance?.ClearanceCompleteDate.HasValue ?? false);
         })
         .Where(x => x is not null)
         .OrderBy(x => x!.Eta ?? DateOnly.MaxValue)
