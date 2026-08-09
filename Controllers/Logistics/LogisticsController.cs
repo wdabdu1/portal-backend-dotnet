@@ -5,6 +5,7 @@ using ShippingPortal.Api.Data;
 using ShippingPortal.Api.Models.Clearance;
 using ShippingPortal.Api.Models.Identity;
 using ShippingPortal.Api.Models.Logistics;
+using ShippingPortal.Api.Models.Shipments;
 using ShippingPortal.Api.Services;
 
 namespace ShippingPortal.Api.Controllers.Logistics;
