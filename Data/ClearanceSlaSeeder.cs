@@ -39,10 +39,14 @@ public static class ClearanceSlaSeeder
         (ClearanceDivision.PreClearanceDocs, "Final Draft Confirmed", 2, 1m),
         (ClearanceDivision.PreClearanceDocs, "FS Received", 3, 3m),
         (ClearanceDivision.PreClearanceDocs, "Original Shipment Set Received", 4, 5m),
-        (ClearanceDivision.PreClearanceDocs, "DO Received", 5, 2m),
 
         (ClearanceDivision.PreClearanceMot, "MOT Approval", 1, 10m),
         (ClearanceDivision.PreClearanceSsmo, "SSMO Approval", 1, 10m),
+
+        // DO is gated by vessel arrival, not chained to the document
+        // flow — measured FORWARD from arrival instead ("should be
+        // received within N days of the vessel arriving").
+        (ClearanceDivision.PreClearanceDo, "DO Received", 1, 2m),
     };
 
     public static async Task SeedAsync(IServiceProvider services)
