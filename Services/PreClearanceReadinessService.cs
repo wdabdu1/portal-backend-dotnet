@@ -6,12 +6,18 @@ namespace ShippingPortal.Api.Services;
 
 public record ReadinessItem(string GroupItem, DateOnly ShouldBeDoneBy, DateOnly? ActualDate, string Status, string Light);
 public record TrackResult(string Track, List<ReadinessItem> Items);
-public record ShipmentReadiness(int ShipmentId, string BlAwbNo, DateOnly? Eta, List<TrackResult> Tracks);
+public record ShipmentReadiness(
+    int ShipmentId, string BlAwbNo, string BusinessUnit, string Category, int Fcl20Count, int Fcl40Count,
+    DateOnly? Etd, DateOnly? Eta, string Classification, List<TrackResult> Tracks);
 
-// Pre-clearance readiness — entirely separate from the forward clearance
-// cascade. Each track is measured BACKWARD from ETA: "should have been
-// done by ETA minus N days," so risk shows up before the vessel even
-// arrives, independent of how clearance itself is going.
+// Shipment Pipeline Health — the full pre-clearance journey, entirely
+// separate from the forward clearance cascade itself. The Document
+// Chain is measured from BOTH ends: backward from ETA (catches things
+// as the deadline nears) and forward from ETD (catches a stalled step
+// immediately, even on a long-transit shipment where ETA is still far
+// off) — whichever gives the earlier "should be done by" date wins,
+// since that's the one that will bite first. DO Received is its own
+// track, gated by vessel arrival rather than chained to the documents.
 public class PreClearanceReadinessService
 {
     private readonly ShippingPortalDbContext _db;
@@ -22,7 +28,12 @@ public class PreClearanceReadinessService
         var result = new List<ShipmentReadiness>();
         if (shipmentIds.Count == 0) return result;
 
-        var shipments = await _db.Shipments.Where(s => shipmentIds.Contains(s.Id)).ToListAsync();
+        var shipments = await _db.Shipments
+            .Where(s => shipmentIds.Contains(s.Id))
+            .Include(s => s.PurchaseOrder).ThenInclude(p => p!.BusinessUnit)
+            .Include(s => s.LineItems).ThenInclude(li => li.PurchaseOrderLineItem).ThenInclude(pli => pli!.ProductCategory)
+            .ToListAsync();
+
         var draftDocs = await _db.ShipmentDraftDocuments.Where(d => shipmentIds.Contains(d.ShipmentId)).ToDictionaryAsync(d => d.ShipmentId);
         var fullSets = await _db.ShipmentSupplierFullSets.Where(f => shipmentIds.Contains(f.ShipmentId)).ToDictionaryAsync(f => f.ShipmentId);
         var mots = await _db.ShipmentMots.Where(m => shipmentIds.Contains(m.ShipmentId)).ToDictionaryAsync(m => m.ShipmentId);
@@ -33,52 +44,94 @@ public class PreClearanceReadinessService
         var deliveryOrders = await _db.ClearanceDeliveryOrders.Where(d => clearanceIds.Contains(d.ClearanceId)).ToDictionaryAsync(d => d.ClearanceId);
 
         var slaRows = await _db.ClearanceSlaSettings.Where(s => s.IsActive).ToListAsync();
-        var docsRows = slaRows.Where(s => s.Division == ClearanceDivision.PreClearanceDocs).OrderByDescending(s => s.SequenceOrder).ToList();
+        var docsRows = slaRows.Where(s => s.Division == ClearanceDivision.PreClearanceDocs).OrderBy(s => s.SequenceOrder).ToList();
         var motDays = slaRows.FirstOrDefault(s => s.Division == ClearanceDivision.PreClearanceMot)?.TargetDays ?? 0;
         var ssmoDays = slaRows.FirstOrDefault(s => s.Division == ClearanceDivision.PreClearanceSsmo)?.TargetDays ?? 0;
+        var doDays = slaRows.FirstOrDefault(s => s.Division == ClearanceDivision.PreClearanceDo)?.TargetDays ?? 0;
         var holidaySet = (await _db.PublicHolidays.Where(h => h.AffectsClr).Select(h => h.Date).ToListAsync()).ToHashSet();
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
 
         foreach (var shipment in shipments)
         {
+            var category = shipment.LineItems.FirstOrDefault()?.PurchaseOrderLineItem?.ProductCategory?.Name ?? "";
+            var businessUnit = shipment.PurchaseOrder?.BusinessUnit?.Name ?? "";
+
             if (!shipment.Eta.HasValue)
             {
-                result.Add(new ShipmentReadiness(shipment.Id, shipment.BlAwbNo, null, new List<TrackResult>()));
+                result.Add(new ShipmentReadiness(shipment.Id, shipment.BlAwbNo, businessUnit, category,
+                    shipment.Fcl20Count, shipment.Fcl40Count, shipment.Etd, null, "Green", new List<TrackResult>()));
                 continue;
             }
             var eta = shipment.Eta.Value;
+            var etd = shipment.Etd;
 
-            // --- Document Chain — walked BACKWARD from ETA, latest step first ---
-            var docItems = new List<ReadinessItem>();
-            var cascadeFrom = eta;
             draftDocs.TryGetValue(shipment.Id, out var dd);
             fullSets.TryGetValue(shipment.Id, out var fs);
             clearances.TryGetValue(shipment.Id, out var clearance);
             var deliveryOrder = clearance is not null ? deliveryOrders.GetValueOrDefault(clearance.Id) : null;
 
-            foreach (var row in docsRows)
+            DateOnly? ActualFor(string groupItem) => groupItem switch
             {
-                var shouldBeDoneBy = SubtractBusinessDays(cascadeFrom, (int)Math.Ceiling(row.TargetDays), holidaySet);
-                DateOnly? actual = row.GroupItem switch
-                {
-                    "Final Draft Received" => dd?.FinalDraftReceivedDate,
-                    "Final Draft Confirmed" => dd?.FinalDraftConfirmedDate,
-                    "FS Received" => fs?.FsReceivedDate,
-                    "Original Shipment Set Received" => clearance?.OriginalShipmentSetReceivedDate,
-                    "DO Received" => deliveryOrder?.DoReceivedDate,
-                    _ => null
-                };
-                docItems.Insert(0, BuildItem(row.GroupItem, shouldBeDoneBy, actual, today, holidaySet));
-                cascadeFrom = shouldBeDoneBy;
+                "Final Draft Received" => dd?.FinalDraftReceivedDate,
+                "Final Draft Confirmed" => dd?.FinalDraftConfirmedDate,
+                "FS Received" => fs?.FsReceivedDate,
+                "Original Shipment Set Received" => clearance?.OriginalShipmentSetReceivedDate,
+                _ => null
+            };
+
+            // --- Backward from ETA (existing direction) ---
+            var etaTargets = new List<DateOnly>();
+            var cascadeBack = eta;
+            for (var i = docsRows.Count - 1; i >= 0; i--)
+            {
+                var row = docsRows[i];
+                var target = SubtractBusinessDays(cascadeBack, (int)Math.Ceiling(row.TargetDays), holidaySet);
+                etaTargets.Insert(0, target);
+                var actual = ActualFor(row.GroupItem);
+                cascadeBack = actual ?? target;
             }
 
-            // --- MOT / SSMO — independent, each backward from ETA directly ---
+            // --- Forward from ETD (new — catches a stalled step immediately) ---
+            var etdTargets = new List<DateOnly>();
+            var cascadeForward = etd ?? eta;
+            foreach (var row in docsRows)
+            {
+                var target = AddBusinessDays(cascadeForward, (int)Math.Ceiling(row.TargetDays), holidaySet);
+                var actual = ActualFor(row.GroupItem);
+                // Live push: if this step is still pending and already
+                // overdue against its own forward target, the NEXT step's
+                // clock starts from today, not the stale target — same
+                // "unstuck items push everything after them" principle
+                // as the main SLA cascade.
+                var effectiveDate = actual ?? (today > target ? today : target);
+                etdTargets.Add(target);
+                cascadeForward = effectiveDate;
+            }
+
+            var docItems = new List<ReadinessItem>();
+            for (var i = 0; i < docsRows.Count; i++)
+            {
+                var shouldBeDoneBy = etaTargets[i] < etdTargets[i] ? etaTargets[i] : etdTargets[i];
+                var actual = ActualFor(docsRows[i].GroupItem);
+                docItems.Add(BuildItem(docsRows[i].GroupItem, shouldBeDoneBy, actual, today, holidaySet));
+            }
+
+            // Last document-chain step's live-projected date — used below
+            // to decide whether the whole chain is still on pace to beat
+            // vessel arrival, or has already slipped past it.
+            var lastDocTarget = docItems.Count > 0 ? docItems[^1].ShouldBeDoneBy : eta;
+            var lastDocActual = docItems.Count > 0 ? docItems[^1].ActualDate : null;
+            var lastDocProjected = lastDocActual ?? (today > lastDocTarget ? today : lastDocTarget);
+
+            // --- MOT / SSMO — independent, backward from ETA ---
             mots.TryGetValue(shipment.Id, out var mot);
             ssmos.TryGetValue(shipment.Id, out var ssmo);
             var motShouldBe = SubtractBusinessDays(eta, (int)Math.Ceiling(motDays), holidaySet);
             var ssmoShouldBe = SubtractBusinessDays(eta, (int)Math.Ceiling(ssmoDays), holidaySet);
+            var motItem = BuildItem("MOT Approval", motShouldBe, mot?.ApprovalDate, today, holidaySet);
+            var ssmoItem = BuildItem("SSMO Approval", ssmoShouldBe, ssmo?.ApprovalDate, today, holidaySet);
 
-            // --- Vessel Arrival — actual vs ETA directly, no lead time ---
+            // --- Vessel Arrival — actual vs ETA directly ---
             var vesselItem = new ReadinessItem("Vessel Arrival", eta, deliveryOrder?.ActualArrivalDate,
                 deliveryOrder?.ActualArrivalDate.HasValue == true
                     ? (deliveryOrder.ActualArrivalDate.Value > eta ? "Arrived late" : "Arrived on time or early")
@@ -87,12 +140,33 @@ public class PreClearanceReadinessService
                     ? (deliveryOrder.ActualArrivalDate.Value > eta ? "Amber" : "Green")
                     : (today > eta ? "Red" : "Green"));
 
-            result.Add(new ShipmentReadiness(shipment.Id, shipment.BlAwbNo, eta, new List<TrackResult>
+            // --- DO Received — its own track, forward from arrival ---
+            var arrivalAnchor = deliveryOrder?.ActualArrivalDate ?? eta;
+            var doShouldBe = AddBusinessDays(arrivalAnchor, (int)Math.Ceiling(doDays), holidaySet);
+            var doItem = BuildItem("DO Received", doShouldBe, deliveryOrder?.DoReceivedDate, today, holidaySet);
+
+            // --- Classification ---
+            var hasArrived = deliveryOrder?.ActualArrivalDate.HasValue == true;
+            var osSetDone = clearance?.OriginalShipmentSetReceivedDate.HasValue == true;
+            var arrivalReference = deliveryOrder?.ActualArrivalDate ?? eta;
+
+            var isRed = (hasArrived && !osSetDone)
+                || lastDocProjected > arrivalReference
+                || (doItem.ActualDate is null && doItem.Light == "Red");
+
+            var allItems = new List<ReadinessItem>(docItems) { motItem, ssmoItem, vesselItem, doItem };
+            var hasOverdueOrLate = allItems.Any(i => i.Light != "Green");
+
+            var classification = isRed ? "Red" : (hasOverdueOrLate ? "Yellow" : "Green");
+
+            result.Add(new ShipmentReadiness(shipment.Id, shipment.BlAwbNo, businessUnit, category,
+                shipment.Fcl20Count, shipment.Fcl40Count, etd, eta, classification, new List<TrackResult>
             {
                 new TrackResult("Document Chain", docItems),
-                new TrackResult("MOT Approval", new List<ReadinessItem> { BuildItem("MOT Approval", motShouldBe, mot?.ApprovalDate, today, holidaySet) }),
-                new TrackResult("SSMO Approval", new List<ReadinessItem> { BuildItem("SSMO Approval", ssmoShouldBe, ssmo?.ApprovalDate, today, holidaySet) }),
-                new TrackResult("Vessel Arrival", new List<ReadinessItem> { vesselItem })
+                new TrackResult("MOT Approval", new List<ReadinessItem> { motItem }),
+                new TrackResult("SSMO Approval", new List<ReadinessItem> { ssmoItem }),
+                new TrackResult("Vessel Arrival", new List<ReadinessItem> { vesselItem }),
+                new TrackResult("DO Received", new List<ReadinessItem> { doItem })
             }));
         }
 
@@ -126,8 +200,21 @@ public class PreClearanceReadinessService
         return date;
     }
 
-    // Positive when `to` is later than `from` (same convention as
-    // ClearanceScheduleService's own helper).
+    private static DateOnly AddBusinessDays(DateOnly from, int days, HashSet<DateOnly> holidays)
+    {
+        var date = from;
+        var remaining = days;
+        while (remaining > 0)
+        {
+            date = date.AddDays(1);
+            if (date.DayOfWeek == DayOfWeek.Friday || date.DayOfWeek == DayOfWeek.Saturday) continue;
+            if (holidays.Contains(date)) continue;
+            remaining--;
+        }
+        return date;
+    }
+
+    // Positive when `to` is later than `from`.
     private static int BusinessDaysBetween(DateOnly from, DateOnly to, HashSet<DateOnly> holidays)
     {
         if (from == to) return 0;
