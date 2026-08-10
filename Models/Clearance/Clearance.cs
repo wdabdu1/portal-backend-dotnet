@@ -44,6 +44,14 @@ public static class ClearanceDivision
     public const string Route1 = "Route1";
     public const string Route2 = "Route2";
     public const string Route3 = "Route3";
+
+    // Pre-clearance readiness tracks — not part of the forward clearance
+    // cascade at all. Each is measured BACKWARD from ETA instead: "should
+    // have started by ETA minus N days," flagging risk before the vessel
+    // even arrives, independent of everything else.
+    public const string PreClearanceDocs = "PreClearanceDocs";
+    public const string PreClearanceMot = "PreClearanceMot";
+    public const string PreClearanceSsmo = "PreClearanceSsmo";
 }
 
 // One row per Group Item (not per individual field) — e.g. "SSMO File
