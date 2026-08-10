@@ -19,6 +19,7 @@ public class ShippingPortalDbContext : IdentityDbContext<ApplicationUser>
     public DbSet<UserBusinessUnitAccess> UserBusinessUnitAccess => Set<UserBusinessUnitAccess>();
     public DbSet<ShippingPortal.Api.Models.SectionLock> SectionLocks => Set<ShippingPortal.Api.Models.SectionLock>();
     public DbSet<ShippingPortal.Api.Models.UserTablePreference> UserTablePreferences => Set<ShippingPortal.Api.Models.UserTablePreference>();
+    public DbSet<ShippingPortal.Api.Models.UserFavorite> UserFavorites => Set<ShippingPortal.Api.Models.UserFavorite>();
 
     // Settings / master data
     public DbSet<BusinessUnit> BusinessUnits => Set<BusinessUnit>();
