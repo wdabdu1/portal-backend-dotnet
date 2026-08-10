@@ -52,6 +52,7 @@ public static class ClearanceDivision
     public const string PreClearanceDocs = "PreClearanceDocs";
     public const string PreClearanceMot = "PreClearanceMot";
     public const string PreClearanceSsmo = "PreClearanceSsmo";
+    public const string PreClearanceDo = "PreClearanceDo";
 }
 
 // One row per Group Item (not per individual field) — e.g. "SSMO File
