@@ -32,6 +32,17 @@ public static class ClearanceSlaSeeder
         (ClearanceDivision.Route3, "SSMO Examination", 5, 1m),
         (ClearanceDivision.Route3, "Customs Evaluation", 6, 1m),
         (ClearanceDivision.Route3, "Truck & Containers", 7, 1m),
+
+        // Pre-clearance readiness — placeholder defaults, meant to be
+        // tuned in Settings once real lead times are known.
+        (ClearanceDivision.PreClearanceDocs, "Final Draft Received", 1, 2m),
+        (ClearanceDivision.PreClearanceDocs, "Final Draft Confirmed", 2, 1m),
+        (ClearanceDivision.PreClearanceDocs, "FS Received", 3, 3m),
+        (ClearanceDivision.PreClearanceDocs, "Original Shipment Set Received", 4, 5m),
+        (ClearanceDivision.PreClearanceDocs, "DO Received", 5, 2m),
+
+        (ClearanceDivision.PreClearanceMot, "MOT Approval", 1, 10m),
+        (ClearanceDivision.PreClearanceSsmo, "SSMO Approval", 1, 10m),
     };
 
     public static async Task SeedAsync(IServiceProvider services)
