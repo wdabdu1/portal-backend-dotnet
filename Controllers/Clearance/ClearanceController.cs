@@ -42,6 +42,25 @@ public class ClearanceController : ControllerBase
         _sectionLock = sectionLock;
     }
 
+[HttpGet("pre-clearance-readiness")]
+    [Authorize(Roles = AppRoles.ClearanceViewers)]
+    public async Task<ActionResult<IEnumerable<ShippingPortal.Api.Services.ShipmentReadiness>>> GetPreClearanceReadiness(
+        [FromServices] ShippingPortal.Api.Services.PreClearanceReadinessService readinessService,
+        [FromServices] ShippingPortal.Api.Services.BuAccessService buAccess)
+    {
+        var query = _db.Shipments.Where(s => s.Status == ShipmentStatus.Confirmed).AsQueryable();
+
+        if (!buAccess.SeesAllBus(User))
+        {
+            var allowedBus = buAccess.GetAllowedBusinessUnitIds(User);
+            query = query.Where(s => allowedBus.Contains(s.PurchaseOrder!.BusinessUnitId));
+        }
+
+        var shipmentIds = await query.Select(s => s.Id).ToListAsync();
+        var readiness = await readinessService.CalculateAsync(shipmentIds);
+        return Ok(readiness);
+    }
+
     // Selection screen: only Confirmed shipments (nothing to clear on a Draft),
     // sorted by ETA ascending — soonest-arriving first, per the requirement.
     [HttpGet("shipments")]
