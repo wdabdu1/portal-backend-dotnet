@@ -209,7 +209,9 @@ public class ClearanceScheduleService
             string light;
             if (actualDate.HasValue)
             {
-                var diff = BusinessDaysBetween(actualDate.Value, targetDate, holidaySet);
+                // Positive diff means actual landed AFTER target (late);
+                // negative means it landed before (early).
+                var diff = BusinessDaysBetween(targetDate, actualDate.Value, holidaySet);
                 if (diff < 0) { status = $"Completed {-diff} business day(s) early"; light = "Green"; }
                 else if (diff == 0) { status = "Completed on time"; light = "Green"; }
                 else { status = $"Completed {diff} business day(s) late"; light = "Amber"; }
@@ -217,7 +219,8 @@ public class ClearanceScheduleService
             }
             else
             {
-                var diff = BusinessDaysBetween(today, targetDate, holidaySet);
+                // Positive diff means today is AFTER target (overdue).
+                var diff = BusinessDaysBetween(targetDate, today, holidaySet);
                 if (diff <= 0) { status = "Pending — on track"; light = "Green"; }
                 else { status = $"Pending — delayed {diff} business day(s)"; light = "Red"; }
                 chainFrom = targetDate;
