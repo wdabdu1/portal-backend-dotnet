@@ -291,8 +291,6 @@ public class ClearanceController : ControllerBase
         }
         return forward ? count : -count;
     }
-    [HttpPut("{shipmentId:int}/general-info")]
-    [Authorize(Roles = AppRoles.ClearanceEditors)]
     [HttpPost("{shipmentId:int}/complete")]
     [Authorize(Roles = AppRoles.ClearanceEditors)]
     public async Task<IActionResult> CompleteClearance(int shipmentId)
