@@ -223,7 +223,11 @@ public class ClearanceScheduleService
                 var diff = BusinessDaysBetween(targetDate, today, holidaySet);
                 if (diff <= 0) { status = "Pending — on track"; light = "Green"; }
                 else { status = $"Pending — delayed {diff} business day(s)"; light = "Red"; }
-                chainFrom = targetDate;
+                // A step sitting untouched pushes every step after it —
+                // cascade from TODAY once overdue, not the stale target,
+                // so the projected completion date reflects the real
+                // knock-on effect live, not just once someone finally acts.
+                chainFrom = diff > 0 ? today : targetDate;
             }
 
             items.Add(new ScheduleItem(row.Division, row.GroupItem, row.TargetDays, targetDate, actualDate, status, light));
