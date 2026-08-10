@@ -38,7 +38,7 @@ public class FavoritesController : ControllerBase
         if (userId is null) return Unauthorized();
 
         // Same item can't be pinned twice.
-        var existing = await _db.UserFavorites.FirstOrDefaultAsync(f => f.UserId == userId && f.Route == req.Route);
+        var existing = await _db.UserFavorites.FirstOrDefaultAsync(f => f.UserId == userId && f.Route == req.Route && f.Label == req.Label);
         if (existing is not null) return Ok(new FavoriteResponse(existing.Id, existing.Label, existing.Route, existing.SortOrder));
 
         var maxOrder = await _db.UserFavorites.Where(f => f.UserId == userId).Select(f => (int?)f.SortOrder).MaxAsync() ?? -1;
