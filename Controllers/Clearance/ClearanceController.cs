@@ -25,7 +25,8 @@ public record ClearanceDetailResponse(
     DateOnly? OriginalShipmentSetReceivedDate, string? LcNo, string? DeclarationNo, string? Notes,
     int Route, DateOnly? ClearanceCompleteDate, string? ImFormNo, DateOnly? ImFormDate,
     string Consignee, string Category, int FclCount,
-    DateOnly? WithdrawalRequestDate, string? WithdrawalRequestRefNo);
+    DateOnly? WithdrawalRequestDate, string? WithdrawalRequestRefNo,
+    string? LastOffshoreInvoiceNo, string? LastOffshoreCompanyName);
 
 public record ClearanceScheduleResponse(DateOnly? EstimatedCompletionDate, List<ShippingPortal.Api.Services.ScheduleItem> Items);
 
@@ -195,13 +196,21 @@ public class ClearanceController : ControllerBase
         var firstCategory = shipment.LineItems.FirstOrDefault()?.PurchaseOrderLineItem?.ProductCategory?.Name ?? "";
         var fclCount = shipment.Fcl20Count + shipment.Fcl40Count;
 
+        var lastOffshore = await _db.PurchaseOrderOffshorePartners
+            .Where(p => p.PurchaseOrderId == shipment.PurchaseOrderId)
+            .Include(p => p.BusinessPartner)
+            .OrderByDescending(p => p.SequenceOrder)
+            .FirstOrDefaultAsync();
+        var lastOffshoreDetail = await _db.LastOffshoreDetails.FirstOrDefaultAsync(d => d.ShipmentId == shipmentId);
+
         return new ClearanceDetailResponse(
             shipment.Id, shipment.BlAwbNo, shipment.PurchaseOrder!.PoNumber, shipment.Eta,
             clearance?.CopyOfBlReceivedDate, clearance?.OriginalShipmentSetReceivedDate, clearance?.LcNo,
             clearance?.DeclarationNo, clearance?.Notes, (int)(clearance?.Route ?? 0), clearance?.ClearanceCompleteDate,
             clearance?.ImFormNo, clearance?.ImFormDate,
             shipment.PurchaseOrder.Consignee?.Name ?? "", firstCategory, fclCount,
-            clearance?.WithdrawalRequestDate, clearance?.WithdrawalRequestRefNo);
+            clearance?.WithdrawalRequestDate, clearance?.WithdrawalRequestRefNo,
+            lastOffshoreDetail?.InvoiceNo, lastOffshore?.BusinessPartner?.Name);
     }
 
     // Sequential cascading schedule: each step's target date is calculated
