@@ -20,6 +20,8 @@ public record ClearanceDashboardRow(
     string BlAwbNo, decimal ClearanceProgressPercent, string BusinessUnit, string Category, string ModelProduct,
     decimal Qty, int Fcl20Count, int Fcl40Count, DateOnly? Eta, DateOnly? ClearanceCompletionDate,
     int? DaysRemaining, string Route, string ClearanceFrom, string Status);
+
+public record ShipmentDashboardRow(
     DateTime OrderCreationDate, string CurrentStatus, string BusinessUnit, string BlAwbNo, string PoNumber,
     string Category, string ModelProduct, decimal Qty, decimal UnitPrice, string Currency, decimal Total,
     decimal PaidUsd, decimal BalanceUnpaidUsd, DateOnly? Eta, DateOnly? Etd, DateOnly? ClearanceCompletionDate);
