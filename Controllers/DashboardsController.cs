@@ -326,6 +326,82 @@ public class DashboardsController : ControllerBase
         return forward ? count : -count;
     }
 
+[HttpGet("goods-in-transit")]
+    [Authorize(Roles = AppRoles.ClearanceViewers)]
+    public async Task<ActionResult<IEnumerable<GoodsInTransitRow>>> GetGoodsInTransit([FromServices] ShippingPortal.Api.Services.BuAccessService buAccess)
+    {
+        var items = await _db.TruckLoadItems
+            .Include(i => i.TruckLoadDrop).ThenInclude(d => d!.TruckLoad).ThenInclude(tl => tl!.Truck)
+            .Include(i => i.TruckLoadDrop).ThenInclude(d => d!.TruckLoad).ThenInclude(tl => tl!.Driver)
+            .Include(i => i.TruckLoadDrop).ThenInclude(d => d!.Warehouse).ThenInclude(w => w!.City)
+            .Include(i => i.WarehouseAllocation).ThenInclude(a => a!.ShipmentLineItem).ThenInclude(li => li!.PurchaseOrderLineItem).ThenInclude(pli => pli!.ProductCategory)
+            .Include(i => i.WarehouseAllocation).ThenInclude(a => a!.ShipmentLineItem).ThenInclude(li => li!.PurchaseOrderLineItem).ThenInclude(pli => pli!.ModelProduct)
+            .Include(i => i.WarehouseAllocation).ThenInclude(a => a!.ShipmentLineItem).ThenInclude(li => li!.Shipment).ThenInclude(s => s!.PurchaseOrder).ThenInclude(p => p!.BusinessUnit)
+            .Include(i => i.WarehouseAllocation).ThenInclude(a => a!.WithdrawalLineItem).ThenInclude(w => w!.DepositShipmentLineItem).ThenInclude(li => li!.PurchaseOrderLineItem).ThenInclude(pli => pli!.ProductCategory)
+            .Include(i => i.WarehouseAllocation).ThenInclude(a => a!.WithdrawalLineItem).ThenInclude(w => w!.DepositShipmentLineItem).ThenInclude(li => li!.PurchaseOrderLineItem).ThenInclude(pli => pli!.ModelProduct)
+            .Include(i => i.WarehouseAllocation).ThenInclude(a => a!.WithdrawalLineItem).ThenInclude(w => w!.DepositShipmentLineItem).ThenInclude(li => li!.Shipment).ThenInclude(s => s!.PurchaseOrder).ThenInclude(p => p!.BusinessUnit)
+            .ToListAsync();
+
+        // Both paths (direct Route-1 allocation, or a Route-2/3 withdrawal
+        // allocation) resolve back to the same originating ShipmentLineItem
+        // — normalize to that so Category/Model/BU/pick-up location all
+        // come from one place regardless of which route it took.
+        var originatingShipmentIds = items
+            .Select(i => i.WarehouseAllocation?.ShipmentLineItem?.ShipmentId ?? i.WarehouseAllocation?.WithdrawalLineItem?.DepositShipmentLineItem?.ShipmentId)
+            .Where(id => id.HasValue).Select(id => id!.Value).Distinct().ToList();
+
+        var clearances = await _db.Clearances.Where(c => originatingShipmentIds.Contains(c.ShipmentId)).ToDictionaryAsync(c => c.ShipmentId);
+        var clearanceIds = clearances.Values.Select(c => c.Id).ToList();
+        var route2Details = await _db.ClearanceRoute2Details.Where(r => clearanceIds.Contains(r.ClearanceId)).Include(r => r.Destination).ToDictionaryAsync(r => r.ClearanceId);
+
+        var result = new List<GoodsInTransitRow>();
+        foreach (var item in items)
+        {
+            var drop = item.TruckLoadDrop;
+            if (drop is null) continue;
+            var truckLoad = drop.TruckLoad;
+
+            var directLine = item.WarehouseAllocation?.ShipmentLineItem;
+            var withdrawalLine = item.WarehouseAllocation?.WithdrawalLineItem?.DepositShipmentLineItem;
+            var sourceLine = directLine ?? withdrawalLine;
+            var isFromWithdrawal = directLine is null && withdrawalLine is not null;
+
+            string pickFrom;
+            if (isFromWithdrawal && sourceLine is not null)
+            {
+                clearances.TryGetValue(sourceLine.ShipmentId, out var depositClearance);
+                pickFrom = depositClearance is not null ? (route2Details.GetValueOrDefault(depositClearance.Id)?.Destination?.Name ?? "FZ") : "FZ";
+            }
+            else
+            {
+                pickFrom = "Port";
+            }
+
+            var status = drop.ActualDropOffDate.HasValue ? "Delivered" : "On the Way";
+
+            result.Add(new GoodsInTransitRow(
+                sourceLine?.Shipment?.PurchaseOrder?.BusinessUnit?.Name ?? "",
+                sourceLine?.PurchaseOrderLineItem?.ProductCategory?.Name ?? "",
+                sourceLine?.PurchaseOrderLineItem?.ModelProduct?.Name ?? "",
+                item.Qty, pickFrom, truckLoad?.LoadDate ?? default,
+                drop.Warehouse?.City?.Name ?? "", drop.Warehouse?.Name ?? "",
+                drop.ExpectedDeliveryDate, drop.ActualDropOffDate,
+                truckLoad?.Truck?.PlateNo ?? "", truckLoad?.Driver?.Name ?? "", status));
+        }
+
+        if (!buAccess.SeesAllBus(User))
+        {
+            var allowedBuNames = (await _db.BusinessUnits.Where(b => buAccess.GetAllowedBusinessUnitIds(User).Contains(b.Id)).Select(b => b.Name).ToListAsync()).ToHashSet();
+            result = result.Where(r => allowedBuNames.Contains(r.BusinessUnit)).ToList();
+        }
+
+        return Ok(result.OrderByDescending(r => r.PickupDate).ToList());
+    }
+
+    // Pulled from Cost Estimates only, no settlement filtering — this is
+    // a budgeting view, not a payment-tracking one.
+    [HttpGet("customs-clearance-payments")]
+
     // Pulled from Cost Estimates only, no settlement filtering — this is
     // a budgeting view, not a payment-tracking one.
     [HttpGet("customs-clearance-payments")]
