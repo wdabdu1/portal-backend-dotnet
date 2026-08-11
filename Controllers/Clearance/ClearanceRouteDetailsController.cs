@@ -16,8 +16,7 @@ public record Route1Request(
     DateOnly? SsmoExamStartDate, DateOnly? SsmoCertIssuanceDate,
     DateOnly? CustEvaluationDate, decimal? CustomsDutySdg, DateOnly? CustomsSettlementDate, DateOnly? ReleaseExitPassDate,
     DateOnly? SpcBillRequestDate, decimal? SpcBillValueSdg, DateOnly? SpcBillSettlementDate,
-    DateOnly? TruckPortEntryPermitDate, DateOnly? ContainersReturnedDate,
-    DateOnly? ShippingLineDepositReturnDate, decimal? DepositValue, DateOnly? ClearanceActualCompletedDate);
+    DateOnly? TruckPortEntryPermitDate, DateOnly? ContainersReturnedDate, DateOnly? ClearanceActualCompletedDate);
 
 public record Route2Request(
     DateOnly? DepositRequestDate, DateOnly? RequestApprovalDate,
@@ -25,8 +24,16 @@ public record Route2Request(
     DateOnly? InspectionDate,
     DateOnly? SpcBillRequestDate, decimal? SpcBillValueSdg, DateOnly? SpcBillSettlementDate, DateOnly? PoliceSecurityAppointedDate,
     DateOnly? TruckPortEntryPermitDate, DateOnly? ContainersReceivedAtFzDate, DateOnly? ContainersReturnedDate,
-    DateOnly? ShippingLineDepositReturnDate, decimal? DepositValue, DateOnly? ClearanceActualCompletedDate);
+    DateOnly? ClearanceActualCompletedDate);
 
+public record ActualChargesResponse(
+    decimal? ForecastDemurrageSdg, decimal? ForecastStorageSdg, DateTime? ForecastCapturedAt,
+    decimal? ActualDemurragePaidSdg, decimal? ActualStoragePaidSdg,
+    DateOnly? ShippingLineDepositReturnDate, decimal? AmountReturnedFromDeposit);
+
+public record ActualChargesRequest(
+    decimal? ActualDemurragePaidSdg, decimal? ActualStoragePaidSdg,
+    DateOnly? ShippingLineDepositReturnDate, decimal? AmountReturnedFromDeposit);
 public record WithdrawalLineInput(int ShipmentLineItemId, decimal Qty);
 
 public record Route3Request(
