@@ -25,6 +25,8 @@ public record GoodsInTransitRow(
     string BusinessUnit, string Category, string ModelProduct, decimal Qty, string PickFrom,
     DateOnly PickupDate, string DropOffCity, string DropOffWarehouse, DateOnly? DropOffTargetDate,
     DateOnly? DropOffActualDate, string TruckNo, string DriverName, string Status);
+
+public record ShipmentDashboardRow(
     DateTime OrderCreationDate, string CurrentStatus, string BusinessUnit, string BlAwbNo, string PoNumber,
     string Category, string ModelProduct, decimal Qty, decimal UnitPrice, string Currency, decimal Total,
     decimal PaidUsd, decimal BalanceUnpaidUsd, DateOnly? Eta, DateOnly? Etd, DateOnly? ClearanceCompletionDate);
