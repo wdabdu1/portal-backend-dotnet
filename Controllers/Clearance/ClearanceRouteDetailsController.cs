@@ -264,4 +264,72 @@ public class ClearanceRouteDetailsController : ControllerBase
 
        return Ok(entity);
     }
+
+    [HttpGet("actual-charges")]
+    [Authorize(Roles = AppRoles.ClearanceViewers)]
+    public async Task<ActionResult<ActualChargesResponse>> GetActualCharges(int shipmentId)
+    {
+        var clearance = await _db.Clearances.FirstOrDefaultAsync(c => c.ShipmentId == shipmentId);
+        if (clearance is null) return Ok(null);
+        var charges = await _db.ClearanceActualCharges.FirstOrDefaultAsync(x => x.ClearanceId == clearance.Id);
+        if (charges is null) return Ok(null);
+
+        return Ok(new ActualChargesResponse(
+            charges.ForecastDemurrageSdg, charges.ForecastStorageSdg, charges.ForecastCapturedAt,
+            charges.ActualDemurragePaidSdg, charges.ActualStoragePaidSdg,
+            charges.ShippingLineDepositReturnDate, charges.AmountReturnedFromDeposit));
+    }
+
+    [HttpPut("actual-charges")]
+    [Authorize(Roles = AppRoles.ClearanceEditors)]
+    public async Task<IActionResult> SaveActualCharges(int shipmentId, ActualChargesRequest req)
+    {
+        var lockDenied = await _sectionLock.EnsureNotLockedAsync("Clearance", shipmentId, "actualCharges");
+        if (lockDenied is not null) return lockDenied;
+        var clearance = await GetOrCreateClearanceAsync(shipmentId);
+        if (clearance is null) return NotFound();
+
+        var charges = await _db.ClearanceActualCharges.FirstOrDefaultAsync(x => x.ClearanceId == clearance.Id);
+        if (charges is null) { charges = new ClearanceActualCharges { ClearanceId = clearance.Id }; _db.ClearanceActualCharges.Add(charges); }
+
+        // Forecast fields are never touched here — only the trigger in
+        // SaveRoute1/SaveRoute2 sets them, exactly once.
+        charges.ActualDemurragePaidSdg = req.ActualDemurragePaidSdg;
+        charges.ActualStoragePaidSdg = req.ActualStoragePaidSdg;
+        charges.ShippingLineDepositReturnDate = req.ShippingLineDepositReturnDate;
+        charges.AmountReturnedFromDeposit = req.AmountReturnedFromDeposit;
+
+        await _db.SaveChangesAsync();
+        return Ok(charges);
+    }
+
+    // Lets a user manually refresh the forecast if it was captured too
+    // early (e.g. before the real SLA schedule had settled), without
+    // waiting for another full Truck & Containers save.
+    [HttpPost("actual-charges/recalculate-forecast")]
+    [Authorize(Roles = AppRoles.ClearanceEditors)]
+    public async Task<ActionResult<ActualChargesResponse>> RecalculateForecast(int shipmentId)
+    {
+        var lockDenied = await _sectionLock.EnsureNotLockedAsync("Clearance", shipmentId, "actualCharges");
+        if (lockDenied is not null) return lockDenied;
+        var clearance = await GetOrCreateClearanceAsync(shipmentId);
+        if (clearance is null) return NotFound();
+
+        var result = await _demurrageService.CalculateAsync(shipmentId);
+        var charges = await _db.ClearanceActualCharges.FirstOrDefaultAsync(x => x.ClearanceId == clearance.Id);
+        if (charges is null) { charges = new ClearanceActualCharges { ClearanceId = clearance.Id }; _db.ClearanceActualCharges.Add(charges); }
+
+        if (result.Applicable)
+        {
+            charges.ForecastDemurrageSdg = result.DemurrageCostSdg;
+            charges.ForecastStorageSdg = result.StorageCostSdg;
+            charges.ForecastCapturedAt = DateTime.UtcNow;
+        }
+
+        await _db.SaveChangesAsync();
+        return Ok(new ActualChargesResponse(
+            charges.ForecastDemurrageSdg, charges.ForecastStorageSdg, charges.ForecastCapturedAt,
+            charges.ActualDemurragePaidSdg, charges.ActualStoragePaidSdg,
+            charges.ShippingLineDepositReturnDate, charges.AmountReturnedFromDeposit));
+    }
 }
