@@ -49,9 +49,6 @@ public class DashboardsController : ControllerBase
             .Include(p => p.Supplier)
             .Include(p => p.Consignee)
             .Include(p => p.LineItems)
-            .Include(p => p.Shipments).ThenInclude(s => s.LineItems).ThenInclude(li => li.PurchaseOrderLineItem).ThenInclude(pli => pli!.ProductCategory)
-            .Include(p => p.Shipments).ThenInclude(s => s.LineItems).ThenInclude(li => li.PurchaseOrderLineItem).ThenInclude(pli => pli!.ModelProduct)
-            .Include(p => p.Shipments).ThenInclude(s => s.LineItems).ThenInclude(li => li.PurchaseOrderLineItem).ThenInclude(pli => pli!.Currency)
             .AsQueryable();
 
         if (!buAccess.SeesAllBus(User))
@@ -61,18 +58,27 @@ public class DashboardsController : ControllerBase
         }
 
         var pos = await query.OrderByDescending(p => p.CreatedAt).ToListAsync();
+        var poIds = pos.Select(p => p.Id).ToList();
 
-        var allShipmentIds = pos.SelectMany(p => p.Shipments).Select(s => s.Id).ToList();
-        var estimatedCompletions = await scheduleService.GetEstimatedCompletionDatesAsync(allShipmentIds);
+        var shipments = await _db.Shipments
+            .Where(s => poIds.Contains(s.PurchaseOrderId))
+            .Include(s => s.LineItems).ThenInclude(li => li.PurchaseOrderLineItem).ThenInclude(pli => pli!.ProductCategory)
+            .Include(s => s.LineItems).ThenInclude(li => li.PurchaseOrderLineItem).ThenInclude(pli => pli!.ModelProduct)
+            .Include(s => s.LineItems).ThenInclude(li => li.PurchaseOrderLineItem).ThenInclude(pli => pli!.Currency)
+            .ToListAsync();
+        var shipmentsByPo = shipments.GroupBy(s => s.PurchaseOrderId).ToDictionary(g => g.Key, g => g.ToList());
+
+        var estimatedCompletions = await scheduleService.GetEstimatedCompletionDatesAsync(shipments.Select(s => s.Id).ToList());
 
         var result = pos.Select(p => new PoDashboardRow(
             p.Id, p.PoNumber, p.BusinessUnit?.Name ?? "", p.Supplier?.Name ?? "", p.Consignee?.Name ?? "", p.Status.ToString(),
             p.CreatedAt, p.LineItems.Sum(li => li.TotalUsd),
-            p.Shipments.SelectMany(s => s.LineItems.Select(li => new PoDashboardShipmentRow(
-                s.BlAwbNo, li.PurchaseOrderLineItem?.ProductCategory?.Name ?? "", li.PurchaseOrderLineItem?.ModelProduct?.Name ?? "",
-                li.QtyInBl, li.PurchaseOrderLineItem?.UnitPrice ?? 0, li.PurchaseOrderLineItem?.Currency?.Code ?? "",
-                li.ItemSubtotal, s.Eta, s.Etd, estimatedCompletions.GetValueOrDefault(s.Id)
-            ))).ToList()
+            shipmentsByPo.GetValueOrDefault(p.Id, new List<ShippingPortal.Api.Models.Shipments.Shipment>())
+                .SelectMany(s => s.LineItems.Select(li => new PoDashboardShipmentRow(
+                    s.BlAwbNo, li.PurchaseOrderLineItem?.ProductCategory?.Name ?? "", li.PurchaseOrderLineItem?.ModelProduct?.Name ?? "",
+                    li.QtyInBl, li.PurchaseOrderLineItem?.UnitPrice ?? 0, li.PurchaseOrderLineItem?.Currency?.Code ?? "",
+                    li.ItemSubtotal, s.Eta, s.Etd, estimatedCompletions.GetValueOrDefault(s.Id)
+                ))).ToList()
         )).ToList();
 
         return Ok(result);
