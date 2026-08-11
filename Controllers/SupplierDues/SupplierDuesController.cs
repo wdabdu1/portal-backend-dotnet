@@ -22,7 +22,7 @@ public class SupplierDuesController : ControllerBase
     public SupplierDuesController(ShippingPortalDbContext db) => _db = db;
 
     [HttpGet]
-    public async Task<ActionResult<IEnumerable<SupplierDueRow>>> GetOpen([FromServices] BuAccessService buAccess)
+    public async Task<ActionResult<IEnumerable<SupplierDueRow>>> GetOpen([FromServices] BuAccessService buAccess, [FromQuery] string status = "Pending")
     {
         var query = _db.Shipments
             .Where(s => s.Status != ShipmentStatus.Cancelled)
@@ -71,7 +71,15 @@ public class SupplierDuesController : ControllerBase
             var totalPaidUsd = paymentsByShipment.GetValueOrDefault(shipment.Id, 0m);
             var totalUnpaidUsd = invoiceValueUsd - totalPaidUsd;
 
-            if (totalUnpaidUsd <= 0) continue;
+            // "Pending" (default) = anything NOT exactly settled — owed
+            // (positive) OR overpaid (negative) — so an overpayment
+            // stays visible as something needing action, not silently
+            // grouped in with genuinely-closed shipments. "Closed" =
+            // fully settled (balance is zero, within rounding). "All" =
+            // both.
+            var isClosed = Math.Abs(totalUnpaidUsd) < 0.01m;
+            if (status == "Pending" && isClosed) continue;
+            if (status == "Closed" && !isClosed) continue;
 
             fullSets.TryGetValue(shipment.Id, out var fullSet);
             var po = shipment.PurchaseOrder!;
