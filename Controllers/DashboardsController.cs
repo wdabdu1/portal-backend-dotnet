@@ -6,7 +6,7 @@ using ShippingPortal.Api.Models.Identity;
 
 namespace ShippingPortal.Api.Controllers;
 
-ppublic record CustomsClearancePaymentRow(string BusinessUnit, string ChargeType, decimal ValueSdg, DateOnly? DueDate, string BlAwbNo);
+public record CustomsClearancePaymentRow(string BusinessUnit, string ChargeType, decimal ValueSdg, DateOnly? DueDate, string BlAwbNo);
 
 public record PoDashboardShipmentRow(
     string BlAwbNo, string Category, string ModelProduct, decimal Qty, decimal UnitPrice, string Currency,
