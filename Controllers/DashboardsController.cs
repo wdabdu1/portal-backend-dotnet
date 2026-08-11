@@ -38,6 +38,50 @@ public class DashboardsController : ControllerBase
         return value;
     }
 
+[HttpGet("purchase-orders")]
+    [Authorize(Roles = AppRoles.Manager + "," + AppRoles.SuperUser + "," + AppRoles.Bu + "," + AppRoles.CorpFinance)]
+    public async Task<ActionResult<IEnumerable<PoDashboardRow>>> GetPurchaseOrders(
+        [FromServices] ShippingPortal.Api.Services.BuAccessService buAccess,
+        [FromServices] ShippingPortal.Api.Services.ClearanceScheduleService scheduleService)
+    {
+        var query = _db.PurchaseOrders
+            .Include(p => p.BusinessUnit)
+            .Include(p => p.Supplier)
+            .Include(p => p.Consignee)
+            .Include(p => p.LineItems)
+            .Include(p => p.Shipments).ThenInclude(s => s.LineItems).ThenInclude(li => li.PurchaseOrderLineItem).ThenInclude(pli => pli!.ProductCategory)
+            .Include(p => p.Shipments).ThenInclude(s => s.LineItems).ThenInclude(li => li.PurchaseOrderLineItem).ThenInclude(pli => pli!.ModelProduct)
+            .Include(p => p.Shipments).ThenInclude(s => s.LineItems).ThenInclude(li => li.PurchaseOrderLineItem).ThenInclude(pli => pli!.Currency)
+            .AsQueryable();
+
+        if (!buAccess.SeesAllBus(User))
+        {
+            var allowedBus = buAccess.GetAllowedBusinessUnitIds(User);
+            query = query.Where(p => allowedBus.Contains(p.BusinessUnitId));
+        }
+
+        var pos = await query.OrderByDescending(p => p.CreatedAt).ToListAsync();
+
+        var allShipmentIds = pos.SelectMany(p => p.Shipments).Select(s => s.Id).ToList();
+        var estimatedCompletions = await scheduleService.GetEstimatedCompletionDatesAsync(allShipmentIds);
+
+        var result = pos.Select(p => new PoDashboardRow(
+            p.Id, p.PoNumber, p.BusinessUnit?.Name ?? "", p.Supplier?.Name ?? "", p.Consignee?.Name ?? "", p.Status.ToString(),
+            p.CreatedAt, p.LineItems.Sum(li => li.TotalUsd),
+            p.Shipments.SelectMany(s => s.LineItems.Select(li => new PoDashboardShipmentRow(
+                s.BlAwbNo, li.PurchaseOrderLineItem?.ProductCategory?.Name ?? "", li.PurchaseOrderLineItem?.ModelProduct?.Name ?? "",
+                li.QtyInBl, li.PurchaseOrderLineItem?.UnitPrice ?? 0, li.PurchaseOrderLineItem?.Currency?.Code ?? "",
+                li.ItemSubtotal, s.Eta, s.Etd, estimatedCompletions.GetValueOrDefault(s.Id)
+            ))).ToList()
+        )).ToList();
+
+        return Ok(result);
+    }
+
+    // Pulled from Cost Estimates only, no settlement filtering — this is
+    // a budgeting view, not a payment-tracking one.
+    [HttpGet("customs-clearance-payments")]
+
     // Pulled from Cost Estimates only, no settlement filtering — this is
     // a budgeting view, not a payment-tracking one.
     [HttpGet("customs-clearance-payments")]
