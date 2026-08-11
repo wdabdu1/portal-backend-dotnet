@@ -85,6 +85,7 @@ public class ShippingPortalDbContext : IdentityDbContext<ApplicationUser>
     public DbSet<ShippingPortal.Api.Models.Clearance.Clearance> Clearances => Set<ShippingPortal.Api.Models.Clearance.Clearance>();
     public DbSet<ShippingPortal.Api.Models.Clearance.ClearanceSlaSetting> ClearanceSlaSettings => Set<ShippingPortal.Api.Models.Clearance.ClearanceSlaSetting>();
     public DbSet<ShippingPortal.Api.Models.Clearance.ClearanceRoute1Details> ClearanceRoute1Details => Set<ShippingPortal.Api.Models.Clearance.ClearanceRoute1Details>();
+    public DbSet<ShippingPortal.Api.Models.Clearance.ClearanceActualCharges> ClearanceActualCharges => Set<ShippingPortal.Api.Models.Clearance.ClearanceActualCharges>();
     public DbSet<ShippingPortal.Api.Models.Clearance.ClearanceRoute2Details> ClearanceRoute2Details => Set<ShippingPortal.Api.Models.Clearance.ClearanceRoute2Details>();
     public DbSet<ShippingPortal.Api.Models.Clearance.ClearanceRoute3Details> ClearanceRoute3Details => Set<ShippingPortal.Api.Models.Clearance.ClearanceRoute3Details>();
     public DbSet<ShippingPortal.Api.Models.Clearance.ClearanceDeliveryOrder> ClearanceDeliveryOrders => Set<ShippingPortal.Api.Models.Clearance.ClearanceDeliveryOrder>();
@@ -271,6 +272,7 @@ public class ShippingPortalDbContext : IdentityDbContext<ApplicationUser>
         // Clearance: 1:1 with Shipment, and each route/sub-section 1:1 with Clearance.
         builder.Entity<ShippingPortal.Api.Models.Clearance.Clearance>().HasIndex(x => x.ShipmentId).IsUnique();
         builder.Entity<ShippingPortal.Api.Models.Clearance.ClearanceRoute1Details>().HasIndex(x => x.ClearanceId).IsUnique();
+        builder.Entity<ShippingPortal.Api.Models.Clearance.ClearanceActualCharges>().HasIndex(x => x.ClearanceId).IsUnique();
         builder.Entity<ShippingPortal.Api.Models.Clearance.ClearanceRoute2Details>().HasIndex(x => x.ClearanceId).IsUnique();
         builder.Entity<ShippingPortal.Api.Models.Clearance.ClearanceRoute3Details>().HasIndex(x => x.ClearanceId).IsUnique();
         builder.Entity<ShippingPortal.Api.Models.Clearance.ClearanceDeliveryOrder>().HasIndex(x => x.ClearanceId).IsUnique();
