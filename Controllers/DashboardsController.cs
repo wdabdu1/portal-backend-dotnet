@@ -21,7 +21,10 @@ public record ClearanceDashboardRow(
     decimal Qty, int Fcl20Count, int Fcl40Count, DateOnly? Eta, DateOnly? ClearanceCompletionDate,
     int? DaysRemaining, string Route, string ClearanceFrom, string Status);
 
-public record ShipmentDashboardRow(
+public record GoodsInTransitRow(
+    string BusinessUnit, string Category, string ModelProduct, decimal Qty, string PickFrom,
+    DateOnly PickupDate, string DropOffCity, string DropOffWarehouse, DateOnly? DropOffTargetDate,
+    DateOnly? DropOffActualDate, string TruckNo, string DriverName, string Status);
     DateTime OrderCreationDate, string CurrentStatus, string BusinessUnit, string BlAwbNo, string PoNumber,
     string Category, string ModelProduct, decimal Qty, decimal UnitPrice, string Currency, decimal Total,
     decimal PaidUsd, decimal BalanceUnpaidUsd, DateOnly? Eta, DateOnly? Etd, DateOnly? ClearanceCompletionDate);
