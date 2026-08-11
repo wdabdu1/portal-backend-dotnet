@@ -53,10 +53,36 @@ public class ClearanceRouteDetailsController : ControllerBase
 {
     private readonly ShippingPortalDbContext _db;
     private readonly ShippingPortal.Api.Services.SectionLockService _sectionLock;
-    public ClearanceRouteDetailsController(ShippingPortalDbContext db, ShippingPortal.Api.Services.SectionLockService sectionLock)
+    private readonly ShippingPortal.Api.Services.DemurrageStorageService _demurrageService;
+    public ClearanceRouteDetailsController(
+        ShippingPortalDbContext db,
+        ShippingPortal.Api.Services.SectionLockService sectionLock,
+        ShippingPortal.Api.Services.DemurrageStorageService demurrageService)
     {
         _db = db;
         _sectionLock = sectionLock;
+        _demurrageService = demurrageService;
+    }
+
+    // Fires the instant Truck & Containers' own Actual Completion Date
+    // is FIRST saved (was null, now isn't) — calling the demurrage/
+    // storage engine at this exact moment, before the new date takes
+    // effect, so it still sees "not yet completed" and computes off the
+    // SLA-projected date. That's the frozen "Planned" forecast, captured
+    // once and never recalculated afterward.
+    private async Task CaptureForecastIfNewlyCompletedAsync(int shipmentId, int clearanceId, DateOnly? oldCompletedDate, DateOnly? newCompletedDate)
+    {
+        if (oldCompletedDate.HasValue || !newCompletedDate.HasValue) return;
+
+        var result = await _demurrageService.CalculateAsync(shipmentId);
+        if (!result.Applicable) return;
+
+        var charges = await _db.ClearanceActualCharges.FirstOrDefaultAsync(x => x.ClearanceId == clearanceId);
+        if (charges is null) { charges = new ClearanceActualCharges { ClearanceId = clearanceId }; _db.ClearanceActualCharges.Add(charges); }
+
+        charges.ForecastDemurrageSdg = result.DemurrageCostSdg;
+        charges.ForecastStorageSdg = result.StorageCostSdg;
+        charges.ForecastCapturedAt = DateTime.UtcNow;
     }
 
     private async Task<ClearanceEntity?> GetOrCreateClearanceAsync(int shipmentId)
@@ -118,8 +144,8 @@ public class ClearanceRouteDetailsController : ControllerBase
         entity.SpcBillSettlementDate = req.SpcBillSettlementDate;
         entity.TruckPortEntryPermitDate = req.TruckPortEntryPermitDate;
         entity.ContainersReturnedDate = req.ContainersReturnedDate;
-        entity.ShippingLineDepositReturnDate = req.ShippingLineDepositReturnDate;
-        entity.DepositValue = req.DepositValue;
+
+        await CaptureForecastIfNewlyCompletedAsync(shipmentId, clearance.Id, entity.ClearanceActualCompletedDate, req.ClearanceActualCompletedDate);
         entity.ClearanceActualCompletedDate = req.ClearanceActualCompletedDate;
 
         await _db.SaveChangesAsync();
@@ -161,8 +187,8 @@ public class ClearanceRouteDetailsController : ControllerBase
         entity.TruckPortEntryPermitDate = req.TruckPortEntryPermitDate;
         entity.ContainersReceivedAtFzDate = req.ContainersReceivedAtFzDate;
         entity.ContainersReturnedDate = req.ContainersReturnedDate;
-        entity.ShippingLineDepositReturnDate = req.ShippingLineDepositReturnDate;
-        entity.DepositValue = req.DepositValue;
+
+        await CaptureForecastIfNewlyCompletedAsync(shipmentId, clearance.Id, entity.ClearanceActualCompletedDate, req.ClearanceActualCompletedDate);
         entity.ClearanceActualCompletedDate = req.ClearanceActualCompletedDate;
 
         await _db.SaveChangesAsync();
