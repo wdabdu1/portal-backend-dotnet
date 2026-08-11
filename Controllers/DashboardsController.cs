@@ -16,6 +16,11 @@ public record PoDashboardRow(
     int Id, string PoNumber, string BusinessUnit, string Supplier, string Consignee, string Status,
     DateTime CreatedAt, decimal OrderValueUsd, List<PoDashboardShipmentRow> Shipments);
 
+public record ShipmentDashboardRow(
+    DateTime OrderCreationDate, string CurrentStatus, string BusinessUnit, string BlAwbNo, string PoNumber,
+    string Category, string ModelProduct, decimal Qty, decimal UnitPrice, string Currency, decimal Total,
+    decimal PaidUsd, decimal BalanceUnpaidUsd, DateOnly? Eta, DateOnly? Etd, DateOnly? ClearanceCompletionDate);
+
 public record SupplierPaymentRow(string BusinessUnit, string SupplierName, string BlAwbNo, DateOnly DueDate, string Label, decimal AmountUsd);
 
 [ApiController]
