@@ -174,6 +174,153 @@ public class DashboardsController : ControllerBase
         return Ok(result.OrderByDescending(r => r.OrderCreationDate).ToList());
     }
 
+    [HttpGet("under-clearance")]
+    [Authorize(Roles = AppRoles.ClearanceViewers)]
+    public async Task<ActionResult<IEnumerable<ClearanceDashboardRow>>> GetUnderClearance(
+        [FromServices] ShippingPortal.Api.Services.BuAccessService buAccess,
+        [FromServices] ShippingPortal.Api.Services.ClearanceScheduleService scheduleService)
+    {
+        var query = _db.Shipments
+            .Where(s => s.Status == ShippingPortal.Api.Models.Shipments.ShipmentStatus.Confirmed)
+            .Include(s => s.PurchaseOrder).ThenInclude(p => p!.BusinessUnit)
+            .Include(s => s.LineItems).ThenInclude(li => li.PurchaseOrderLineItem).ThenInclude(pli => pli!.ProductCategory)
+            .Include(s => s.LineItems).ThenInclude(li => li.PurchaseOrderLineItem).ThenInclude(pli => pli!.ModelProduct)
+            .AsQueryable();
+
+        if (!buAccess.SeesAllBus(User))
+        {
+            var allowedBus = buAccess.GetAllowedBusinessUnitIds(User);
+            query = query.Where(s => allowedBus.Contains(s.PurchaseOrder!.BusinessUnitId));
+        }
+
+        var shipments = await query.ToListAsync();
+        var shipmentIds = shipments.Select(s => s.Id).ToList();
+
+        var clearances = await _db.Clearances.Where(c => shipmentIds.Contains(c.ShipmentId)).ToDictionaryAsync(c => c.ShipmentId);
+        var clearanceIds = clearances.Values.Select(c => c.Id).ToList();
+
+        var route1Completions = await _db.ClearanceRoute1Details.Where(r => clearanceIds.Contains(r.ClearanceId)).ToDictionaryAsync(r => r.ClearanceId, r => r.ClearanceActualCompletedDate);
+        var route2Completions = await _db.ClearanceRoute2Details.Where(r => clearanceIds.Contains(r.ClearanceId)).ToDictionaryAsync(r => r.ClearanceId, r => r.ClearanceActualCompletedDate);
+        var route3Completions = await _db.ClearanceRoute3Details.Where(r => clearanceIds.Contains(r.ClearanceId)).ToDictionaryAsync(r => r.ClearanceId, r => r.ClearanceActualCompletedDate);
+
+        // Route 2's own deposit location, plus Route 3's own withdrawal
+        // traces back to whichever Route 2 shipment it drew from — both
+        // resolve to the same underlying FZ location name.
+        var route2Details = await _db.ClearanceRoute2Details.Where(r => clearanceIds.Contains(r.ClearanceId)).Include(r => r.Destination).ToDictionaryAsync(r => r.ClearanceId);
+        var route3Details = await _db.ClearanceRoute3Details.Where(r => clearanceIds.Contains(r.ClearanceId)).ToDictionaryAsync(r => r.ClearanceId);
+        var depositShipmentIds = route3Details.Values.Where(r => r.DepositShipmentId.HasValue).Select(r => r.DepositShipmentId!.Value).ToList();
+        var depositClearances = await _db.Clearances.Where(c => depositShipmentIds.Contains(c.ShipmentId)).ToDictionaryAsync(c => c.ShipmentId);
+        var depositClearanceIds = depositClearances.Values.Select(c => c.Id).ToList();
+        var depositRoute2Details = await _db.ClearanceRoute2Details.Where(r => depositClearanceIds.Contains(r.ClearanceId)).Include(r => r.Destination).ToDictionaryAsync(r => r.ClearanceId);
+
+        // Route 1 defaults to "Port" — there's only one — but once
+        // Logistics assigns a destination warehouse, that becomes the
+        // more meaningful "from" location, and a still-missing one is
+        // itself a useful early signal that trucking isn't planned yet.
+        var warehouseAllocations = await _db.WarehouseAllocations
+            .Where(w => w.ShipmentLineItem != null && shipmentIds.Contains(w.ShipmentLineItem.ShipmentId))
+            .Include(w => w.Warehouse)
+            .Include(w => w.ShipmentLineItem)
+            .ToListAsync();
+        var warehouseByShipment = warehouseAllocations
+            .Where(w => w.ShipmentLineItem != null)
+            .GroupBy(w => w.ShipmentLineItem!.ShipmentId)
+            .ToDictionary(g => g.Key, g => g.First().Warehouse?.Name);
+
+        var slaByDivision = await _db.ClearanceSlaSettings
+            .Where(s => s.IsActive)
+            .GroupBy(s => s.Division)
+            .Select(g => new { Division = g.Key, Total = g.Sum(s => s.TargetDays) })
+            .ToDictionaryAsync(x => x.Division, x => x.Total);
+        var generalDays = slaByDivision.GetValueOrDefault(ShippingPortal.Api.Models.Clearance.ClearanceDivision.General, 0);
+
+        var holidaySet = (await _db.PublicHolidays.Where(h => h.AffectsClr).Select(h => h.Date).ToListAsync()).ToHashSet();
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var estimatedCompletions = await scheduleService.GetEstimatedCompletionDatesAsync(shipmentIds);
+
+        var result = new List<ClearanceDashboardRow>();
+        foreach (var s in shipments)
+        {
+            clearances.TryGetValue(s.Id, out var clearance);
+            if (clearance is null || clearance.Route == ShippingPortal.Api.Models.Clearance.ClearanceRouteType.NotSelected) continue;
+
+            var routeDivision = clearance.Route switch
+            {
+                ShippingPortal.Api.Models.Clearance.ClearanceRouteType.Route1ClearAtPort => ShippingPortal.Api.Models.Clearance.ClearanceDivision.Route1,
+                ShippingPortal.Api.Models.Clearance.ClearanceRouteType.Route2FzDeposit => ShippingPortal.Api.Models.Clearance.ClearanceDivision.Route2,
+                _ => ShippingPortal.Api.Models.Clearance.ClearanceDivision.Route3
+            };
+            var routeDays = slaByDivision.GetValueOrDefault(routeDivision, 0);
+            var targetDays = routeDivision == ShippingPortal.Api.Models.Clearance.ClearanceDivision.Route3 ? routeDays : generalDays + routeDays;
+
+            DateOnly? actualCompletedDate = routeDivision switch
+            {
+                ShippingPortal.Api.Models.Clearance.ClearanceDivision.Route1 => route1Completions.GetValueOrDefault(clearance.Id),
+                ShippingPortal.Api.Models.Clearance.ClearanceDivision.Route2 => route2Completions.GetValueOrDefault(clearance.Id),
+                _ => route3Completions.GetValueOrDefault(clearance.Id)
+            };
+
+            var slaPercent = ComputeSlaPercentLocal(s.Eta, actualCompletedDate, targetDays);
+            var status = actualCompletedDate.HasValue ? "Completed" : "Under Process";
+
+            string clearanceFrom;
+            if (routeDivision == ShippingPortal.Api.Models.Clearance.ClearanceDivision.Route1)
+            {
+                clearanceFrom = warehouseByShipment.GetValueOrDefault(s.Id) ?? "Port";
+            }
+            else if (routeDivision == ShippingPortal.Api.Models.Clearance.ClearanceDivision.Route2)
+            {
+                clearanceFrom = route2Details.GetValueOrDefault(clearance.Id)?.Destination?.Name ?? "";
+            }
+            else
+            {
+                var depositShipmentId = route3Details.GetValueOrDefault(clearance.Id)?.DepositShipmentId;
+                var depositClearance = depositShipmentId.HasValue ? depositClearances.GetValueOrDefault(depositShipmentId.Value) : null;
+                clearanceFrom = depositClearance is not null ? (depositRoute2Details.GetValueOrDefault(depositClearance.Id)?.Destination?.Name ?? "") : "";
+            }
+
+            var completionDate = actualCompletedDate ?? estimatedCompletions.GetValueOrDefault(s.Id);
+            int? daysRemaining = completionDate.HasValue ? BusinessDaysBetweenLocal(today, completionDate.Value, holidaySet) : null;
+
+            var firstLine = s.LineItems.FirstOrDefault()?.PurchaseOrderLineItem;
+            var totalQty = s.LineItems.Sum(li => li.QtyInBl);
+
+            result.Add(new ClearanceDashboardRow(
+                s.BlAwbNo, slaPercent, s.PurchaseOrder?.BusinessUnit?.Name ?? "",
+                firstLine?.ProductCategory?.Name ?? "", firstLine?.ModelProduct?.Name ?? "", totalQty,
+                s.Fcl20Count, s.Fcl40Count, s.Eta, completionDate, daysRemaining,
+                clearance.Route.ToString(), clearanceFrom, status));
+        }
+
+        return Ok(result.OrderBy(r => r.DaysRemaining ?? int.MaxValue).ToList());
+    }
+
+    private static decimal ComputeSlaPercentLocal(DateOnly? eta, DateOnly? clearanceCompleteDate, decimal targetDays)
+    {
+        if (clearanceCompleteDate.HasValue) return 100m;
+        if (!eta.HasValue || targetDays <= 0) return 0m;
+        var daysSinceEta = DateOnly.FromDateTime(DateTime.UtcNow).DayNumber - eta.Value.DayNumber;
+        return Math.Max(0m, (daysSinceEta / targetDays) * 100m);
+    }
+
+    private static int BusinessDaysBetweenLocal(DateOnly from, DateOnly to, HashSet<DateOnly> holidays)
+    {
+        if (from == to) return 0;
+        var forward = to > from;
+        var start = forward ? from : to;
+        var end = forward ? to : from;
+        var count = 0;
+        var date = start;
+        while (date < end)
+        {
+            date = date.AddDays(1);
+            if (date.DayOfWeek == DayOfWeek.Friday || date.DayOfWeek == DayOfWeek.Saturday) continue;
+            if (holidays.Contains(date)) continue;
+            count++;
+        }
+        return forward ? count : -count;
+    }
+
     // Pulled from Cost Estimates only, no settlement filtering — this is
     // a budgeting view, not a payment-tracking one.
     [HttpGet("customs-clearance-payments")]
