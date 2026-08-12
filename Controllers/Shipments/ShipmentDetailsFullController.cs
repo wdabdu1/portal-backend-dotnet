@@ -14,7 +14,7 @@ public record ErpColumnDetail(string CompanyName, int SequenceOrder, bool IsLast
 public record ShipmentFullDetailResponse(
     int Id, string BlAwbNo, string? PoNumber, string Status,
     string BusinessUnit, string? Division, string? Supplier, string Consignee, string Category,
-    string? VesselName, int Fcl20Count, int Fcl40Count, DateOnly? Etd, DateOnly? Eta, DateOnly? SobActualDate,
+    string? ShippingLine, string? VesselName, int Fcl20Count, int Fcl40Count, DateOnly? Etd, DateOnly? Eta, DateOnly? SobActualDate,
     List<ShipmentLineItemDetail> LineItems, decimal? PercentOfPoQty,
     object? Forwarder, object? Acd, object? DraftDocuments, object? Ssmo, object? Mot,
     object? SupplierFullSet, object? Banking,
@@ -35,6 +35,7 @@ public class ShipmentDetailsFullController : ControllerBase
             .Include(s => s.PurchaseOrder).ThenInclude(p => p!.Division)
             .Include(s => s.PurchaseOrder).ThenInclude(p => p!.Supplier)
             .Include(s => s.PurchaseOrder).ThenInclude(p => p!.Consignee)
+            .Include(s => s.ShippingLine)
             .Include(s => s.LineItems).ThenInclude(li => li.PurchaseOrderLineItem).ThenInclude(pli => pli!.ProductCategory)
             .Include(s => s.LineItems).ThenInclude(li => li.PurchaseOrderLineItem).ThenInclude(pli => pli!.ModelProduct)
             .Include(s => s.LineItems).ThenInclude(li => li.PurchaseOrderLineItem).ThenInclude(pli => pli!.UnitOfMeasure)
@@ -215,7 +216,7 @@ public class ShipmentDetailsFullController : ControllerBase
             shipment.Id, shipment.BlAwbNo, isClearance ? null : shipment.PurchaseOrder!.PoNumber, shipment.Status.ToString(),
             shipment.PurchaseOrder.BusinessUnit!.Name, shipment.PurchaseOrder.Division?.Name,
             isClearance ? null : shipment.PurchaseOrder.Supplier?.Name,
-            shipment.PurchaseOrder.Consignee?.Name ?? "", category, shipment.VesselName,
+            shipment.PurchaseOrder.Consignee?.Name ?? "", category, shipment.ShippingLine?.Name, shipment.VesselName,
             shipment.Fcl20Count, shipment.Fcl40Count, shipment.Etd, shipment.Eta, shipment.SobActualDate,
             lineItems, percentOfPoQty, forwarder, acdDto, draftDto, ssmoDto, motDto, supplierFullSet, banking, erpColumns,
             lastOffshoreInvoiceNo);
