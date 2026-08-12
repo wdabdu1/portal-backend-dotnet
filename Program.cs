@@ -7,6 +7,8 @@ using ShippingPortal.Api.Data;
 using ShippingPortal.Api.Models.Identity;
 using ShippingPortal.Api.Services;
 
+QuestPDF.Settings.License = QuestPDF.Infrastructure.LicenseType.Community;
+
 var builder = WebApplication.CreateBuilder(args);
 builder.Configuration.Sources.Clear();
 builder.Configuration
