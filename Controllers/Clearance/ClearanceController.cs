@@ -234,6 +234,40 @@ public class ClearanceController : ControllerBase
         var result = await service.CalculateAsync(shipmentId);
         return Ok(result);
     }
+    [HttpGet("{shipmentId:int}/print-estimate")]
+    [Authorize(Roles = AppRoles.ClearanceViewers)]
+    public async Task<IActionResult> PrintEstimate(
+        int shipmentId, [FromServices] ShippingPortal.Api.Services.ClearanceEstimatePdfService pdfService)
+    {
+        var shipment = await _db.Shipments
+            .Include(s => s.PurchaseOrder).ThenInclude(p => p!.BusinessUnit)
+            .Include(s => s.PurchaseOrder).ThenInclude(p => p!.Consignee)
+            .Include(s => s.LineItems).ThenInclude(li => li.PurchaseOrderLineItem).ThenInclude(pli => pli!.ProductCategory)
+            .Include(s => s.LineItems).ThenInclude(li => li.PurchaseOrderLineItem).ThenInclude(pli => pli!.ModelProduct)
+            .FirstOrDefaultAsync(s => s.Id == shipmentId);
+        if (shipment is null) return NotFound();
+
+        var clearance = await _db.Clearances.FirstOrDefaultAsync(c => c.ShipmentId == shipmentId);
+        var estimateLines = clearance is null
+            ? new List<ShippingPortal.Api.Models.Clearance.ClearanceEstimateLineItem>()
+            : await _db.ClearanceEstimateLineItems.Where(e => e.ClearanceId == clearance.Id).Include(e => e.ChargeType).ToListAsync();
+
+        var category = shipment.LineItems.FirstOrDefault()?.PurchaseOrderLineItem?.ProductCategory?.Name ?? "";
+
+        var data = new ShippingPortal.Api.Services.ClearanceEstimatePrintData(
+            shipment.PurchaseOrder?.BusinessUnit?.Name ?? "",
+            shipment.BlAwbNo,
+            shipment.PurchaseOrder?.Consignee?.Name ?? "",
+            category,
+            shipment.LineItems.Select(li => new ShippingPortal.Api.Services.EstimateItemLine(
+                li.PurchaseOrderLineItem?.ModelProduct?.Name ?? "", li.QtyInBl)).ToList(),
+            estimateLines.Select(e => new ShippingPortal.Api.Services.EstimateChargeLine(
+                e.ChargeType?.Name ?? "", e.ValueSdg)).ToList());
+
+        var pdfBytes = pdfService.Generate(data);
+        return File(pdfBytes, "application/pdf", $"Clearance Estimate - {shipment.BlAwbNo}.pdf");
+    }
+
     private async Task<Dictionary<(string, string), DateOnly?>> BuildActualDatesAsync(int clearanceId, string routeDivision)
     {
         var result = new Dictionary<(string, string), DateOnly?>();
