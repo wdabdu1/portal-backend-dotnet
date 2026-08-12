@@ -347,5 +347,4 @@ public class ClearanceRouteDetailsController : ControllerBase
             charges.ShippingLineDepositReturnDate, charges.AmountReturnedFromDeposit,
             charges.PlannedCompletionDate));
     }
-    }
 }
