@@ -17,6 +17,13 @@ public class ClearanceActualCharges
     public decimal? ForecastStorageSdg { get; set; }
     public DateTime? ForecastCapturedAt { get; set; }
 
+    // Same frozen-at-the-right-moment principle as the forecast fields
+    // above, but independent of FCL/demurrage applicability — this is
+    // the SLA-projected completion date as it stood the instant Actual
+    // was first entered, so "2 days saved" is measured against a real
+    // fixed plan, not a moving target.
+    public DateOnly? PlannedCompletionDate { get; set; }
+
     public decimal? ActualDemurragePaidSdg { get; set; }
     public decimal? ActualStoragePaidSdg { get; set; }
 
