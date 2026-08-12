@@ -20,9 +20,15 @@ public class ClearanceEstimatePdfService
     private static byte[] LoadEmbeddedAsset(string fileName)
     {
         var assembly = Assembly.GetExecutingAssembly();
-        var resourceName = $"{assembly.GetName().Name}.Assets.{fileName}";
-        using var stream = assembly.GetManifestResourceStream(resourceName)
-            ?? throw new InvalidOperationException($"Embedded asset not found: {resourceName}");
+        // Look up the real resource name rather than guessing the
+        // project's root namespace — MSBuild derives it independently
+        // of the assembly's own file name, and the two don't always
+        // match (e.g. hyphens vs. underscores).
+        var resourceName = assembly.GetManifestResourceNames()
+            .FirstOrDefault(n => n.EndsWith($".Assets.{fileName}", StringComparison.OrdinalIgnoreCase))
+            ?? throw new InvalidOperationException(
+                $"Embedded asset not found: {fileName}. Available: {string.Join(", ", assembly.GetManifestResourceNames())}");
+        using var stream = assembly.GetManifestResourceStream(resourceName)!;
         using var ms = new MemoryStream();
         stream.CopyTo(ms);
         return ms.ToArray();
