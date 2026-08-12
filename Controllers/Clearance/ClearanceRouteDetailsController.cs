@@ -29,7 +29,8 @@ public record Route2Request(
 public record ActualChargesResponse(
     decimal? ForecastDemurrageSdg, decimal? ForecastStorageSdg, DateTime? ForecastCapturedAt,
     decimal? ActualDemurragePaidSdg, decimal? ActualStoragePaidSdg,
-    DateOnly? ShippingLineDepositReturnDate, decimal? AmountReturnedFromDeposit);
+    DateOnly? ShippingLineDepositReturnDate, decimal? AmountReturnedFromDeposit,
+    DateOnly? PlannedCompletionDate);
 
 public record ActualChargesRequest(
     decimal? ActualDemurragePaidSdg, decimal? ActualStoragePaidSdg,
@@ -283,10 +284,14 @@ public class ClearanceRouteDetailsController : ControllerBase
         var charges = await _db.ClearanceActualCharges.FirstOrDefaultAsync(x => x.ClearanceId == clearance.Id);
         if (charges is null) return Ok(null);
 
+        if (charges is null) return Ok(null);
+
         return Ok(new ActualChargesResponse(
             charges.ForecastDemurrageSdg, charges.ForecastStorageSdg, charges.ForecastCapturedAt,
             charges.ActualDemurragePaidSdg, charges.ActualStoragePaidSdg,
-            charges.ShippingLineDepositReturnDate, charges.AmountReturnedFromDeposit));
+            charges.ShippingLineDepositReturnDate, charges.AmountReturnedFromDeposit,
+            charges.PlannedCompletionDate));
+    }
     }
 
     [HttpPut("actual-charges")]
@@ -328,6 +333,9 @@ public class ClearanceRouteDetailsController : ControllerBase
         var charges = await _db.ClearanceActualCharges.FirstOrDefaultAsync(x => x.ClearanceId == clearance.Id);
         if (charges is null) { charges = new ClearanceActualCharges { ClearanceId = clearance.Id }; _db.ClearanceActualCharges.Add(charges); }
 
+        var estimatedCompletions = await _scheduleService.GetEstimatedCompletionDatesAsync(new List<int> { shipmentId });
+        charges.PlannedCompletionDate = estimatedCompletions.GetValueOrDefault(shipmentId);
+
         if (result.Applicable)
         {
             charges.ForecastDemurrageSdg = result.DemurrageCostSdg;
@@ -339,6 +347,8 @@ public class ClearanceRouteDetailsController : ControllerBase
         return Ok(new ActualChargesResponse(
             charges.ForecastDemurrageSdg, charges.ForecastStorageSdg, charges.ForecastCapturedAt,
             charges.ActualDemurragePaidSdg, charges.ActualStoragePaidSdg,
-            charges.ShippingLineDepositReturnDate, charges.AmountReturnedFromDeposit));
+            charges.ShippingLineDepositReturnDate, charges.AmountReturnedFromDeposit,
+            charges.PlannedCompletionDate));
+    }
     }
 }
