@@ -14,6 +14,7 @@ public record WithdrawalGeneralInfoRequest(DateOnly? WithdrawalRequestDate, stri
 
 public record WithdrawalProcessingRequest(
     DateOnly? CertificateEntryDate, string? ScudaDeclarationNo,
+    DateOnly? MotApprovalDate,
     DateOnly? SsmoFileRequestDate, decimal? SsmoInspectionAmountSdg, DateOnly? SsmoFeesSettlementDate,
     DateOnly? CustExamStartDate, DateOnly? CustExamCompletedDate,
     bool CustomsLabRequired, decimal? CustomsLabFeesSdg, DateOnly? LabFeesPaymentDate, DateOnly? LabResultIssuanceDate,
@@ -28,6 +29,7 @@ public record WithdrawalDetailResponse(
     int Id, int DepositShipmentId, string DepositBlAwbNo,
     DateOnly? WithdrawalRequestDate, string? WithdrawalRequestRefNo,
     DateOnly? CertificateEntryDate, string? ScudaDeclarationNo,
+    DateOnly? MotApprovalDate,
     DateOnly? SsmoFileRequestDate, decimal? SsmoInspectionAmountSdg, DateOnly? SsmoFeesSettlementDate,
     DateOnly? CustExamStartDate, DateOnly? CustExamCompletedDate,
     bool CustomsLabRequired, decimal? CustomsLabFeesSdg, DateOnly? LabFeesPaymentDate, DateOnly? LabResultIssuanceDate,
@@ -117,6 +119,7 @@ public class WithdrawalController : ControllerBase
             w.Id, w.DepositShipmentId, w.DepositShipment!.BlAwbNo,
             w.WithdrawalRequestDate, w.WithdrawalRequestRefNo,
             w.CertificateEntryDate, w.ScudaDeclarationNo,
+            w.MotApprovalDate,
             w.SsmoFileRequestDate, w.SsmoInspectionAmountSdg, w.SsmoFeesSettlementDate,
             w.CustExamStartDate, w.CustExamCompletedDate,
             w.CustomsLabRequired, w.CustomsLabFeesSdg, w.LabFeesPaymentDate, w.LabResultIssuanceDate,
@@ -148,6 +151,7 @@ public class WithdrawalController : ControllerBase
 
         w.CertificateEntryDate = req.CertificateEntryDate;
         w.ScudaDeclarationNo = req.ScudaDeclarationNo;
+        w.MotApprovalDate = req.MotApprovalDate;
         w.SsmoFileRequestDate = req.SsmoFileRequestDate;
         w.SsmoInspectionAmountSdg = req.SsmoInspectionAmountSdg;
         w.SsmoFeesSettlementDate = req.SsmoFeesSettlementDate;
