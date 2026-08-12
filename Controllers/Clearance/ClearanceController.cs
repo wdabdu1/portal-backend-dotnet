@@ -240,7 +240,6 @@ public class ClearanceController : ControllerBase
         int shipmentId, [FromServices] ShippingPortal.Api.Services.ClearanceEstimatePdfService pdfService)
     {
         var shipment = await _db.Shipments
-            var shipment = await _db.Shipments
             .Include(s => s.PurchaseOrder).ThenInclude(p => p!.BusinessUnit)
             .Include(s => s.PurchaseOrder).ThenInclude(p => p!.Consignee)
             .Include(s => s.LineItems).ThenInclude(li => li.PurchaseOrderLineItem).ThenInclude(pli => pli!.ProductCategory)
