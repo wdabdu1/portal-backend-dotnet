@@ -261,7 +261,7 @@ public class ClearanceController : ControllerBase
             shipment.PurchaseOrder?.Consignee?.Name ?? "",
             category,
             shipment.LineItems.Select(li => new ShippingPortal.Api.Services.EstimateItemLine(
-                li.PurchaseOrderLineItem?.ModelProduct?.Name ?? "", li.QtyInBl)).ToList(),
+                li.PurchaseOrderLineItem?.ModelProduct?.Name ?? "", li.QtyInBl, li.PurchaseOrderLineItem?.UnitOfMeasure?.Code)).ToList(),
             estimateLines.Select(e => new ShippingPortal.Api.Services.EstimateChargeLine(
                 e.ChargeType?.Name ?? "", e.ValueSdg)).ToList());
 
