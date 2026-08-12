@@ -284,14 +284,11 @@ public class ClearanceRouteDetailsController : ControllerBase
         var charges = await _db.ClearanceActualCharges.FirstOrDefaultAsync(x => x.ClearanceId == clearance.Id);
         if (charges is null) return Ok(null);
 
-        if (charges is null) return Ok(null);
-
         return Ok(new ActualChargesResponse(
             charges.ForecastDemurrageSdg, charges.ForecastStorageSdg, charges.ForecastCapturedAt,
             charges.ActualDemurragePaidSdg, charges.ActualStoragePaidSdg,
             charges.ShippingLineDepositReturnDate, charges.AmountReturnedFromDeposit,
             charges.PlannedCompletionDate));
-    }
     }
 
     [HttpPut("actual-charges")]
