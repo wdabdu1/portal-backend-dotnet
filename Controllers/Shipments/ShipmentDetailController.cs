@@ -36,7 +36,8 @@ public record ShipmentDetailResponse(
     ShipmentBanking? Banking,
     List<string> OffshorePartnerNames,
     string BusinessUnit, string Supplier, string Category, DateOnly? SobActualDate,
-    List<ShipmentLineItemHsCode> LineItemHsCodes, decimal? BuShippingBudget, string? OffshorePoNo, int Fcl20Count, int Fcl40Count);
+    List<ShipmentLineItemHsCode> LineItemHsCodes, decimal? BuShippingBudget, string? OffshorePoNo, int Fcl20Count, int Fcl40Count,
+    DateOnly? ReceivedSignedPiDate, DateOnly? OrderExecutionDate, DateOnly? LatestShippingDate);
 
 public record SaveHsCodesRequest(List<ShipmentLineItemHsCode> LineItemHsCodes);
 
@@ -106,7 +107,8 @@ public class ShipmentDetailController : ControllerBase
         return new ShipmentDetailResponse(shipment.Id, shipment.BlAwbNo, shipment.PurchaseOrder!.PoNumber, shipment.Status.ToString(),
             forwarder, acd, draftDocs, ssmo, mot, fullSet, banking, offshorePartnerNames,
             shipment.PurchaseOrder.BusinessUnit!.Name, shipment.PurchaseOrder.Supplier!.Name, category, shipment.SobActualDate,
-            lineItemHsCodes, shipment.PurchaseOrder.BuShippingBudget, shipment.PurchaseOrder.OffshorePoNo, shipment.Fcl20Count, shipment.Fcl40Count);
+            lineItemHsCodes, shipment.PurchaseOrder.BuShippingBudget, shipment.PurchaseOrder.OffshorePoNo, shipment.Fcl20Count, shipment.Fcl40Count,
+            shipment.PurchaseOrder.ReceivedSignedPiDate, shipment.PurchaseOrder.OrderExecutionDate, shipment.PurchaseOrder.LatestShippingDate);
     }
     [HttpPut("hs-codes")]
     public async Task<IActionResult> SaveHsCodes(int shipmentId, SaveHsCodesRequest req)
