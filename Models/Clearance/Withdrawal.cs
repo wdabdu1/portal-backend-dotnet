@@ -20,6 +20,9 @@ public class Withdrawal
     public DateOnly? CertificateEntryDate { get; set; }
     public string? ScudaDeclarationNo { get; set; }
 
+    // MOT
+    public DateOnly? MotApprovalDate { get; set; }
+
     // SSMO File Process
     public DateOnly? SsmoFileRequestDate { get; set; }
     public decimal? SsmoInspectionAmountSdg { get; set; }
