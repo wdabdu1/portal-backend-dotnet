@@ -403,18 +403,6 @@ public class DashboardsController : ControllerBase
     // Pulled from Cost Estimates only, no settlement filtering — this is
     // a budgeting view, not a payment-tracking one.
     [HttpGet("customs-clearance-payments")]
-
-    // Pulled from Cost Estimates only, no settlement filtering — this is
-    // a budgeting view, not a payment-tracking one.
-    [HttpGet("customs-clearance-payments")]
-
-    // Pulled from Cost Estimates only, no settlement filtering — this is
-    // a budgeting view, not a payment-tracking one.
-    [HttpGet("customs-clearance-payments")]
-
-    // Pulled from Cost Estimates only, no settlement filtering — this is
-    // a budgeting view, not a payment-tracking one.
-    [HttpGet("customs-clearance-payments")]
     [Authorize(Roles = AppRoles.CorpFinance + "," + AppRoles.Treasury + "," + AppRoles.Manager + "," + AppRoles.SuperUser)]
     public async Task<ActionResult<IEnumerable<CustomsClearancePaymentRow>>> GetCustomsClearancePayments(
         [FromServices] ShippingPortal.Api.Services.BuAccessService buAccess)
