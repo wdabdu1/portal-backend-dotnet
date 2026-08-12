@@ -65,7 +65,7 @@ public class ClearanceEstimatePdfService
                     });
 
                     col.Item().PaddingTop(24).Text($"Date: {DateTime.UtcNow:dd/MM/yyyy}");
-                    ccol.Item().PaddingTop(6).Text($"To: {data.BusinessUnit} Finance Department");
+                    col.Item().PaddingTop(6).Text($"To: {data.BusinessUnit} Finance Department");
 
                     col.Item().PaddingTop(28).AlignCenter().Text("Clearance Estimate")
                         .Bold().FontSize(14).Underline();
