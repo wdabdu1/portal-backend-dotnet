@@ -54,14 +54,17 @@ public class ClearanceRouteDetailsController : ControllerBase
     private readonly ShippingPortalDbContext _db;
     private readonly ShippingPortal.Api.Services.SectionLockService _sectionLock;
     private readonly ShippingPortal.Api.Services.DemurrageStorageService _demurrageService;
+    private readonly ShippingPortal.Api.Services.ClearanceScheduleService _scheduleService;
     public ClearanceRouteDetailsController(
         ShippingPortalDbContext db,
         ShippingPortal.Api.Services.SectionLockService sectionLock,
-        ShippingPortal.Api.Services.DemurrageStorageService demurrageService)
+        ShippingPortal.Api.Services.DemurrageStorageService demurrageService,
+        ShippingPortal.Api.Services.ClearanceScheduleService scheduleService)
     {
         _db = db;
         _sectionLock = sectionLock;
         _demurrageService = demurrageService;
+        _scheduleService = scheduleService;
     }
 
     // Fires the instant Truck & Containers' own Actual Completion Date
@@ -74,17 +77,23 @@ public class ClearanceRouteDetailsController : ControllerBase
     {
         if (oldCompletedDate.HasValue || !newCompletedDate.HasValue) return;
 
-        var result = await _demurrageService.CalculateAsync(shipmentId);
-        if (!result.Applicable) return;
-
         var charges = await _db.ClearanceActualCharges.FirstOrDefaultAsync(x => x.ClearanceId == clearanceId);
         if (charges is null) { charges = new ClearanceActualCharges { ClearanceId = clearanceId }; _db.ClearanceActualCharges.Add(charges); }
 
-        charges.ForecastDemurrageSdg = result.DemurrageCostSdg;
-        charges.ForecastStorageSdg = result.StorageCostSdg;
-        charges.ForecastCapturedAt = DateTime.UtcNow;
-    }
+        // Planned Completion Date — independent of FCL/demurrage
+        // applicability, this is the general "how did the team
+        // actually perform against the plan" figure.
+        var estimatedCompletions = await _scheduleService.GetEstimatedCompletionDatesAsync(new List<int> { shipmentId });
+        charges.PlannedCompletionDate = estimatedCompletions.GetValueOrDefault(shipmentId);
 
+        var result = await _demurrageService.CalculateAsync(shipmentId);
+        if (result.Applicable)
+        {
+            charges.ForecastDemurrageSdg = result.DemurrageCostSdg;
+            charges.ForecastStorageSdg = result.StorageCostSdg;
+            charges.ForecastCapturedAt = DateTime.UtcNow;
+        }
+    }
     private async Task<ClearanceEntity?> GetOrCreateClearanceAsync(int shipmentId)
     {
         if (!await _db.Shipments.AnyAsync(s => s.Id == shipmentId)) return null;
