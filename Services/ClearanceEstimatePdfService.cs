@@ -5,7 +5,7 @@ using QuestPDF.Infrastructure;
 
 namespace ShippingPortal.Api.Services;
 
-public record EstimateItemLine(string ModelProduct, decimal Qty);
+public record EstimateItemLine(string ModelProduct, decimal Qty, string? Unit);
 public record EstimateChargeLine(string ChargeType, decimal ValueSdg);
 
 public record ClearanceEstimatePrintData(
@@ -65,7 +65,7 @@ public class ClearanceEstimatePdfService
                     });
 
                     col.Item().PaddingTop(24).Text($"Date: {DateTime.UtcNow:dd/MM/yyyy}");
-                    col.Item().PaddingTop(6).Text($"To: \"{data.BusinessUnit}\" Finance Department");
+                    ccol.Item().PaddingTop(6).Text($"To: {data.BusinessUnit} Finance Department");
 
                     col.Item().PaddingTop(28).AlignCenter().Text("Clearance Estimate")
                         .Bold().FontSize(14).Underline();
@@ -80,7 +80,7 @@ public class ClearanceEstimatePdfService
                     var itemIndex = 1;
                     foreach (var item in data.Items)
                     {
-                        col.Item().PaddingTop(4).PaddingLeft(20).Text($"Item-{itemIndex} Model/Product.:  {item.ModelProduct}   Qty:  {item.Qty:N0}");
+                        col.Item().PaddingTop(4).PaddingLeft(20).Text($"Item-{itemIndex}, {item.ModelProduct}, {item.Qty:N0} {item.Unit}");
                         itemIndex++;
                     }
 
