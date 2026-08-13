@@ -16,7 +16,7 @@ public class LogisticsCitiesController : LookupCrudController<LogisticsCity>
     public LogisticsCitiesController(ShippingPortalDbContext db) : base(db) { }
 
     [Authorize(Roles = AppRoles.LogisticsEditors)]
-    public override Task<ActionResult<LogisticsCity>> Create(LogisticsCity entity) => base.Create(entity);
+    public override Task<IActionResult> Update(int id, System.Text.Json.JsonElement entity) => base.Update(id, entity);
     [Authorize(Roles = AppRoles.LogisticsEditors)]
     public override Task<IActionResult> Update(int id, LogisticsCity entity) => base.Update(id, entity);
     [Authorize(Roles = AppRoles.LogisticsEditors)]
@@ -31,7 +31,7 @@ public class DriversController : LookupCrudController<Driver>
     [Authorize(Roles = AppRoles.LogisticsEditors)]
     public override Task<ActionResult<Driver>> Create(Driver entity) => base.Create(entity);
     [Authorize(Roles = AppRoles.LogisticsEditors)]
-    public override Task<IActionResult> Update(int id, Driver entity) => base.Update(id, entity);
+    public override Task<IActionResult> Update(int id, System.Text.Json.JsonElement entity) => base.Update(id, entity);
     [Authorize(Roles = AppRoles.LogisticsEditors)]
     public override Task<IActionResult> Delete(int id) => base.Delete(id);
 }
@@ -44,7 +44,7 @@ public class TrucksController : LookupCrudController<Truck>
     [Authorize(Roles = AppRoles.LogisticsEditors)]
     public override Task<ActionResult<Truck>> Create(Truck entity) => base.Create(entity);
     [Authorize(Roles = AppRoles.LogisticsEditors)]
-    public override Task<IActionResult> Update(int id, Truck entity) => base.Update(id, entity);
+    public override Task<IActionResult> Update(int id, System.Text.Json.JsonElement entity) => base.Update(id, entity);
     [Authorize(Roles = AppRoles.LogisticsEditors)]
     public override Task<IActionResult> Delete(int id) => base.Delete(id);
 }
@@ -57,7 +57,7 @@ public class WarehousesController : LookupCrudController<Warehouse>
     [Authorize(Roles = AppRoles.LogisticsEditors)]
     public override Task<ActionResult<Warehouse>> Create(Warehouse entity) => base.Create(entity);
     [Authorize(Roles = AppRoles.LogisticsEditors)]
-    public override Task<IActionResult> Update(int id, Warehouse entity) => base.Update(id, entity);
+    public override Task<IActionResult> Update(int id, System.Text.Json.JsonElement entity) => base.Update(id, entity);
     [Authorize(Roles = AppRoles.LogisticsEditors)]
     public override Task<IActionResult> Delete(int id) => base.Delete(id);
 }
