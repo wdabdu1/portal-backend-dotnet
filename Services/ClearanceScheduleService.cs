@@ -76,7 +76,7 @@ public class ClearanceScheduleService
             orderedRows.AddRange(slaRows.Where(s => s.Division == routeDivision));
 
             var chainFrom = anchor.Value;
-             (var row in orderedRows)
+            foreach (var row in orderedRows)
             {
                 var wholeDays = (int)Math.Ceiling(row.TargetDays);
                 var targetDate = AddBusinessDays(chainFrom, wholeDays, holidaySet);
