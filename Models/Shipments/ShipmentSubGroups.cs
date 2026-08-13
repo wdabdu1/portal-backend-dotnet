@@ -52,6 +52,13 @@ public class ShipmentSsmo
     public int ShipmentId { get; set; }
     public Shipment? Shipment { get; set; }
 
+    // Same pattern as Customs Lab's own Required checkbox — user
+    // answers per shipment, since COC reuse/exemption depends on
+    // product history they already know, not something the system
+    // tracks automatically. Null = not yet answered.
+    public bool? CocRequired { get; set; }
+    public bool? CocAvailable { get; set; }
+
     public DateOnly? ApplicationDate { get; set; }
     public decimal? Cost { get; set; }
     public DateOnly? CostSettledDate { get; set; }
