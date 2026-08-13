@@ -41,6 +41,15 @@ public class ClearanceScheduleService
         var holidaySet = (await _db.PublicHolidays.Where(h => h.AffectsClr).Select(h => h.Date).ToListAsync()).ToHashSet();
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
 
+        // MOT is a genuine prerequisite, not just an independent
+        // readiness flag — if it isn't done by the time the vessel
+        // arrives, clearance can't meaningfully proceed until it is.
+        // Its own target (ETA minus its SLA days) means an on-schedule
+        // MOT never pushes the anchor at all; only a genuinely late one
+        // (still pending past its target, or completed late) does.
+        var mots = await _db.ShipmentMots.Where(m => shipmentIds.Contains(m.ShipmentId)).ToDictionaryAsync(m => m.ShipmentId);
+        var motTargetDays = slaRows.FirstOrDefault(s => s.Division == ClearanceDivision.PreClearanceMot)?.TargetDays ?? 0;
+
         foreach (var shipment in shipments)
         {
             clearances.TryGetValue(shipment.Id, out var clearance);
@@ -54,7 +63,16 @@ public class ClearanceScheduleService
             else
             {
                 var deliveryOrder = clearance is not null ? deliveryOrders.GetValueOrDefault(clearance.Id) : null;
-                anchor = deliveryOrder?.ActualArrivalDate ?? shipment.Eta;
+                var arrival = deliveryOrder?.ActualArrivalDate;
+                anchor = arrival ?? shipment.Eta;
+
+                if (arrival.HasValue && shipment.Eta.HasValue)
+                {
+                    mots.TryGetValue(shipment.Id, out var mot);
+                    var motTarget = SubtractBusinessDays(shipment.Eta.Value, (int)Math.Ceiling(motTargetDays), holidaySet);
+                    var motEffective = mot?.ApprovalDate ?? (today > motTarget ? today : motTarget);
+                    if (motEffective > arrival.Value) anchor = motEffective;
+                }
             }
 
             if (!anchor.HasValue || route == ClearanceRouteType.NotSelected)
@@ -300,6 +318,20 @@ public class ClearanceScheduleService
             if (date.DayOfWeek == DayOfWeek.Friday || date.DayOfWeek == DayOfWeek.Saturday) continue;
             if (holidays.Contains(date)) continue;
             added++;
+        }
+        return date;
+    }
+
+    public static DateOnly SubtractBusinessDays(DateOnly start, int days, HashSet<DateOnly> holidays)
+    {
+        var date = start;
+        var subtracted = 0;
+        while (subtracted < days)
+        {
+            date = date.AddDays(-1);
+            if (date.DayOfWeek == DayOfWeek.Friday || date.DayOfWeek == DayOfWeek.Saturday) continue;
+            if (holidays.Contains(date)) continue;
+            subtracted++;
         }
         return date;
     }
