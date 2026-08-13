@@ -4,7 +4,7 @@ using ShippingPortal.Api.Models.Clearance;
 
 namespace ShippingPortal.Api.Services;
 
-public record ScheduleItem(string Division, string GroupItem, decimal TargetDays, DateOnly TargetDate, DateOnly? ActualDate, string Status, string Light);
+public record ScheduleItem(string Division, string GroupItem, decimal TargetDays, DateOnly TargetDate, DateOnly? ActualDate, string Status, string Light, int? ActualDaysTaken);
 public record ClearanceScheduleResult(DateOnly? AnchorDate, DateOnly? EstimatedCompletionDate, List<ScheduleItem> Items);
 
 // Shared cascading schedule engine: each step's target date is calculated
@@ -76,7 +76,7 @@ public class ClearanceScheduleService
             orderedRows.AddRange(slaRows.Where(s => s.Division == routeDivision));
 
             var chainFrom = anchor.Value;
-            foreach (var row in orderedRows)
+             (var row in orderedRows)
             {
                 var wholeDays = (int)Math.Ceiling(row.TargetDays);
                 var targetDate = AddBusinessDays(chainFrom, wholeDays, holidaySet);
@@ -201,6 +201,7 @@ public class ClearanceScheduleService
 
         foreach (var row in orderedRows)
         {
+            var stepStartDate = chainFrom;
             var wholeDays = (int)Math.Ceiling(row.TargetDays);
             var targetDate = AddBusinessDays(chainFrom, wholeDays, holidaySet);
             actualDates.TryGetValue((row.Division, row.GroupItem), out var actualDate);
@@ -230,7 +231,8 @@ public class ClearanceScheduleService
                 chainFrom = diff > 0 ? today : targetDate;
             }
 
-            items.Add(new ScheduleItem(row.Division, row.GroupItem, row.TargetDays, targetDate, actualDate, status, light));
+            var actualDaysTaken = actualDate.HasValue ? BusinessDaysBetween(stepStartDate, actualDate.Value, holidaySet) : (int?)null;
+            items.Add(new ScheduleItem(row.Division, row.GroupItem, row.TargetDays, targetDate, actualDate, status, light, actualDaysTaken));
         }
 
         var estimatedCompletion = items.Count > 0 ? items[^1].TargetDate : (DateOnly?)null;
