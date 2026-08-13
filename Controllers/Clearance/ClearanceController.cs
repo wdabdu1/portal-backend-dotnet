@@ -68,16 +68,11 @@ public class ClearanceController : ControllerBase
     [Authorize(Roles = AppRoles.ClearanceViewers)]
     public async Task<ActionResult<IEnumerable<ClearanceShipmentSummary>>> GetShipmentsForClearance([FromQuery] string? search, [FromServices] ShippingPortal.Api.Services.BuAccessService buAccess)
     {
-        // Total target = General (applies to every shipment) + the specific
-        // route's total once selected. Before a route is chosen, fall back
-        // to Route 1's total as a conservative default so the light isn't
-        // artificially green with no target at all.
-        var slaByDivision = await _db.ClearanceSlaSettings
-            .Where(s => s.IsActive)
-            .GroupBy(s => s.Division)
-            .Select(g => new { Division = g.Key, Total = g.Sum(s => s.TargetDays) })
-            .ToDictionaryAsync(x => x.Division, x => x.Total);
-
+        // Per-step target days — used for the weighted progress calc
+        // below (days of completed steps ÷ days of all applicable
+        // steps), not just a division-level total.
+        var slaRows = await _db.ClearanceSlaSettings.Where(s => s.IsActive).ToListAsync();
+        var slaByDivision = slaRows.GroupBy(s => s.Division).ToDictionary(g => g.Key, g => g.Sum(s => s.TargetDays));
         var generalDays = slaByDivision.GetValueOrDefault(ShippingPortal.Api.Models.Clearance.ClearanceDivision.General, 0);
 
         var query = _db.Shipments
@@ -124,7 +119,19 @@ public class ClearanceController : ControllerBase
             .Where(r => clearanceIds.Contains(r.ClearanceId))
             .ToDictionaryAsync(r => r.ClearanceId, r => r.ClearanceActualCompletedDate);
 
-        var results = shipments.Select(s =>
+        var deliveryOrders = await _db.ClearanceDeliveryOrders
+            .Where(d => clearanceIds.Contains(d.ClearanceId))
+            .ToDictionaryAsync(d => d.ClearanceId, d => d.ActualArrivalDate);
+
+        // Shipping Line demurrage free-days — batched once for every
+        // (Line, TariffGroup) combo this page actually needs, rather
+        // than a per-row lookup.
+        var demurrageTariffs = await _db.ShippingLineDemurrageTariffs.ToListAsync();
+
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var results = new List<ClearanceShipmentSummary>();
+
+        foreach (var s in shipments)
         {
             clearances.TryGetValue(s.Id, out var clearance);
             string? declarationNo = null;
@@ -137,27 +144,28 @@ public class ClearanceController : ControllerBase
                 && !s.BlAwbNo.Contains(search, StringComparison.OrdinalIgnoreCase)
                 && !declarationNo.Contains(search, StringComparison.OrdinalIgnoreCase))
             {
-                return null;
+                continue;
             }
 
             var firstLine = s.LineItems.FirstOrDefault()?.PurchaseOrderLineItem;
             var totalQty = s.LineItems.Sum(li => li.QtyInBl);
 
-            var routeDivision = clearance?.Route switch
+            // No fallback to Route 1 anymore — a shipment with no route
+            // chosen yet is measured only against the General steps,
+            // which is the only work that's genuinely applicable so far.
+            string? routeDivision = clearance?.Route switch
             {
                 ShippingPortal.Api.Models.Clearance.ClearanceRouteType.Route1ClearAtPort => ShippingPortal.Api.Models.Clearance.ClearanceDivision.Route1,
                 ShippingPortal.Api.Models.Clearance.ClearanceRouteType.Route2FzDeposit => ShippingPortal.Api.Models.Clearance.ClearanceDivision.Route2,
                 ShippingPortal.Api.Models.Clearance.ClearanceRouteType.Route3ClearFromFz => ShippingPortal.Api.Models.Clearance.ClearanceDivision.Route3,
-                _ => ShippingPortal.Api.Models.Clearance.ClearanceDivision.Route1
+                _ => null
             };
-            var routeDays = slaByDivision.GetValueOrDefault(routeDivision, 0);
-            // Route 3 excludes the General clearance steps — goods are
-            // already cleared into the FZ by that point.
+            var routeDays = routeDivision is null ? 0 : slaByDivision.GetValueOrDefault(routeDivision, 0);
             var targetDays = routeDivision == ShippingPortal.Api.Models.Clearance.ClearanceDivision.Route3
                 ? routeDays
                 : generalDays + routeDays;
 
-            DateOnly? actualCompletedDate = clearance is null ? null : routeDivision switch
+            DateOnly? actualCompletedDate = (clearance is null || routeDivision is null) ? null : routeDivision switch
             {
                 ShippingPortal.Api.Models.Clearance.ClearanceDivision.Route1 => route1Completions.GetValueOrDefault(clearance.Id),
                 ShippingPortal.Api.Models.Clearance.ClearanceDivision.Route2 => route2Completions.GetValueOrDefault(clearance.Id),
@@ -165,20 +173,58 @@ public class ClearanceController : ControllerBase
                 _ => null
             };
 
-            var trafficLight = ComputeTrafficLight(s.Eta, actualCompletedDate, targetDays);
-            var slaPercent = ComputeSlaPercent(s.Eta, actualCompletedDate, targetDays);
-            var routeStatus = clearance is null || clearance.Route == 0 ? "Not Started" : clearance.Route.ToString();
+            // --- Weighted progress: days of completed steps ÷ days of every applicable step ---
+            decimal slaPercent = 0;
+            if (clearance is not null)
+            {
+                var actualDatesKey = routeDivision ?? ShippingPortal.Api.Models.Clearance.ClearanceDivision.General;
+                var actualDates = await BuildActualDatesAsync(clearance.Id, actualDatesKey);
+                var applicableRows = slaRows.Where(r =>
+                    routeDivision is null ? r.Division == ShippingPortal.Api.Models.Clearance.ClearanceDivision.General :
+                    routeDivision == ShippingPortal.Api.Models.Clearance.ClearanceDivision.Route3 ? r.Division == ShippingPortal.Api.Models.Clearance.ClearanceDivision.Route3 :
+                    r.Division == ShippingPortal.Api.Models.Clearance.ClearanceDivision.General || r.Division == routeDivision
+                ).ToList();
 
-            return new ClearanceShipmentSummary(
+                var totalStepDays = applicableRows.Sum(r => r.TargetDays);
+                var completedStepDays = applicableRows
+                    .Where(r => actualDates.TryGetValue((r.Division, r.GroupItem), out var d) && d.HasValue)
+                    .Sum(r => r.TargetDays);
+                slaPercent = totalStepDays == 0 ? 0 : Math.Min(100m, (completedStepDays / totalStepDays) * 100m);
+            }
+
+            var trafficLight = ComputeTrafficLight(s.Eta, actualCompletedDate, targetDays);
+            var routeStatus = clearance is null || clearance.Route == 0 ? "Not Started" : clearance.Route.ToString();
+            var etaHasArrived = s.Eta.HasValue && s.Eta.Value < today;
+
+            // --- Live Shipping Line demurrage free-days remaining ---
+            int? demurrageFreeDaysRemaining = null;
+            var tariffGroupId = firstLine?.ProductCategory?.TariffGroupId;
+            if (tariffGroupId.HasValue && s.ShippingLineId != 0)
+            {
+                var containerSize = s.Fcl40Count > 0 ? "40" : "20";
+                var tariff = demurrageTariffs.FirstOrDefault(t =>
+                    t.ShippingLineId == s.ShippingLineId && t.TariffGroupId == tariffGroupId && t.ContainerSize == containerSize);
+                if (tariff is not null)
+                {
+                    var deliveryOrder = clearance is not null ? deliveryOrders.GetValueOrDefault(clearance.Id) : null;
+                    var anchor = deliveryOrder ?? s.Eta;
+                    if (anchor.HasValue)
+                    {
+                        var daysSinceAnchor = Math.Max(0, today.DayNumber - anchor.Value.DayNumber);
+                        demurrageFreeDaysRemaining = tariff.FreeDays - daysSinceAnchor;
+                    }
+                }
+            }
+
+            results.Add(new ClearanceShipmentSummary(
                 s.Id, s.BlAwbNo, s.PurchaseOrder?.BusinessUnit?.Name ?? "", firstLine?.ProductCategory?.Name ?? "",
                 s.Eta, s.Fcl20Count + s.Fcl40Count, declarationNo, firstLine?.ModelProduct?.Name ?? "", totalQty, firstLine?.UnitOfMeasure?.Code ?? "",
-                trafficLight, routeStatus, s.ShippingLine?.Name ?? "", slaPercent, actualCompletedDate.HasValue);
-        })
-        .Where(x => x is not null)
-        .OrderBy(x => x!.Eta ?? DateOnly.MaxValue)
-        .ToList();
+                trafficLight, routeStatus, s.ShippingLine?.Name ?? "", slaPercent, actualCompletedDate.HasValue,
+                etaHasArrived, demurrageFreeDaysRemaining));
+        }
 
-        return Ok(results);
+        var ordered = results.OrderBy(x => x.Eta ?? DateOnly.MaxValue).ToList();
+        return Ok(ordered);
     }
 
     [HttpGet("{shipmentId:int}/detail")]
