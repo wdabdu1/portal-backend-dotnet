@@ -63,9 +63,13 @@ public abstract class LookupCrudController<TEntity> : ControllerBase where TEnti
         var isActiveProp = typeof(TEntity).GetProperty("IsActive");
         var originalIsActive = isActiveProp?.GetValue(existing);
 
+        // Must match before SetValues() runs — EF refuses a primary-key
+        // change the instant it tries to apply one, so fixing Id
+        // afterward is already too late.
+        typeof(TEntity).GetProperty("Id")?.SetValue(entity, id);
+
         Db.Entry(existing).CurrentValues.SetValues(entity);
 
-        typeof(TEntity).GetProperty("Id")?.SetValue(existing, id);
         if (!isActiveSupplied && isActiveProp is not null) isActiveProp.SetValue(existing, originalIsActive);
 
         await Db.SaveChangesAsync();
