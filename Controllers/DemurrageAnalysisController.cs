@@ -86,8 +86,8 @@ public class DemurrageAnalysisController : ControllerBase
     {
         var ids = await GetHitShipmentIdsAsync(buAccess, etaFrom, etaTo, businessUnitId, consigneeId, shippingLineId);
         var options = await _db.Shipments.Where(s => ids.Contains(s.Id))
+            .OrderBy(s => s.BlAwbNo)
             .Select(s => new ShipmentWithHitOption(s.Id, s.BlAwbNo))
-            .OrderBy(o => o.BlAwbNo)
             .ToListAsync();
         return Ok(options);
     }
