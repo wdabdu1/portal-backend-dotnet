@@ -4,6 +4,8 @@ using ShippingPortal.Api.Models.Clearance;
 
 namespace ShippingPortal.Api.Services;
 
+public record TierBreakdownLine(string TierLabel, int Days, decimal Rate, decimal Cost);
+
 public record DemurrageStorageResult(
     bool Applicable,
     DateOnly? AnchorDate,
@@ -17,7 +19,10 @@ public record DemurrageStorageResult(
     decimal StorageCostEuro, decimal StorageCostSdg,
     decimal DemurrageCostSdg,
     decimal TotalStorageDemurrageSdg,
-    List<string> Warnings);
+    List<string> Warnings,
+    List<TierBreakdownLine> StorageBreakdown,
+    List<TierBreakdownLine> DemurrageBreakdown20,
+    List<TierBreakdownLine> DemurrageBreakdown40);
 
 // Storage: SPC's charge for goods sitting in port, tiered by day count
 // (universal tiers, same for everyone). Demurrage: the Shipping Line's
