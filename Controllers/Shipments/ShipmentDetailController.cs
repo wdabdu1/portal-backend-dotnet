@@ -10,7 +10,7 @@ namespace ShippingPortal.Api.Controllers.Shipments;
 public record ShipmentForwarderRequest(int? ForwarderId, decimal? ActualShippingCost, int? CurrencyId, decimal? AmountSaved, bool MarineInsurance);
 public record ShipmentAcdRequest(DateOnly? ProcessDate, DateOnly? CostSettledDate, string? RefNumber);
 public record ShipmentDraftDocumentsRequest(DateOnly? InitialDraftReceivedDate, DateOnly? FinalDraftReceivedDate, DateOnly? FinalDraftConfirmedDate);
-public record ShipmentSsmoRequest(DateOnly? ApplicationDate, decimal? Cost, DateOnly? CostSettledDate, string? RefNumber, DateOnly? ApprovalDate);
+public record ShipmentSsmoRequest(bool? CocRequired, bool? CocAvailable, DateOnly? ApplicationDate, decimal? Cost, DateOnly? CostSettledDate, string? RefNumber, DateOnly? ApprovalDate);
 public record ShipmentMotRequest(DateOnly? ProcessDate, decimal? Cost, DateOnly? CostSettledDate, string? RefNumber, DateOnly? ApprovalDate, string? OffshoreApprovedPiNumber);
 public record ShipmentSupplierFullSetRequest(string? SupplierInvoiceNo, DateOnly? SupplierInvoiceDate, DateOnly? FsDispatchDate, int? FsDispatchedViaId, string? FsTrackingNumber, DateOnly? FsReceivedDate);
 public record PaymentRecordRequest(DateOnly PaymentDate, int CurrencyId, decimal Value, int? PaymentDueId);
@@ -245,6 +245,8 @@ public class ShipmentDetailController : ControllerBase
         var entity = await _db.ShipmentSsmos.FirstOrDefaultAsync(x => x.ShipmentId == shipmentId);
         if (entity is null) { entity = new ShipmentSsmo { ShipmentId = shipmentId }; _db.ShipmentSsmos.Add(entity); }
 
+        entity.CocRequired = req.CocRequired;
+        entity.CocAvailable = req.CocAvailable;
         entity.ApplicationDate = req.ApplicationDate;
         entity.Cost = req.Cost;
         entity.CostSettledDate = req.CostSettledDate;
