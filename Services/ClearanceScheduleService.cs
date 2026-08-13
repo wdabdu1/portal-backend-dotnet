@@ -178,6 +178,10 @@ public class ClearanceScheduleService
         var clearance = await _db.Clearances.FirstOrDefaultAsync(c => c.ShipmentId == shipmentId);
         var route = clearance?.Route ?? ClearanceRouteType.NotSelected;
 
+       var slaRows = await _db.ClearanceSlaSettings.Where(s => s.IsActive).OrderBy(s => s.SequenceOrder).ToListAsync();
+        var holidaySet = (await _db.PublicHolidays.Where(h => h.AffectsClr).Select(h => h.Date).ToListAsync()).ToHashSet();
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+
         // Route 3 (withdrawal from FZ) has no vessel arrival of its own —
         // it anchors on the withdrawal request instead of DO/ETA.
         DateOnly? anchor;
@@ -188,7 +192,22 @@ public class ClearanceScheduleService
         else
         {
             var deliveryOrder = clearance is null ? null : await _db.ClearanceDeliveryOrders.FirstOrDefaultAsync(d => d.ClearanceId == clearance.Id);
-            anchor = deliveryOrder?.ActualArrivalDate ?? shipment.Eta;
+            var arrival = deliveryOrder?.ActualArrivalDate;
+            anchor = arrival ?? shipment.Eta;
+
+            // MOT is a genuine prerequisite — if it isn't done by the
+            // time the vessel arrives, clearance can't meaningfully
+            // proceed until it is. An on-schedule MOT (finishes before
+            // its own target, which is ETA minus its SLA days) never
+            // pushes the anchor; only a genuinely late one does.
+            if (arrival.HasValue && shipment.Eta.HasValue)
+            {
+                var mot = await _db.ShipmentMots.FirstOrDefaultAsync(m => m.ShipmentId == shipmentId);
+                var motTargetDays = slaRows.FirstOrDefault(s => s.Division == ClearanceDivision.PreClearanceMot)?.TargetDays ?? 0;
+                var motTarget = SubtractBusinessDays(shipment.Eta.Value, (int)Math.Ceiling(motTargetDays), holidaySet);
+                var motEffective = mot?.ApprovalDate ?? (today > motTarget ? today : motTarget);
+                if (motEffective > arrival.Value) anchor = motEffective;
+            }
         }
         if (!anchor.HasValue) return new ClearanceScheduleResult(null, null, new List<ScheduleItem>());
 
@@ -201,7 +220,6 @@ public class ClearanceScheduleService
             _ => ClearanceDivision.Route3
         };
 
-        var slaRows = await _db.ClearanceSlaSettings.Where(s => s.IsActive).OrderBy(s => s.SequenceOrder).ToListAsync();
         var orderedRows = new List<ClearanceSlaSetting>();
         if (routeDivision != ClearanceDivision.Route3)
             orderedRows.AddRange(slaRows.Where(s => s.Division == ClearanceDivision.General));
@@ -211,11 +229,8 @@ public class ClearanceScheduleService
             ? new Dictionary<(string, string), DateOnly?>()
             : await BuildActualDatesAsync(clearance.Id, routeDivision);
 
-        var holidaySet = (await _db.PublicHolidays.Where(h => h.AffectsClr).Select(h => h.Date).ToListAsync()).ToHashSet();
-
         var items = new List<ScheduleItem>();
         var chainFrom = anchor.Value;
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
 
         foreach (var row in orderedRows)
         {
