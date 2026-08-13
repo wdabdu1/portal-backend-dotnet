@@ -18,8 +18,6 @@ public class LogisticsCitiesController : LookupCrudController<LogisticsCity>
     [Authorize(Roles = AppRoles.LogisticsEditors)]
     public override Task<IActionResult> Update(int id, System.Text.Json.JsonElement entity) => base.Update(id, entity);
     [Authorize(Roles = AppRoles.LogisticsEditors)]
-    public override Task<IActionResult> Update(int id, LogisticsCity entity) => base.Update(id, entity);
-    [Authorize(Roles = AppRoles.LogisticsEditors)]
     public override Task<IActionResult> Delete(int id) => base.Delete(id);
 }
 
