@@ -10,7 +10,7 @@ namespace ShippingPortal.Api.Controllers.Clearance;
 public record ClearanceShipmentSummary(
     int ShipmentId, string BlAwbNo, string BusinessUnit, string Category, DateOnly? Eta,
     int FclCount, string? DeclarationNo, string Product, decimal Qty, string Unit, string TrafficLight, string RouteStatus,
-    string ShippingLine, decimal SlaPercent, bool IsCompleted);
+    string ShippingLine, decimal SlaPercent, bool IsCompleted, bool EtaHasArrived, int? DemurrageFreeDaysRemaining);
 
 public record ClearanceGeneralInfoRequest(
     DateOnly? CopyOfBlReceivedDate, DateOnly? OriginalShipmentSetReceivedDate, string? LcNo,
