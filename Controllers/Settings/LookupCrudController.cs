@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -38,11 +39,33 @@ public abstract class LookupCrudController<TEntity> : ControllerBase where TEnti
     {
         var existing = await Db.Set<TEntity>().FindAsync(id);
         if (existing is null) return NotFound();
+
+        // The request body only ever carries the fields actually being
+        // edited (e.g. a partial payload of just Name + TariffGroupId
+        // from Simple Lookup's inline row editor) — never Id, and often
+        // not IsActive either. Blindly applying SetValues() with
+        // whatever happened to be in the body risks two failure modes:
+        // a missing Id model-binds to 0, which EF refuses to apply as a
+        // primary-key change on an already-tracked entity (the exact
+        // cause of "Could not update this entry"), and a missing
+        // IsActive would silently flip every edited row inactive. Read
+        // the raw JSON alongside the bound entity so we know which
+        // fields were genuinely supplied, force the route's id
+        // regardless, and only touch IsActive if it was actually sent.
+        Request.Body.Position = 0;
+        using var doc = await JsonDocument.ParseAsync(Request.Body);
+        var isActiveSupplied = doc.RootElement.TryGetProperty("isActive", out _);
+        var isActiveProp = typeof(TEntity).GetProperty("IsActive");
+        var originalIsActive = isActiveProp?.GetValue(existing);
+
         Db.Entry(existing).CurrentValues.SetValues(entity);
+
+        typeof(TEntity).GetProperty("Id")?.SetValue(existing, id);
+        if (!isActiveSupplied && isActiveProp is not null) isActiveProp.SetValue(existing, originalIsActive);
+
         await Db.SaveChangesAsync();
         return NoContent();
     }
-
     [HttpDelete("{id:int}")]
     [Authorize(Roles = AppRoles.Manager + "," + AppRoles.SuperUser)]
     public virtual async Task<IActionResult> Delete(int id)
