@@ -150,9 +150,12 @@ public class PreClearanceReadinessService
             var osSetDone = clearance?.OriginalShipmentSetReceivedDate.HasValue == true;
             var arrivalReference = deliveryOrder?.ActualArrivalDate ?? eta;
 
+            var motApproved = mot?.ApprovalDate.HasValue ?? false;
+            var motNotReadyAtArrival = hasArrived && !motApproved;
             var isRed = (hasArrived && !osSetDone)
                 || lastDocProjected > arrivalReference
-                || (doItem.ActualDate is null && doItem.Light == "Red");
+                || (doItem.ActualDate is null && doItem.Light == "Red")
+                || motNotReadyAtArrival;
 
             var allItems = new List<ReadinessItem>(docItems) { motItem, ssmoItem, vesselItem, doItem };
             var hasOverdueOrLate = allItems.Any(i => i.Light != "Green");
