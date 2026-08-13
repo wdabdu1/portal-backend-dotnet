@@ -20,6 +20,17 @@ public class Withdrawal
     public DateOnly? CertificateEntryDate { get; set; }
     public string? ScudaDeclarationNo { get; set; }
 
+    // SSMO (general approval, same concept as the Shipment page's SSMO
+    // section) — distinct from the SSMO File Process / SSMO Examination
+    // workflow steps further below.
+    public bool? SsmoCocRequired { get; set; }
+    public bool? SsmoCocAvailable { get; set; }
+    public DateOnly? SsmoApplicationDate { get; set; }
+    public decimal? SsmoCost { get; set; }
+    public DateOnly? SsmoCostSettledDate { get; set; }
+    public string? SsmoRefNumber { get; set; }
+    public DateOnly? SsmoApprovalDate { get; set; }
+
     // MOT
     public DateOnly? MotApprovalDate { get; set; }
 
