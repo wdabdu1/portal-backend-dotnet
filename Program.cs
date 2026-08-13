@@ -88,15 +88,6 @@ builder.Services.AddCors(options =>
 
 var app = builder.Build();
 
-// Lets LookupCrudController re-read the raw JSON body (to check which
-// fields were actually supplied) after the framework has already used
-// it once to model-bind the typed entity.
-app.Use(async (context, next) =>
-{
-    context.Request.EnableBuffering();
-    await next();
-});
-
 using (var scope = app.Services.CreateScope())
 {
     await IdentitySeeder.SeedAsync(scope.ServiceProvider, app.Configuration);
