@@ -48,6 +48,7 @@ public class ClearanceScheduleService
         // MOT never pushes the anchor at all; only a genuinely late one
         // (still pending past its target, or completed late) does.
         var mots = await _db.ShipmentMots.Where(m => shipmentIds.Contains(m.ShipmentId)).ToDictionaryAsync(m => m.ShipmentId);
+        var ssmos = await _db.ShipmentSsmos.Where(m => shipmentIds.Contains(m.ShipmentId)).ToDictionaryAsync(m => m.ShipmentId);
         var motTargetDays = slaRows.FirstOrDefault(s => s.Division == ClearanceDivision.PreClearanceMot)?.TargetDays ?? 0;
 
         foreach (var shipment in shipments)
@@ -96,6 +97,21 @@ public class ClearanceScheduleService
             var chainFrom = anchor.Value;
             foreach (var row in orderedRows)
             {
+                // COC blocks specifically SSMO File Process, not the
+                // whole cascade — only shipments where it's genuinely
+                // Required-and-not-yet-Available are affected. With no
+                // fixed target of its own (unlike MOT), an outstanding
+                // COC pushes the step to today until it's approved.
+                if (row.GroupItem == "SSMO File Process")
+                {
+                    ssmos.TryGetValue(shipment.Id, out var ssmo);
+                    if (ssmo?.CocRequired == true && ssmo.CocAvailable == false)
+                    {
+                        var cocReady = ssmo.ApprovalDate ?? today;
+                        if (cocReady > chainFrom) chainFrom = cocReady;
+                    }
+                }
+
                 var wholeDays = (int)Math.Ceiling(row.TargetDays);
                 var targetDate = AddBusinessDays(chainFrom, wholeDays, holidaySet);
 
@@ -231,14 +247,23 @@ public class ClearanceScheduleService
 
         var items = new List<ScheduleItem>();
         var chainFrom = anchor.Value;
+        var ssmo = await _db.ShipmentSsmos.FirstOrDefaultAsync(m => m.ShipmentId == shipmentId);
 
         foreach (var row in orderedRows)
         {
+            // COC blocks specifically SSMO File Process, not the whole
+            // cascade — with no fixed target of its own (unlike MOT), an
+            // outstanding COC pushes the step to today until approved.
+            if (row.GroupItem == "SSMO File Process" && ssmo?.CocRequired == true && ssmo.CocAvailable == false)
+            {
+                var cocReady = ssmo.ApprovalDate ?? today;
+                if (cocReady > chainFrom) chainFrom = cocReady;
+            }
+
             var stepStartDate = chainFrom;
             var wholeDays = (int)Math.Ceiling(row.TargetDays);
             var targetDate = AddBusinessDays(chainFrom, wholeDays, holidaySet);
             actualDates.TryGetValue((row.Division, row.GroupItem), out var actualDate);
-
             string status;
             string light;
             if (actualDate.HasValue)
