@@ -59,7 +59,32 @@ public class ClearanceController : ControllerBase
 
         var shipmentIds = await query.Select(s => s.Id).ToListAsync();
         var readiness = await readinessService.CalculateAsync(shipmentIds);
-        return Ok(readiness);
+
+        // This report exists to prompt action on shipments still
+        // exposed to demurrage/storage risk — once a route has genuinely
+        // completed (cleared at port, or deposited into FZ), it's done
+        // and no longer belongs here, regardless of how its earlier
+        // pre-clearance readiness classification looked.
+        var clearances = await _db.Clearances.Where(c => shipmentIds.Contains(c.ShipmentId)).ToDictionaryAsync(c => c.ShipmentId);
+        var clearanceIds = clearances.Values.Select(c => c.Id).ToList();
+        var route1Completions = await _db.ClearanceRoute1Details.Where(r => clearanceIds.Contains(r.ClearanceId)).ToDictionaryAsync(r => r.ClearanceId, r => r.ClearanceActualCompletedDate);
+        var route2Completions = await _db.ClearanceRoute2Details.Where(r => clearanceIds.Contains(r.ClearanceId)).ToDictionaryAsync(r => r.ClearanceId, r => r.ClearanceActualCompletedDate);
+        var route3Completions = await _db.ClearanceRoute3Details.Where(r => clearanceIds.Contains(r.ClearanceId)).ToDictionaryAsync(r => r.ClearanceId, r => r.ClearanceActualCompletedDate);
+
+        var stillActive = readiness.Where(r =>
+        {
+            if (!clearances.TryGetValue(r.ShipmentId, out var clearance)) return true;
+            DateOnly? completion = clearance.Route switch
+            {
+                ShippingPortal.Api.Models.Clearance.ClearanceRouteType.Route1ClearAtPort => route1Completions.GetValueOrDefault(clearance.Id),
+                ShippingPortal.Api.Models.Clearance.ClearanceRouteType.Route2FzDeposit => route2Completions.GetValueOrDefault(clearance.Id),
+                ShippingPortal.Api.Models.Clearance.ClearanceRouteType.Route3ClearFromFz => route3Completions.GetValueOrDefault(clearance.Id),
+                _ => null
+            };
+            return !completion.HasValue;
+        }).ToList();
+
+        return Ok(stillActive);
     }
 
     // Selection screen: only Confirmed shipments (nothing to clear on a Draft),
