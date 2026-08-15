@@ -10,6 +10,18 @@ public record ShipmentReadiness(
     int ShipmentId, string BlAwbNo, string BusinessUnit, string Category, int Fcl20Count, int Fcl40Count,
     DateOnly? Etd, DateOnly? Eta, string Classification, List<TrackResult> Tracks);
 
+// Pipeline Health's actual display shape — one current step per
+// shipment (Document Chain -> Vessel Arrival -> DO Received, then
+// seamlessly into Clearance's own schedule) rather than the full
+// multi-track history above, plus a separate background alert for an
+// overdue MOT/SSMO even though they don't occupy a position in the
+// main sequence.
+public record ShipmentHighlight(
+    int ShipmentId, string BlAwbNo, string BusinessUnit, string Category, DateOnly? Eta,
+    int Fcl20Count, int Fcl40Count,
+    string CurrentStepName, DateOnly? CurrentStepTargetDate, string CurrentStepStatus, string CurrentStepLight,
+    string? MotSsmoAlertLevel, string? MotSsmoAlertMessage);
+
 // Shipment Pipeline Health — the full pre-clearance journey, entirely
 // separate from the forward clearance cascade itself. The Document
 // Chain is measured from BOTH ends: backward from ETA (catches things
