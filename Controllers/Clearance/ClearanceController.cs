@@ -84,7 +84,85 @@ public class ClearanceController : ControllerBase
             return !completion.HasValue;
         }).ToList();
 
-        return Ok(stillActive);
+        // Distill each shipment down to the ONE step that's currently
+        // active — the whole point of this report is a quick scan, not
+        // a full history. Walks Document Chain -> Vessel Arrival -> DO
+        // Received first; once that's done, the exact same DoReceivedDate
+        // field already shows Clearance's own "Delivery Order" step as
+        // complete too, so the walk continues seamlessly into the real
+        // clearance schedule (Cost Estimate -> Certificate Entry ->
+        // route-specific steps) with no special-casing needed. MOT/SSMO
+        // run in parallel and don't occupy a position in this sequence,
+        // but are checked separately below since an overdue one can
+        // silently delay everything that follows.
+        var scheduleService = HttpContext.RequestServices.GetRequiredService<ShippingPortal.Api.Services.ClearanceScheduleService>();
+        var highlights = new List<ShippingPortal.Api.Services.ShipmentHighlight>();
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+
+        foreach (var r in stillActive)
+        {
+            ShippingPortal.Api.Services.ReadinessItem? current = null;
+            string? currentTrackLabel = null;
+
+            foreach (var track in r.Tracks)
+            {
+                if (track.Track == "MOT Approval" || track.Track == "SSMO Approval") continue;
+                var incomplete = track.Items.FirstOrDefault(i => !i.ActualDate.HasValue);
+                if (incomplete is not null) { current = incomplete; currentTrackLabel = track.Track; break; }
+            }
+
+            string currentStepName;
+            DateOnly? currentStepTarget;
+            string currentStepStatus;
+            string currentStepLight;
+
+            if (current is not null)
+            {
+                currentStepName = current.GroupItem;
+                currentStepTarget = current.ShouldBeDoneBy;
+                currentStepStatus = current.Status;
+                currentStepLight = current.Light;
+            }
+            else
+            {
+                var schedule = await scheduleService.GetScheduleAsync(r.ShipmentId);
+                var incompleteItem = schedule.Items.FirstOrDefault(i => !i.ActualDate.HasValue);
+                if (incompleteItem is not null)
+                {
+                    currentStepName = incompleteItem.GroupItem;
+                    currentStepTarget = incompleteItem.TargetDate;
+                    currentStepStatus = incompleteItem.Status;
+                    currentStepLight = incompleteItem.Light;
+                }
+                else
+                {
+                    currentStepName = "All steps complete";
+                    currentStepTarget = null;
+                    currentStepStatus = "Awaiting Truck & Containers";
+                    currentStepLight = "Green";
+                }
+            }
+
+            string? motSsmoAlertLevel = null;
+            string? motSsmoAlertMessage = null;
+            var motTrack = r.Tracks.FirstOrDefault(t => t.Track == "MOT Approval")?.Items.FirstOrDefault();
+            var ssmoTrack = r.Tracks.FirstOrDefault(t => t.Track == "SSMO Approval")?.Items.FirstOrDefault();
+            foreach (var (label, item) in new[] { ("MOT", motTrack), ("SSMO", ssmoTrack) })
+            {
+                if (item is null || item.ActualDate.HasValue) continue;
+                var daysToDeadline = item.ShouldBeDoneBy.DayNumber - today.DayNumber;
+                var level = daysToDeadline <= 3 ? "Red" : "Yellow";
+                if (motSsmoAlertLevel != "Red") motSsmoAlertLevel = level;
+                motSsmoAlertMessage = motSsmoAlertMessage is null ? $"{label} not yet done" : $"{motSsmoAlertMessage}, {label} not yet done";
+            }
+
+            highlights.Add(new ShippingPortal.Api.Services.ShipmentHighlight(
+                r.ShipmentId, r.BlAwbNo, r.BusinessUnit, r.Category, r.Eta, r.Fcl20Count, r.Fcl40Count,
+                currentStepName, currentStepTarget, currentStepStatus, currentStepLight,
+                motSsmoAlertLevel, motSsmoAlertMessage));
+        }
+
+        return Ok(highlights);
     }
 
     // Selection screen: only Confirmed shipments (nothing to clear on a Draft),
