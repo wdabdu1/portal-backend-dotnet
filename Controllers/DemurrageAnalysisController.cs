@@ -177,6 +177,7 @@ public class DemurrageAnalysisController : ControllerBase
         var demurrage = await _demurrageService.CalculateAsync(shipmentId);
         var schedule = await _scheduleService.GetScheduleAsync(shipmentId);
 
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
         var eta = shipment.Eta.Value;
         var containerReturn = demurrage.DemurrageEndDate ?? eta;
         var totalCalendarDays = Math.Max(0, containerReturn.DayNumber - eta.DayNumber);
