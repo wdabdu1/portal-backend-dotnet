@@ -20,7 +20,16 @@ public record ShipmentHighlight(
     int ShipmentId, string BlAwbNo, string BusinessUnit, string Category, DateOnly? Eta,
     int Fcl20Count, int Fcl40Count,
     string CurrentStepName, DateOnly? CurrentStepTargetDate, string CurrentStepStatus, string CurrentStepLight,
-    string? MotSsmoAlertLevel, string? MotSsmoAlertMessage);
+    string? MotSsmoAlertLevel, string? MotSsmoAlertMessage,
+    // Cumulative lateness: total business days actually elapsed since
+    // anchor vs. the shipment's original, fixed total SLA allowance —
+    // independent of the current step's own local status, which resets
+    // with every step and can look "on track" even while the shipment
+    // overall has drifted badly behind. Live cost is the real,
+    // already-accrued demurrage+storage exposure as of today, not a
+    // future projection — the magnitude that actually matters for
+    // prioritizing action across shipments of very different sizes.
+    bool IsCumulativelyLate, int? DaysOverAllowance, decimal CurrentDemurrageStorageHitSdg);
 
 // Shipment Pipeline Health — the full pre-clearance journey, entirely
 // separate from the forward clearance cascade itself. The Document
