@@ -70,10 +70,34 @@ public class DemurrageAnalysisController : ControllerBase
         var candidateIds = await query.Select(s => s.Id).ToListAsync();
         var clearanceByShipment = await _db.Clearances.Where(c => candidateIds.Contains(c.ShipmentId)).ToDictionaryAsync(c => c.ShipmentId, c => c.Id);
         var clearanceIds = clearanceByShipment.Values.ToList();
-        var hitClearanceIds = await _db.ClearanceActualCharges
-            .Where(c => clearanceIds.Contains(c.ClearanceId) && ((c.ActualDemurragePaidSdg ?? 0) > 0 || (c.ActualStoragePaidSdg ?? 0) > 0))
-            .Select(c => c.ClearanceId)
-            .ToListAsync();
+        var charges = await _db.ClearanceActualCharges.Where(c => clearanceIds.Contains(c.ClearanceId)).ToListAsync();
+
+        // This dashboard analyzes genuinely incurred hits after the
+        // fact — an "actual paid" figure alone isn't enough if the
+        // event it's paid against hasn't actually happened yet
+        // (e.g. entered early, or a data mistake). Demurrage only
+        // really stops at Containers Returned; Storage only really
+        // stops at Truck Port Entry. A shipment belongs here only once
+        // the relevant one has actually happened.
+        var route1Returns = await _db.ClearanceRoute1Details.Where(r => clearanceIds.Contains(r.ClearanceId)).ToDictionaryAsync(r => r.ClearanceId, r => new { r.ContainersReturnedDate, r.TruckPortEntryPermitDate });
+        var route2Returns = await _db.ClearanceRoute2Details.Where(r => clearanceIds.Contains(r.ClearanceId)).ToDictionaryAsync(r => r.ClearanceId, r => new { r.ContainersReturnedDate, r.TruckPortEntryPermitDate });
+
+        var hitClearanceIds = new List<int>();
+        foreach (var c in charges)
+        {
+            var demurrageHit = (c.ActualDemurragePaidSdg ?? 0) > 0;
+            var storageHit = (c.ActualStoragePaidSdg ?? 0) > 0;
+            if (!demurrageHit && !storageHit) continue;
+
+            DateOnly? containersReturned = route1Returns.TryGetValue(c.ClearanceId, out var r1) ? r1.ContainersReturnedDate
+                : route2Returns.TryGetValue(c.ClearanceId, out var r2) ? r2.ContainersReturnedDate : null;
+            DateOnly? truckPortEntry = route1Returns.TryGetValue(c.ClearanceId, out var r1b) ? r1b.TruckPortEntryPermitDate
+                : route2Returns.TryGetValue(c.ClearanceId, out var r2b) ? r2b.TruckPortEntryPermitDate : null;
+
+            var demurrageReady = demurrageHit && containersReturned.HasValue;
+            var storageReady = storageHit && truckPortEntry.HasValue;
+            if (demurrageReady || storageReady) hitClearanceIds.Add(c.ClearanceId);
+        }
 
         return clearanceByShipment.Where(kv => hitClearanceIds.Contains(kv.Value)).Select(kv => kv.Key).ToList();
     }
