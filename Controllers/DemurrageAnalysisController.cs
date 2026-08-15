@@ -190,9 +190,29 @@ public class DemurrageAnalysisController : ControllerBase
             else if (holidaySet.Contains(next)) holidayDays++;
         }
 
-        var stepGaps = schedule.Items.Select(i => new ClearanceStepGap(
+        // The schedule engine's own first step starts counting from
+        // Actual Vessel Arrival (or ETA if not yet arrived) — not from
+        // ETA itself. Any real delay between ETA and actual arrival is
+        // genuine elapsed time that would otherwise silently vanish
+        // from the subtotal, breaking the reconciliation against
+        // ETA -> Container Return. There's no fixed SLA target for
+        // vessel arrival timing itself — the vessel is simply expected
+        // on ETA — so target days is 0 and the full gap is the delay.
+        var actualArrival = clearance is not null
+            ? (await _db.ClearanceDeliveryOrders.FirstOrDefaultAsync(d => d.ClearanceId == clearance.Id))?.ActualArrivalDate
+            : null;
+        var vesselArrivalDays = actualArrival.HasValue
+            ? ShippingPortal.Api.Services.ClearanceScheduleService.BusinessDaysBetween(eta, actualArrival.Value, holidaySet)
+            : (int?)null;
+
+        var stepGaps = new List<ClearanceStepGap>();
+        if (vesselArrivalDays.HasValue)
+        {
+            stepGaps.Add(new ClearanceStepGap("ETA → Vessel Arrival", vesselArrivalDays.Value, 0, vesselArrivalDays.Value));
+        }
+        stepGaps.AddRange(schedule.Items.Select(i => new ClearanceStepGap(
             i.GroupItem, i.ActualDaysTaken, i.TargetDays,
-            i.ActualDaysTaken.HasValue ? i.ActualDaysTaken.Value - i.TargetDays : null)).ToList();
+            i.ActualDaysTaken.HasValue ? i.ActualDaysTaken.Value - i.TargetDays : null)));
 
         var firstItem = shipment.LineItems.FirstOrDefault();
         var totalQty = shipment.LineItems.Sum(li => li.QtyInBl);
