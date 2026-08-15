@@ -211,9 +211,36 @@ public class DemurrageAnalysisController : ControllerBase
         {
             stepGaps.Add(new ClearanceStepGap("ETA → Vessel Arrival", vesselArrivalDays.Value, 0, vesselArrivalDays.Value));
         }
-        stepGaps.AddRange(schedule.Items.Select(i => new ClearanceStepGap(
-            i.GroupItem, i.ActualDaysTaken, i.TargetDays,
-            i.ActualDaysTaken.HasValue ? i.ActualDaysTaken.Value - i.TargetDays : null)));
+
+        // A step with no actual date isn't automatically "0 days" — if
+        // it's the CURRENT bottleneck, real time is elapsing on it
+        // right now and silently counting it as zero is exactly what
+        // made an obviously-delayed shipment look fine here. Only the
+        // first still-incomplete step gets this live "so far" figure;
+        // everything after it genuinely hasn't started yet, so those
+        // stay blank as before. The start point is backed out from the
+        // step's own target date/days rather than requiring a schedule
+        // engine change.
+        var foundCurrentStep = false;
+        foreach (var i in schedule.Items)
+        {
+            if (i.ActualDaysTaken.HasValue)
+            {
+                stepGaps.Add(new ClearanceStepGap(i.GroupItem, i.ActualDaysTaken, i.TargetDays, i.ActualDaysTaken.Value - i.TargetDays));
+            }
+            else if (!foundCurrentStep)
+            {
+                foundCurrentStep = true;
+                var wholeDays = (int)Math.Ceiling(i.TargetDays);
+                var stepStart = ShippingPortal.Api.Services.ClearanceScheduleService.SubtractBusinessDays(i.TargetDate, wholeDays, holidaySet);
+                var elapsedSoFar = ShippingPortal.Api.Services.ClearanceScheduleService.BusinessDaysBetween(stepStart, today, holidaySet);
+                stepGaps.Add(new ClearanceStepGap($"{i.GroupItem} (ongoing)", elapsedSoFar, i.TargetDays, elapsedSoFar - i.TargetDays));
+            }
+            else
+            {
+                stepGaps.Add(new ClearanceStepGap(i.GroupItem, null, i.TargetDays, null));
+            }
+        }
 
         var firstItem = shipment.LineItems.FirstOrDefault();
         var totalQty = shipment.LineItems.Sum(li => li.QtyInBl);
