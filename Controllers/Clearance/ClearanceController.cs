@@ -294,11 +294,11 @@ public class ClearanceController : ControllerBase
                 declarationNo = certEntry.ScudaDeclarationNo;
             }
 
-            if (!string.IsNullOrWhiteSpace(search) && !string.IsNullOrEmpty(declarationNo)
-                && !s.BlAwbNo.Contains(search, StringComparison.OrdinalIgnoreCase)
-                && !declarationNo.Contains(search, StringComparison.OrdinalIgnoreCase))
+            if (!string.IsNullOrWhiteSpace(search))
             {
-                continue;
+                var blMatches = s.BlAwbNo.Contains(search, StringComparison.OrdinalIgnoreCase);
+                var declarationMatches = !string.IsNullOrEmpty(declarationNo) && declarationNo.Contains(search, StringComparison.OrdinalIgnoreCase);
+                if (!blMatches && !declarationMatches) continue;
             }
 
             var firstLine = s.LineItems.FirstOrDefault()?.PurchaseOrderLineItem;
