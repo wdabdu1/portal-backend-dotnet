@@ -245,9 +245,27 @@ public class DemurrageAnalysisController : ControllerBase
         // stay blank as before. The start point is backed out from the
         // step's own target date/days rather than requiring a schedule
         // engine change.
+        // The schedule engine always includes Customs Lab as a fixed
+        // step, with no awareness of whether it's actually required for
+        // this shipment — treating it as "incomplete" when it's
+        // genuinely just skipped would falsely surface it as the
+        // current bottleneck, manufacturing a buffer that isn't real.
+        var customsLabRequired = clearance?.Route switch
+        {
+            ShippingPortal.Api.Models.Clearance.ClearanceRouteType.Route1ClearAtPort =>
+                (await _db.ClearanceRoute1Details.FirstOrDefaultAsync(r => r.ClearanceId == clearance.Id))?.CustomsLabRequired ?? false,
+            ShippingPortal.Api.Models.Clearance.ClearanceRouteType.Route3ClearFromFz =>
+                (await _db.ClearanceRoute3Details.FirstOrDefaultAsync(r => r.ClearanceId == clearance.Id))?.CustomsLabRequired ?? false,
+            _ => true
+        };
+
         var foundCurrentStep = false;
         foreach (var i in schedule.Items)
         {
+            if (i.GroupItem == "Customs Lab" && !customsLabRequired && !i.ActualDaysTaken.HasValue)
+            {
+                continue;
+            }
             if (i.ActualDaysTaken.HasValue)
             {
                 stepGaps.Add(new ClearanceStepGap(i.GroupItem, i.ActualDaysTaken, i.TargetDays, i.ActualDaysTaken.Value - i.TargetDays));
