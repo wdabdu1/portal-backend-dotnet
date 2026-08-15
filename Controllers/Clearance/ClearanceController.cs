@@ -96,8 +96,17 @@ public class ClearanceController : ControllerBase
         // but are checked separately below since an overdue one can
         // silently delay everything that follows.
         var scheduleService = HttpContext.RequestServices.GetRequiredService<ShippingPortal.Api.Services.ClearanceScheduleService>();
+        var demurrageService = HttpContext.RequestServices.GetRequiredService<ShippingPortal.Api.Services.DemurrageStorageService>();
         var highlights = new List<ShippingPortal.Api.Services.ShipmentHighlight>();
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
+
+        // Fixed, original total SLA allowance per route — never
+        // re-projected — for the cumulative-lateness check below.
+        var slaRowsForLateness = await _db.ClearanceSlaSettings.Where(s => s.IsActive).ToListAsync();
+        var slaByDivisionForLateness = slaRowsForLateness.GroupBy(s => s.Division).ToDictionary(g => g.Key, g => g.Sum(s => s.TargetDays));
+        var generalDaysForLateness = slaByDivisionForLateness.GetValueOrDefault(ShippingPortal.Api.Models.Clearance.ClearanceDivision.General, 0);
+        var holidaySetForLateness = (await _db.PublicHolidays.Where(h => h.AffectsClr).Select(h => h.Date).ToListAsync()).ToHashSet();
+        var deliveryOrdersForLateness = await _db.ClearanceDeliveryOrders.Where(d => clearanceIds.Contains(d.ClearanceId)).ToDictionaryAsync(d => d.ClearanceId);
 
         foreach (var r in stillActive)
         {
@@ -156,10 +165,51 @@ public class ClearanceController : ControllerBase
                 motSsmoAlertMessage = motSsmoAlertMessage is null ? $"{label} not yet done" : $"{motSsmoAlertMessage}, {label} not yet done";
             }
 
+            // --- Cumulative lateness: total elapsed vs. the original, fixed total allowance ---
+            bool isCumulativelyLate = false;
+            int? daysOverAllowance = null;
+            decimal currentHitSdg = 0;
+
+            if (clearances.TryGetValue(r.ShipmentId, out var clearanceForLateness))
+            {
+                var routeDivisionForLateness = clearanceForLateness.Route switch
+                {
+                    ShippingPortal.Api.Models.Clearance.ClearanceRouteType.Route1ClearAtPort => ShippingPortal.Api.Models.Clearance.ClearanceDivision.Route1,
+                    ShippingPortal.Api.Models.Clearance.ClearanceRouteType.Route2FzDeposit => ShippingPortal.Api.Models.Clearance.ClearanceDivision.Route2,
+                    ShippingPortal.Api.Models.Clearance.ClearanceRouteType.Route3ClearFromFz => ShippingPortal.Api.Models.Clearance.ClearanceDivision.Route3,
+                    _ => (string?)null
+                };
+
+                if (routeDivisionForLateness is not null)
+                {
+                    var routeDaysForLateness = slaByDivisionForLateness.GetValueOrDefault(routeDivisionForLateness, 0);
+                    var totalAllowedDays = routeDivisionForLateness == ShippingPortal.Api.Models.Clearance.ClearanceDivision.Route3
+                        ? routeDaysForLateness : generalDaysForLateness + routeDaysForLateness;
+
+                    var arrivalForLateness = deliveryOrdersForLateness.GetValueOrDefault(clearanceForLateness.Id)?.ActualArrivalDate;
+                    var anchorForLateness = arrivalForLateness ?? r.Eta;
+
+                    if (anchorForLateness.HasValue)
+                    {
+                        var elapsedDays = ShippingPortal.Api.Services.ClearanceScheduleService.BusinessDaysBetween(anchorForLateness.Value, today, holidaySetForLateness);
+                        var over = elapsedDays - (int)Math.Ceiling(totalAllowedDays);
+                        if (over > 0) { isCumulativelyLate = true; daysOverAllowance = over; }
+                    }
+                }
+
+                if (clearanceForLateness.Route == ShippingPortal.Api.Models.Clearance.ClearanceRouteType.Route1ClearAtPort
+                    || clearanceForLateness.Route == ShippingPortal.Api.Models.Clearance.ClearanceRouteType.Route2FzDeposit)
+                {
+                    var demurrageResult = await demurrageService.CalculateAsync(r.ShipmentId, asOfToday: true);
+                    currentHitSdg = demurrageResult.TotalStorageDemurrageSdg;
+                }
+            }
+
             highlights.Add(new ShippingPortal.Api.Services.ShipmentHighlight(
                 r.ShipmentId, r.BlAwbNo, r.BusinessUnit, r.Category, r.Eta, r.Fcl20Count, r.Fcl40Count,
                 currentStepName, currentStepTarget, currentStepStatus, currentStepLight,
-                motSsmoAlertLevel, motSsmoAlertMessage));
+                motSsmoAlertLevel, motSsmoAlertMessage,
+                isCumulativelyLate, daysOverAllowance, currentHitSdg));
         }
 
         return Ok(highlights);
