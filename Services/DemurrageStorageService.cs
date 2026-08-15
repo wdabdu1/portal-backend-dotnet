@@ -43,7 +43,7 @@ public class DemurrageStorageService
         _scheduleService = scheduleService;
     }
 
-    public async Task<DemurrageStorageResult> CalculateAsync(int shipmentId)
+    public async Task<DemurrageStorageResult> CalculateAsync(int shipmentId, bool asOfToday = false)
     {
         var warnings = new List<string>();
 
@@ -63,7 +63,13 @@ public class DemurrageStorageService
 
         var anchor = schedule.AnchorDate.Value;
         var truckContainersItem = schedule.Items.FirstOrDefault(i => i.GroupItem == "Truck & Containers");
-        var projectedEnd = truckContainersItem?.TargetDate ?? anchor;
+        // Normal mode projects to the SLA-projected completion date —
+        // "what we'll owe if nothing else changes." asOfToday instead
+        // stops the clock right now — the real, already-accrued
+        // exposure, which is what actually matters for prioritizing
+        // action today rather than forecasting a future bill.
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var projectedEnd = asOfToday ? today : (truckContainersItem?.TargetDate ?? anchor);
 
         // Actual end dates come from the route-specific detail tables.
         DateOnly? truckPortEntryActual = null; // not currently a "final" marker on its own — storage end is the specific field below
