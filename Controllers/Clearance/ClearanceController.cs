@@ -242,11 +242,12 @@ public class ClearanceController : ControllerBase
             query = query.Where(s => allowedBus.Contains(s.PurchaseOrder!.BusinessUnitId));
         }
 
-        if (!string.IsNullOrWhiteSpace(search))
-        {
-            query = query.Where(s => EF.Functions.Like(s.BlAwbNo, $"%{search}%"));
-        }
-
+        // Search (BL/AWB or Declaration No.) is applied later, in
+        // memory, once Declaration No. has actually been resolved from
+        // Certificate Entry — a search-time SQL filter here could only
+        // ever check BlAwbNo (Declaration isn't a column on Shipment),
+        // which would silently exclude every declaration-only match
+        // before the real check even runs.
         var shipments = await query.ToListAsync();
         var shipmentIds = shipments.Select(s => s.Id).ToList();
 
