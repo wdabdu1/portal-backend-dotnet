@@ -191,6 +191,7 @@ public class ClearanceController : ControllerBase
             int? daysOverAllowance = null;
             decimal currentHitSdg = 0;
             decimal projectedHitSdg = 0;
+            DateOnly? zeroChargeDeadline = null;
 
             if (clearances.TryGetValue(r.ShipmentId, out var clearanceForLateness))
             {
@@ -227,6 +228,14 @@ public class ClearanceController : ControllerBase
 
                     var projectedResult = await demurrageService.CalculateAsync(r.ShipmentId, asOfToday: false);
                     projectedHitSdg = projectedResult.TotalStorageDemurrageSdg;
+
+                    if (currentResult.AnchorDate.HasValue)
+                    {
+                        var freeDaysOptions = new List<int> { currentResult.StorageFreeDays };
+                        if (currentResult.DemurrageFreeDays20.HasValue) freeDaysOptions.Add(currentResult.DemurrageFreeDays20.Value);
+                        if (currentResult.DemurrageFreeDays40.HasValue) freeDaysOptions.Add(currentResult.DemurrageFreeDays40.Value);
+                        if (freeDaysOptions.Count > 0) zeroChargeDeadline = currentResult.AnchorDate.Value.AddDays(freeDaysOptions.Min());
+                    }
                 }
             }
 
@@ -234,7 +243,7 @@ public class ClearanceController : ControllerBase
                 r.ShipmentId, r.BlAwbNo, r.BusinessUnit, r.Category, r.Eta, r.Fcl20Count, r.Fcl40Count,
                 currentStepName, currentStepTarget, currentStepStatus, currentStepLight,
                 motSsmoAlertLevel, motSsmoAlertMessage,
-                isCumulativelyLate, daysOverAllowance, currentHitSdg, projectedHitSdg));
+                isCumulativelyLate, daysOverAllowance, currentHitSdg, projectedHitSdg, zeroChargeDeadline));
         }
 
         return Ok(highlights);
