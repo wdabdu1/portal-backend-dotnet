@@ -135,7 +135,28 @@ public class ClearanceController : ControllerBase
             else
             {
                 var schedule = await scheduleService.GetScheduleAsync(r.ShipmentId);
-                var incompleteItem = schedule.Items.FirstOrDefault(i => !i.ActualDate.HasValue);
+
+                // Same false-buffer issue as Demurrage Analysis: the
+                // schedule engine always includes Customs Lab as a fixed
+                // step regardless of whether it's actually required —
+                // treating it as the current bottleneck when it's
+                // genuinely just skipped manufactures a "Green, on
+                // track" status that isn't real.
+                bool customsLabRequiredForHealth = true;
+                if (clearances.TryGetValue(r.ShipmentId, out var clearanceForHealth))
+                {
+                    customsLabRequiredForHealth = clearanceForHealth.Route switch
+                    {
+                        ShippingPortal.Api.Models.Clearance.ClearanceRouteType.Route1ClearAtPort =>
+                            (await _db.ClearanceRoute1Details.FirstOrDefaultAsync(x => x.ClearanceId == clearanceForHealth.Id))?.CustomsLabRequired ?? false,
+                        ShippingPortal.Api.Models.Clearance.ClearanceRouteType.Route3ClearFromFz =>
+                            (await _db.ClearanceRoute3Details.FirstOrDefaultAsync(x => x.ClearanceId == clearanceForHealth.Id))?.CustomsLabRequired ?? false,
+                        _ => true
+                    };
+                }
+
+                var incompleteItem = schedule.Items.FirstOrDefault(i =>
+                    !i.ActualDate.HasValue && !(i.GroupItem == "Customs Lab" && !customsLabRequiredForHealth));
                 if (incompleteItem is not null)
                 {
                     currentStepName = incompleteItem.GroupItem;
