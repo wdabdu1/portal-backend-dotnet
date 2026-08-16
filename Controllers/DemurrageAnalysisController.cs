@@ -194,6 +194,35 @@ public class DemurrageAnalysisController : ControllerBase
             warnings.Distinct().ToList()));
     }
 
+// MOT is a genuine prerequisite (see ClearanceScheduleService) —
+    // this mirrors that exact same "on-schedule MOT costs nothing"
+    // logic, but reports the delay as its own explicit figure rather
+    // than folding it invisibly into the anchor.
+    private async Task<int> ComputeMotDelayDaysAsync(int shipmentId, DateOnly eta, DateOnly actualArrival, HashSet<DateOnly> holidaySet, DateOnly today)
+    {
+        var mot = await _db.ShipmentMots.FirstOrDefaultAsync(m => m.ShipmentId == shipmentId);
+        var motTargetDays = await _db.ClearanceSlaSettings
+            .Where(s => s.IsActive && s.Division == ShippingPortal.Api.Models.Clearance.ClearanceDivision.PreClearanceMot)
+            .Select(s => (decimal?)s.TargetDays).FirstOrDefaultAsync() ?? 0;
+
+        var motTarget = ClearanceScheduleService.SubtractBusinessDays(eta, (int)Math.Ceiling(motTargetDays), holidaySet);
+        var motEffective = mot?.ApprovalDate ?? (today > motTarget ? today : motTarget);
+
+        return motEffective > actualArrival ? ClearanceScheduleService.BusinessDaysBetween(actualArrival, motEffective, holidaySet) : 0;
+    }
+
+    // Same one-directional treatment for SSMO COC, checked against
+    // whatever point the cascade had reached right before SSMO File
+    // Process would otherwise have started.
+    private async Task<int> ComputeSsmoDelayDaysAsync(int shipmentId, DateOnly chainPoint, HashSet<DateOnly> holidaySet, DateOnly today)
+    {
+        var ssmo = await _db.ShipmentSsmos.FirstOrDefaultAsync(m => m.ShipmentId == shipmentId);
+        if (ssmo?.CocRequired != true || ssmo.CocAvailable == true) return 0;
+
+        var cocReady = ssmo.ApprovalDate ?? today;
+        return cocReady > chainPoint ? ClearanceScheduleService.BusinessDaysBetween(chainPoint, cocReady, holidaySet) : 0;
+    }
+
     private async Task<DemurrageAnalysisResult?> BuildSingleAsync(int shipmentId, HashSet<DateOnly> holidaySet)
     {
         var shipment = await _db.Shipments
