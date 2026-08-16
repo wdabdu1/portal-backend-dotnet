@@ -190,6 +190,7 @@ public class ClearanceController : ControllerBase
             bool isCumulativelyLate = false;
             int? daysOverAllowance = null;
             decimal currentHitSdg = 0;
+            decimal projectedHitSdg = 0;
 
             if (clearances.TryGetValue(r.ShipmentId, out var clearanceForLateness))
             {
@@ -221,8 +222,11 @@ public class ClearanceController : ControllerBase
                 if (clearanceForLateness.Route == ShippingPortal.Api.Models.Clearance.ClearanceRouteType.Route1ClearAtPort
                     || clearanceForLateness.Route == ShippingPortal.Api.Models.Clearance.ClearanceRouteType.Route2FzDeposit)
                 {
-                    var demurrageResult = await demurrageService.CalculateAsync(r.ShipmentId, asOfToday: true);
-                    currentHitSdg = demurrageResult.TotalStorageDemurrageSdg;
+                    var currentResult = await demurrageService.CalculateAsync(r.ShipmentId, asOfToday: true);
+                    currentHitSdg = currentResult.TotalStorageDemurrageSdg;
+
+                    var projectedResult = await demurrageService.CalculateAsync(r.ShipmentId, asOfToday: false);
+                    projectedHitSdg = projectedResult.TotalStorageDemurrageSdg;
                 }
             }
 
@@ -230,7 +234,7 @@ public class ClearanceController : ControllerBase
                 r.ShipmentId, r.BlAwbNo, r.BusinessUnit, r.Category, r.Eta, r.Fcl20Count, r.Fcl40Count,
                 currentStepName, currentStepTarget, currentStepStatus, currentStepLight,
                 motSsmoAlertLevel, motSsmoAlertMessage,
-                isCumulativelyLate, daysOverAllowance, currentHitSdg));
+                isCumulativelyLate, daysOverAllowance, currentHitSdg, projectedHitSdg));
         }
 
         return Ok(highlights);
