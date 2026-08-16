@@ -256,6 +256,8 @@ public class ClearanceController : ControllerBase
                     daysUninsuredPastReference = daysPast;
                 }
             }
+
+            highlights.Add(new ShippingPortal.Api.Services.ShipmentHighlight(
                 r.ShipmentId, r.BlAwbNo, r.BusinessUnit, r.Category, r.Eta, r.Fcl20Count, r.Fcl40Count,
                 currentStepName, currentStepTarget, currentStepStatus, currentStepLight,
                 motSsmoAlertLevel, motSsmoAlertMessage,
