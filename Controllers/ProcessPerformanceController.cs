@@ -190,7 +190,10 @@ public class ProcessPerformanceController : ControllerBase
         var steps = new List<ProcessStepDetail>();
 
         // --- Document Chain (backward from ETA, sequential) ---
-        var docsRows = slaRows.Where(r => r.Division == ClearanceDivision.PreClearanceDocs).OrderBy(r => r.SequenceOrder).ToList();
+        // "Original Shipment Set Received" is excluded here — it's
+        // measured separately below, from OS Doc Dispatch specifically,
+        // replacing rather than duplicating this chain-based version.
+        var docsRows = slaRows.Where(r => r.Division == ClearanceDivision.PreClearanceDocs && r.GroupItem != "Original Shipment Set Received").OrderBy(r => r.SequenceOrder).ToList();
         var etaTargets = new List<DateOnly>();
         var cascadeBack = eta;
         for (var i = docsRows.Count - 1; i >= 0; i--)
