@@ -39,7 +39,12 @@ public record ShipmentHighlight(
     // The real, concrete deadline — anchor + the smallest free-days
     // window across whichever charge types apply. A supervisor can act
     // on a date far more directly than a derived dollar figure.
-    DateOnly? ZeroChargeDeadline);
+    DateOnly? ZeroChargeDeadline,
+    // Non-insured cargo risk. Reference date is SOB if it's been
+    // confirmed (a real event), else ETA. 0-3 days past that date is
+    // Yellow (just crossed, still recoverable); beyond that is Red.
+    // Not shown at all if insured, or before the reference date.
+    string? InsuranceAlertLevel, int? DaysUninsuredPastReference);
 
 // Shipment Pipeline Health — the full pre-clearance journey, entirely
 // separate from the forward clearance cascade itself. The Document
