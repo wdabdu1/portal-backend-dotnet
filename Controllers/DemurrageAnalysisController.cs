@@ -11,7 +11,10 @@ namespace ShippingPortal.Api.Controllers;
 
 public record ShipmentWithHitOption(int ShipmentId, string BlAwbNo);
 
-public record ClearanceStepGap(string GroupItem, int? ActualDaysTaken, decimal TargetDays, decimal? Gap);
+// TargetDays is null for MOT/SSMO Certificate Delay rows — there's no
+// fixed SLA to compare against, just a one-directional "did this block
+// things, and by how much" figure that's always >= 0.
+public record ClearanceStepGap(string GroupItem, int? ActualDaysTaken, decimal? TargetDays, decimal? Gap);
 
 public record DemurrageAnalysisResult(
     bool IsSingleShipment, int ShipmentCount,
@@ -21,6 +24,11 @@ public record DemurrageAnalysisResult(
     // General Info — averaged across shipments in group mode
     double TotalCalendarDays, double WeekendDays, double HolidayDays,
     DateOnly? Eta, DateOnly? OriginalDocReceived,
+    // Diagnostic only — never folded into any subtotal. Positive means
+    // the vessel arrived late vs. ETA, negative means early. In group
+    // mode this is a genuine average (can be negative), unlike every
+    // other day-count figure which only ever adds.
+    double? VesselArrivalOffsetDays,
     List<ClearanceStepGap> StepGaps,
     // Charges — tier breakdown only meaningful for a single shipment
     double StorageFreeDays, double StorageChargeableDays, List<TierBreakdownLine> StorageBreakdown, decimal StorageCostSdg,
