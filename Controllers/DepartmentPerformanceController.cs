@@ -11,11 +11,17 @@ namespace ShippingPortal.Api.Controllers;
 public record DemurrageHitDetail(
     string BlAwbNo, string BusinessUnit, decimal DemurrageStorageUsd, decimal ShipmentValueUsd, decimal MagnitudePercent);
 
+// Days of Inventory: average age (days since goods physically arrived
+// at that FZ) across deposits with zero withdrawals started against
+// them yet — untouched stock still fully sitting there. Doesn't
+// account for partially-withdrawn deposits.
+public record FreeZoneBreakdown(string FreeZoneName, int DepositCount, int WithdrawalCount, double? DaysOfInventory);
+
 public record DepartmentPerformanceResponse(
     int OrderCount, decimal OrderValueUsd, decimal ExecutionPercent,
     int DraftCount, int InTransitCount, int UnderClearanceCount, int DeliveredCount,
     decimal DraftValueUsd, decimal InTransitValueUsd, decimal UnderClearanceValueUsd, decimal DeliveredValueUsd,
-    int DepositCount, int WithdrawalCount,
+    int DepositCount, int WithdrawalCount, List<FreeZoneBreakdown> FreeZoneBreakdowns,
     int ShipmentsHitCount, decimal TotalDemurrageStorageUsd, decimal TotalShipmentValueUsd, decimal OverallMagnitudePercent,
     List<DemurrageHitDetail> HitDetails);
 
@@ -114,9 +120,53 @@ public class DepartmentPerformanceController : ControllerBase
             else { inTransitCount++; inTransitValueUsd += itemsValueUsd; }
         }
 
-        // --- FZ activity: deposits (Route 2) and withdrawals against this shipment set ---
+        // --- FZ activity: deposits (Route 2) and withdrawals against this shipment set, broken down by FZ name ---
         var depositCount = clearances.Values.Count(c => c.Route == ClearanceRouteType.Route2FzDeposit);
         var withdrawalCount = await _db.Withdrawals.Where(w => shipmentIds.Contains(w.DepositShipmentId)).CountAsync();
+
+        var depositClearanceIds = clearances.Values.Where(c => c.Route == ClearanceRouteType.Route2FzDeposit).Select(c => c.Id).ToList();
+        var route2DetailsForFz = await _db.ClearanceRoute2Details
+            .Where(r => depositClearanceIds.Contains(r.ClearanceId))
+            .Include(r => r.Destination)
+            .ToListAsync();
+
+        // Batched once upfront, not per-FZ, to avoid N+1 queries.
+        var allWithdrawnDepositShipmentIds = (await _db.Withdrawals.Select(w => w.DepositShipmentId).Distinct().ToListAsync()).ToHashSet();
+        var clearanceIdToShipmentId = clearances.Values.ToDictionary(c => c.Id, c => c.ShipmentId);
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+
+        // Every withdrawal against any shipment deposited into this FZ,
+        // counted per FZ using the same allWithdrawnDepositShipmentIds
+        // source rather than a fresh query per group.
+        var withdrawalsByDepositShipment = await _db.Withdrawals
+            .GroupBy(w => w.DepositShipmentId)
+            .Select(g => new { ShipmentId = g.Key, Count = g.Count() })
+            .ToDictionaryAsync(x => x.ShipmentId, x => x.Count);
+
+        var fzBreakdowns = route2DetailsForFz
+            .Where(r => r.Destination is not null)
+            .GroupBy(r => r.Destination!.Name)
+            .Select(g =>
+            {
+                var fzShipmentIds = g
+                    .Select(r => clearanceIdToShipmentId.GetValueOrDefault(r.ClearanceId))
+                    .Where(id => id != 0)
+                    .ToList();
+
+                var fzWithdrawalCount = fzShipmentIds.Sum(id => withdrawalsByDepositShipment.GetValueOrDefault(id, 0));
+
+                var untouchedAges = g
+                    .Where(r => r.ContainersReceivedAtFzDate.HasValue)
+                    .Where(r => !allWithdrawnDepositShipmentIds.Contains(clearanceIdToShipmentId.GetValueOrDefault(r.ClearanceId)))
+                    .Select(r => (double)(today.DayNumber - r.ContainersReceivedAtFzDate!.Value.DayNumber))
+                    .ToList();
+
+                return new FreeZoneBreakdown(
+                    g.Key, g.Count(), fzWithdrawalCount,
+                    untouchedAges.Count > 0 ? untouchedAges.Average() : null);
+            })
+            .OrderByDescending(f => f.DepositCount)
+            .ToList();
 
         // --- Demurrage & Storage impact ---
         var actualCharges = await _db.ClearanceActualCharges.Where(c => clearanceIds.Contains(c.ClearanceId)).ToListAsync();
@@ -151,7 +201,7 @@ public class DepartmentPerformanceController : ControllerBase
             orderCount, orderValueUsd, executionPercent,
             draftCount, inTransitCount, underClearanceCount, deliveredCount,
             draftValueUsd, inTransitValueUsd, underClearanceValueUsd, deliveredValueUsd,
-            depositCount, withdrawalCount,
+            depositCount, withdrawalCount, fzBreakdowns,
             hitDetails.Count, totalDemurrageStorageUsd, totalShipmentValueUsd, overallMagnitudePercent,
             hitDetails.OrderByDescending(h => h.MagnitudePercent).ToList()));
     }
