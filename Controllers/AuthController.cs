@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using ShippingPortal.Api.Data;
 using ShippingPortal.Api.Models.Identity;
@@ -31,6 +32,7 @@ public class AuthController : ControllerBase
     }
 
     [HttpPost("login")]
+    [EnableRateLimiting("LoginPolicy")]
     public async Task<ActionResult<LoginResponse>> Login(LoginRequest request)
     {
         var user = await _userManager.FindByEmailAsync(request.Email);
