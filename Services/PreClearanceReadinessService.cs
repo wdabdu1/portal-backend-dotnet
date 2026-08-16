@@ -29,7 +29,13 @@ public record ShipmentHighlight(
     // already-accrued demurrage+storage exposure as of today, not a
     // future projection — the magnitude that actually matters for
     // prioritizing action across shipments of very different sizes.
-    bool IsCumulativelyLate, int? DaysOverAllowance, decimal CurrentDemurrageStorageHitSdg);
+    bool IsCumulativelyLate, int? DaysOverAllowance, decimal CurrentDemurrageStorageHitSdg,
+    // At current pace, if nothing changes — genuinely different from
+    // CurrentDemurrageStorageHitSdg, which only counts what's already
+    // accrued as of today. A shipment can still be within its free
+    // days right now while heading toward a real hit by the time it
+    // actually finishes; this is what catches that in advance.
+    decimal ProjectedDemurrageStorageHitSdg);
 
 // Shipment Pipeline Health — the full pre-clearance journey, entirely
 // separate from the forward clearance cascade itself. The Document
