@@ -108,6 +108,9 @@ public class ClearanceController : ControllerBase
         var holidaySetForLateness = (await _db.PublicHolidays.Where(h => h.AffectsClr).Select(h => h.Date).ToListAsync()).ToHashSet();
         var deliveryOrdersForLateness = await _db.ClearanceDeliveryOrders.Where(d => clearanceIds.Contains(d.ClearanceId)).ToDictionaryAsync(d => d.ClearanceId);
 
+        var sobDates = await _db.Shipments.Where(s => shipmentIds.Contains(s.Id)).ToDictionaryAsync(s => s.Id, s => s.SobActualDate);
+        var marineInsurance = await _db.ShipmentForwarders.Where(f => shipmentIds.Contains(f.ShipmentId)).ToDictionaryAsync(f => f.ShipmentId, f => f.MarineInsurance);
+
         foreach (var r in stillActive)
         {
             ShippingPortal.Api.Services.ReadinessItem? current = null;
@@ -239,11 +242,25 @@ public class ClearanceController : ControllerBase
                 }
             }
 
-            highlights.Add(new ShippingPortal.Api.Services.ShipmentHighlight(
+            // --- Non-insured cargo risk ---
+            string? insuranceAlertLevel = null;
+            int? daysUninsuredPastReference = null;
+            var isInsured = marineInsurance.GetValueOrDefault(r.ShipmentId, false);
+            if (!isInsured)
+            {
+                var referenceDate = sobDates.GetValueOrDefault(r.ShipmentId) ?? r.Eta;
+                if (referenceDate.HasValue && today >= referenceDate.Value)
+                {
+                    var daysPast = today.DayNumber - referenceDate.Value.DayNumber;
+                    insuranceAlertLevel = daysPast > 3 ? "Red" : "Yellow";
+                    daysUninsuredPastReference = daysPast;
+                }
+            }
                 r.ShipmentId, r.BlAwbNo, r.BusinessUnit, r.Category, r.Eta, r.Fcl20Count, r.Fcl40Count,
                 currentStepName, currentStepTarget, currentStepStatus, currentStepLight,
                 motSsmoAlertLevel, motSsmoAlertMessage,
-                isCumulativelyLate, daysOverAllowance, currentHitSdg, projectedHitSdg, zeroChargeDeadline));
+                isCumulativelyLate, daysOverAllowance, currentHitSdg, projectedHitSdg, zeroChargeDeadline,
+                insuranceAlertLevel, daysUninsuredPastReference));
         }
 
         return Ok(highlights);
