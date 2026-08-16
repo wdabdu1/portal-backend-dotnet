@@ -144,7 +144,7 @@ public class DemurrageAnalysisController : ControllerBase
         if (targetIds.Count == 0)
             return Ok(new DemurrageAnalysisResult(
                 shipmentId.HasValue, 0, null, null, null, null, null, null, null, null, null, null,
-                0, 0, 0, null, null, new(), 0, 0, new(), 0, null, null, new(), 0, 0, new()));
+                0, 0, 0, null, null, null, new(), 0, 0, new(), 0, null, null, new(), 0, 0, new()));
 
         var holidaySet = (await _db.PublicHolidays.Where(h => h.AffectsClr).Select(h => h.Date).ToListAsync()).ToHashSet();
 
@@ -160,7 +160,7 @@ public class DemurrageAnalysisController : ControllerBase
         if (perShipment.Count == 0)
             return Ok(new DemurrageAnalysisResult(
                 shipmentId.HasValue, 0, null, null, null, null, null, null, null, null, null, null,
-                0, 0, 0, null, null, new(), 0, 0, new(), 0, null, null, new(), 0, 0, new()));
+                0, 0, 0, null, null, null, new(), 0, 0, new(), 0, null, null, new(), 0, 0, new()));
 
         if (shipmentId.HasValue)
             return Ok(perShipment[0]);
@@ -175,18 +175,22 @@ public class DemurrageAnalysisController : ControllerBase
             var matching = perShipment.SelectMany(p => p.StepGaps).Where(g => g.GroupItem == name).ToList();
             var withActual = matching.Where(g => g.ActualDaysTaken.HasValue).ToList();
             var avgActual = withActual.Count > 0 ? (int?)Math.Round(withActual.Average(g => g.ActualDaysTaken!.Value)) : null;
-            var avgTarget = matching.Count > 0 ? matching.Average(g => g.TargetDays) : 0;
-            return new ClearanceStepGap(name, avgActual, avgTarget, avgActual.HasValue ? avgActual.Value - avgTarget : null);
+            var targetsPresent = matching.Where(g => g.TargetDays.HasValue).ToList();
+            decimal? avgTarget = targetsPresent.Count > 0 ? targetsPresent.Average(g => g.TargetDays!.Value) : null;
+            return new ClearanceStepGap(name, avgActual, avgTarget, avgActual.HasValue && avgTarget.HasValue ? avgActual.Value - avgTarget.Value : avgActual);
         }).ToList();
 
         var demurrageFreeAvg = perShipment.Where(p => p.DemurrageFreeDays.HasValue).Select(p => p.DemurrageFreeDays!.Value).ToList();
         var demurrageChargeableAvg = perShipment.Where(p => p.DemurrageChargeableDays.HasValue).Select(p => p.DemurrageChargeableDays!.Value).ToList();
+        var vesselOffsetsPresent = perShipment.Where(p => p.VesselArrivalOffsetDays.HasValue).Select(p => p.VesselArrivalOffsetDays!.Value).ToList();
 
         return Ok(new DemurrageAnalysisResult(
             false, perShipment.Count,
             null, null, null, null, null, null, null, null, null, null,
             Avg(p => p.TotalCalendarDays), Avg(p => p.WeekendDays), Avg(p => p.HolidayDays),
-            null, null, avgStepGaps,
+            null, null,
+            vesselOffsetsPresent.Count > 0 ? vesselOffsetsPresent.Average() : null,
+            avgStepGaps,
             Avg(p => p.StorageFreeDays), Avg(p => p.StorageChargeableDays), new(), AvgDec(p => p.StorageCostSdg),
             demurrageFreeAvg.Count > 0 ? demurrageFreeAvg.Average() : null,
             demurrageChargeableAvg.Count > 0 ? demurrageChargeableAvg.Average() : null,
@@ -352,7 +356,8 @@ public class DemurrageAnalysisController : ControllerBase
             firstItem?.PurchaseOrderLineItem?.ProductCategory?.Name, firstItem?.PurchaseOrderLineItem?.ModelProduct?.Name, totalQty,
             shipment.BlAwbNo, shipment.Fcl20Count, shipment.Fcl40Count, shipment.ShippingLine?.Name, summaryFreeDays,
             totalCalendarDays, weekendDays, holidayDays,
-            eta, clearance?.OriginalShipmentSetReceivedDate, stepGaps,
+            eta, clearance?.OriginalShipmentSetReceivedDate,
+            vesselArrivalOffsetDays, stepGaps,
             demurrage.StorageFreeDays, demurrage.StorageChargeableDays, demurrage.StorageBreakdown, demurrage.StorageCostSdg,
             demFreeDays, demChargeableDays, demurrageBreakdown, demurrage.DemurrageCostSdg, demurrage.TotalStorageDemurrageSdg,
             demurrage.Warnings);
