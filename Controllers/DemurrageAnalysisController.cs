@@ -212,47 +212,41 @@ public class DemurrageAnalysisController : ControllerBase
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
         var eta = shipment.Eta.Value;
         var containerReturn = demurrage.DemurrageEndDate ?? eta;
-        var totalCalendarDays = Math.Max(0, containerReturn.DayNumber - eta.DayNumber);
+
+        var actualArrival = clearance is not null
+            ? (await _db.ClearanceDeliveryOrders.FirstOrDefaultAsync(d => d.ClearanceId == clearance.Id))?.ActualArrivalDate
+            : null;
+
+        // Reconciliation basis is Actual Arrival -> Container Return,
+        // not ETA -> Container Return. Vessel timing is a pure shift of
+        // the whole window, not a performance credit/debit, so it's
+        // reported separately below and deliberately excluded here.
+        var spanStart = actualArrival ?? eta;
+        var totalCalendarDays = Math.Max(0, containerReturn.DayNumber - spanStart.DayNumber);
 
         var weekendDays = 0;
         var holidayDays = 0;
-        for (var d = eta; d < containerReturn; d = d.AddDays(1))
+        for (var d = spanStart; d < containerReturn; d = d.AddDays(1))
         {
             var next = d.AddDays(1);
             if (next.DayOfWeek == DayOfWeek.Friday || next.DayOfWeek == DayOfWeek.Saturday) weekendDays++;
             else if (holidaySet.Contains(next)) holidayDays++;
         }
 
-        // The schedule engine's own first step starts counting from
-        // Actual Vessel Arrival (or ETA if not yet arrived) — not from
-        // ETA itself. Any real delay between ETA and actual arrival is
-        // genuine elapsed time that would otherwise silently vanish
-        // from the subtotal, breaking the reconciliation against
-        // ETA -> Container Return. There's no fixed SLA target for
-        // vessel arrival timing itself — the vessel is simply expected
-        // on ETA — so target days is 0 and the full gap is the delay.
-        var actualArrival = clearance is not null
-            ? (await _db.ClearanceDeliveryOrders.FirstOrDefaultAsync(d => d.ClearanceId == clearance.Id))?.ActualArrivalDate
+        // Diagnostic only, never folded into any total — early arrival
+        // doesn't buy the clearance team anything (the sequential steps
+        // below already measure their own performance from whatever the
+        // real anchor was), and late arrival isn't the clearance team's
+        // fault either. This just answers "was the vessel early or late,
+        // and could that explain why MOT/SSMO ran out of runway."
+        double? vesselArrivalOffsetDays = actualArrival.HasValue
+            ? (actualArrival.Value > eta
+                ? ClearanceScheduleService.BusinessDaysBetween(eta, actualArrival.Value, holidaySet)
+                : (actualArrival.Value < eta ? -ClearanceScheduleService.BusinessDaysBetween(actualArrival.Value, eta, holidaySet) : 0))
             : null;
-        var vesselArrivalDays = actualArrival.HasValue
-            ? ShippingPortal.Api.Services.ClearanceScheduleService.BusinessDaysBetween(eta, actualArrival.Value, holidaySet)
-            : (int?)null;
 
         var stepGaps = new List<ClearanceStepGap>();
-        if (vesselArrivalDays.HasValue)
-        {
-            stepGaps.Add(new ClearanceStepGap("ETA → Vessel Arrival", vesselArrivalDays.Value, 0, vesselArrivalDays.Value));
-        }
 
-        // A step with no actual date isn't automatically "0 days" — if
-        // it's the CURRENT bottleneck, real time is elapsing on it
-        // right now and silently counting it as zero is exactly what
-        // made an obviously-delayed shipment look fine here. Only the
-        // first still-incomplete step gets this live "so far" figure;
-        // everything after it genuinely hasn't started yet, so those
-        // stay blank as before. The start point is backed out from the
-        // step's own target date/days rather than requiring a schedule
-        // engine change.
         // The schedule engine always includes Customs Lab as a fixed
         // step, with no awareness of whether it's actually required for
         // this shipment — treating it as "incomplete" when it's
@@ -274,6 +268,17 @@ public class DemurrageAnalysisController : ControllerBase
             {
                 continue;
             }
+
+            // MOT is checked at the moment of vessel arrival, before
+            // "Delivery Order" — a showstopper that either blocked
+            // things (only ever adds) or didn't (shows 0), never a
+            // fixed SLA to gap against.
+            if (i.GroupItem == "Delivery Order" && actualArrival.HasValue)
+            {
+                var motDelay = await ComputeMotDelayDaysAsync(shipmentId, eta, actualArrival.Value, holidaySet, today);
+                stepGaps.Add(new ClearanceStepGap("MOT Certificate Delays", motDelay, null, motDelay));
+            }
+
             if (i.ActualDaysTaken.HasValue)
             {
                 stepGaps.Add(new ClearanceStepGap(i.GroupItem, i.ActualDaysTaken, i.TargetDays, i.ActualDaysTaken.Value - i.TargetDays));
@@ -282,13 +287,22 @@ public class DemurrageAnalysisController : ControllerBase
             {
                 foundCurrentStep = true;
                 var wholeDays = (int)Math.Ceiling(i.TargetDays);
-                var stepStart = ShippingPortal.Api.Services.ClearanceScheduleService.SubtractBusinessDays(i.TargetDate, wholeDays, holidaySet);
-                var elapsedSoFar = ShippingPortal.Api.Services.ClearanceScheduleService.BusinessDaysBetween(stepStart, today, holidaySet);
+                var stepStart = ClearanceScheduleService.SubtractBusinessDays(i.TargetDate, wholeDays, holidaySet);
+                var elapsedSoFar = ClearanceScheduleService.BusinessDaysBetween(stepStart, today, holidaySet);
                 stepGaps.Add(new ClearanceStepGap($"{i.GroupItem} (ongoing)", elapsedSoFar, i.TargetDays, elapsedSoFar - i.TargetDays));
             }
             else
             {
                 stepGaps.Add(new ClearanceStepGap(i.GroupItem, null, i.TargetDays, null));
+            }
+
+            // SSMO COC is checked right before its own File Process step —
+            // same one-directional, no-fixed-SLA treatment as MOT.
+            if (i.GroupItem == "Containers Move Process")
+            {
+                var chainPoint = i.ActualDate ?? i.TargetDate;
+                var ssmoDelay = await ComputeSsmoDelayDaysAsync(shipmentId, chainPoint, holidaySet, today);
+                stepGaps.Add(new ClearanceStepGap("SSMO Certificate Delays", ssmoDelay, null, ssmoDelay));
             }
         }
 
