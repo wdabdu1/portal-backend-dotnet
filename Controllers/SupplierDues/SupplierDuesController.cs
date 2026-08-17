@@ -10,8 +10,12 @@ namespace ShippingPortal.Api.Controllers.SupplierDues;
 
 public record SupplierDueRow(
     int ShipmentId, string BusinessUnit, string SupplierName, string PoNumber, string? SupplierInvoiceNo,
-    string BlAwbNo, DateOnly? Sob, string? PaymentTerm, decimal InvoiceValue, string InvoiceCurrency,
-    decimal TotalValueUsd, decimal TotalUnpaidUsd);
+    string BlAwbNo, DateOnly? Sob, decimal InvoiceValue, string InvoiceCurrency,
+    decimal TotalValueUsd, decimal TotalUnpaidUsd,
+    // Earliest due date still outstanding (paid < owed on that specific
+    // due), same per-due tracking logic as the detail panel's own
+    // Payment Due Schedule — not just "any money still owed overall".
+    DateOnly? NextPaymentDate, decimal? NextPaymentValueUsd);
 
 [ApiController]
 [Authorize(Roles = AppRoles.SupplierDuesViewers)]
@@ -45,6 +49,20 @@ public class SupplierDuesController : ControllerBase
             .GroupBy(r => r.ShipmentId)
             .Select(g => new { ShipmentId = g.Key, TotalPaidUsd = g.Sum(r => r.ValueUsd) })
             .ToDictionaryAsync(x => x.ShipmentId, x => x.TotalPaidUsd);
+
+        var shipmentIdsForDues = shipments.Select(s => s.Id).ToList();
+        var duesByShipment = await _db.ShipmentPaymentDues
+            .Where(d => shipmentIdsForDues.Contains(d.ShipmentId))
+            .Include(d => d.Currency)
+            .OrderBy(d => d.DueDate)
+            .GroupBy(d => d.ShipmentId)
+            .ToDictionaryAsync(g => g.Key, g => g.ToList());
+
+        var paidByDue = await _db.ShipmentSupplierPaymentRecords
+            .Where(r => shipmentIdsForDues.Contains(r.ShipmentId) && r.PaymentDueId != null)
+            .GroupBy(r => r.PaymentDueId!.Value)
+            .Select(g => new { DueId = g.Key, PaidUsd = g.Sum(r => r.ValueUsd) })
+            .ToDictionaryAsync(x => x.DueId, x => x.PaidUsd);
 
         var fxCache = new Dictionary<int, decimal>();
         async Task<decimal> RateFor(int currencyId)
@@ -84,12 +102,31 @@ public class SupplierDuesController : ControllerBase
             fullSets.TryGetValue(shipment.Id, out var fullSet);
             var po = shipment.PurchaseOrder!;
 
+            DateOnly? nextPaymentDate = null;
+            decimal? nextPaymentValueUsd = null;
+            if (duesByShipment.TryGetValue(shipment.Id, out var dues))
+            {
+                foreach (var due in dues)
+                {
+                    var dueRate = due.CurrencyId > 0 ? await RateFor(due.CurrencyId) : 1m;
+                    var dueAmountUsd = due.Amount / dueRate;
+                    var duePaidUsd = paidByDue.GetValueOrDefault(due.Id, 0m);
+                    if (duePaidUsd < dueAmountUsd - 0.01m)
+                    {
+                        nextPaymentDate = due.DueDate;
+                        nextPaymentValueUsd = dueAmountUsd - duePaidUsd;
+                        break; // dues are pre-sorted by date, so the first outstanding one is the next one
+                    }
+                }
+            }
+
             rows.Add(new SupplierDueRow(
                 shipment.Id, po.BusinessUnit!.Name, po.Supplier!.Name, po.PoNumber, fullSet?.SupplierInvoiceNo,
-                shipment.BlAwbNo, shipment.SobActualDate, po.SupplierPaymentTerm?.Name,
-                invoiceValue, currencyCode, invoiceValueUsd, totalUnpaidUsd));
+                shipment.BlAwbNo, shipment.SobActualDate,
+                invoiceValue, currencyCode, invoiceValueUsd, totalUnpaidUsd,
+                nextPaymentDate, nextPaymentValueUsd));
         }
 
-        return Ok(rows.OrderBy(r => r.SupplierName).ToList());
+        return Ok(rows.OrderBy(r => r.NextPaymentDate ?? DateOnly.MaxValue).ToList());
     }
 }
