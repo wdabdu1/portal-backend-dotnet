@@ -12,7 +12,7 @@ using ShippingPortal.Api.Data;
 namespace portal_backend_dotnet.Migrations
 {
     [DbContext(typeof(ShippingPortalDbContext))]
-    [Migration("20260817171648_AddOffshoreMarkupDefaults")]
+    [Migration("20260817175414_AddOffshoreMarkupDefaults")]
     partial class AddOffshoreMarkupDefaults
     {
         /// <inheritdoc />
@@ -1904,6 +1904,33 @@ namespace portal_backend_dotnet.Migrations
                     b.ToTable("Warehouses");
                 });
 
+            modelBuilder.Entity("ShippingPortal.Api.Models.OffshoreMarkupDefault", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("BusinessPartnerId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("DefaultCurrencyId")
+                        .HasColumnType("int");
+
+                    b.Property<decimal>("DefaultMarkupPercent")
+                        .HasColumnType("decimal(65,30)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BusinessPartnerId")
+                        .IsUnique();
+
+                    b.HasIndex("DefaultCurrencyId");
+
+                    b.ToTable("OffshoreMarkupDefaults");
+                });
+
             modelBuilder.Entity("ShippingPortal.Api.Models.Orders.PurchaseOrder", b =>
                 {
                     b.Property<int>("Id")
@@ -3267,6 +3294,25 @@ namespace portal_backend_dotnet.Migrations
                         .OnDelete(DeleteBehavior.SetNull);
 
                     b.Navigation("City");
+                });
+
+            modelBuilder.Entity("ShippingPortal.Api.Models.OffshoreMarkupDefault", b =>
+                {
+                    b.HasOne("ShippingPortal.Api.Models.Lookups.BusinessPartner", "BusinessPartner")
+                        .WithMany()
+                        .HasForeignKey("BusinessPartnerId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("ShippingPortal.Api.Models.Lookups.Currency", "DefaultCurrency")
+                        .WithMany()
+                        .HasForeignKey("DefaultCurrencyId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("BusinessPartner");
+
+                    b.Navigation("DefaultCurrency");
                 });
 
             modelBuilder.Entity("ShippingPortal.Api.Models.Orders.PurchaseOrder", b =>
