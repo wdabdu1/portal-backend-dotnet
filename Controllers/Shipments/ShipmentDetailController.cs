@@ -398,8 +398,13 @@ public class ShipmentDetailController : ControllerBase
     // --- Payment Due Schedule ---
 
     [HttpGet("supplier-payment/dues")]
-    public async Task<ActionResult<IEnumerable<PaymentDueResponse>>> GetPaymentDues(int shipmentId)
+    public async Task<ActionResult<IEnumerable<PaymentDueResponse>>> GetPaymentDues(int shipmentId, [FromServices] PoAdvancePaymentService poAdvanceService)
     {
+        // Silently inserts (or refreshes) this shipment's own Advance
+        // line from its PO's configuration, if one applies — no-op if
+        // the PO has no advance set up, or the line already matches.
+        await poAdvanceService.SyncOneAsync(shipmentId);
+
         var dues = await _db.ShipmentPaymentDues
             .Where(d => d.ShipmentId == shipmentId)
             .Include(d => d.Currency)
