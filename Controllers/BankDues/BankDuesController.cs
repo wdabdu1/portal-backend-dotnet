@@ -9,8 +9,10 @@ using ShippingPortal.Api.Services;
 namespace ShippingPortal.Api.Controllers.BankDues;
 
 public record BankDueRow(
-    int ShipmentId, string BusinessUnit, string Consignee, string? ReceiverBank, string BlAwbNo, DateOnly? Sob,
-    string? LastOffshoreInvoiceNo, int? TenorDays, DateOnly? DueDate, string? ImFormNo, DateOnly? ImFormDate,
+    int ShipmentId, string BusinessUnit, string Consignee, string Category, string? ReceiverBank, string BlAwbNo,
+    DateOnly? Sob, DateOnly? BlAwbDate, bool NecessaryGoodType,
+    string? LastOffshoreInvoiceNo, int? TenorDays, DateOnly? DueDate, DateOnly? CbosDueDate,
+    string? ImFormNo, DateOnly? ImFormDate,
     decimal? Value, string? Currency, decimal ValueAed, decimal PaidAed, decimal BalanceAed);
 
 public record CollectionRecordRequest(DateOnly PaymentDate, int CurrencyId, decimal Value);
@@ -75,6 +77,7 @@ public class BankDuesController : ControllerBase
             .Include(b => b.Shipment).ThenInclude(s => s!.PurchaseOrder).ThenInclude(po => po!.BusinessUnit)
             .Include(b => b.ReceivingBank)
             .Include(b => b.Tenor)
+            .Include(b => b.AddCbosAllowance)
             .Include(b => b.CollectionCurrency)
             .AsQueryable();
 
@@ -88,6 +91,14 @@ public class BankDuesController : ControllerBase
 
         var clearances = await _db.Clearances.ToDictionaryAsync(c => c.ShipmentId);
         var lastOffshoreInvoicesByShipment = await _db.LastOffshoreDetails.ToDictionaryAsync(d => d.ShipmentId, d => d.InvoiceNo);
+
+        var shipmentIdsForCategory = bankings.Select(b => b.ShipmentId).ToList();
+        var categoriesByShipment = await _db.ShipmentLineItems
+            .Where(li => shipmentIdsForCategory.Contains(li.ShipmentId))
+            .Include(li => li.PurchaseOrderLineItem).ThenInclude(pli => pli!.ProductCategory)
+            .GroupBy(li => li.ShipmentId)
+            .Select(g => new { ShipmentId = g.Key, Category = g.First().PurchaseOrderLineItem!.ProductCategory!.Name })
+            .ToDictionaryAsync(x => x.ShipmentId, x => x.Category);
 
         var collectionsByShipment = new Dictionary<int, List<ShipmentCollectionRecord>>();
         foreach (var record in await _db.ShipmentCollectionRecords.ToListAsync())
@@ -120,13 +131,23 @@ public class BankDuesController : ControllerBase
             var balanceAed = valueAed - paidAed;
             if (balanceAed <= 0) continue;
 
+            // Due Date is anchored to BL/AWB Date, not SOB — BL/AWB
+            // Date is captured once at shipment creation and never
+            // moves, whereas SOB can be entered/adjusted later and
+            // isn't the contractual reference point here.
             DateOnly? dueDate = null;
-            if (shipment.SobActualDate.HasValue && banking.Tenor is not null)
-                dueDate = shipment.SobActualDate.Value.AddDays(banking.Tenor.Days);
+            if (shipment.BlAwbDate.HasValue && banking.Tenor is not null)
+                dueDate = shipment.BlAwbDate.Value.AddDays(banking.Tenor.Days);
+
+            DateOnly? cbosDueDate = null;
+            if (dueDate.HasValue && banking.AddCbosAllowance is not null)
+                cbosDueDate = dueDate.Value.AddDays(banking.AddCbosAllowance.Days);
 
             rows.Add(new BankDueRow(
-                shipment.Id, shipment.PurchaseOrder?.BusinessUnit?.Name ?? "", shipment.PurchaseOrder?.Consignee?.Name ?? "", banking.ReceivingBank?.Name, shipment.BlAwbNo,
-                shipment.SobActualDate, lastOffshoreInvoicesByShipment.GetValueOrDefault(shipment.Id), banking.Tenor?.Days, dueDate,
+                shipment.Id, shipment.PurchaseOrder?.BusinessUnit?.Name ?? "", shipment.PurchaseOrder?.Consignee?.Name ?? "",
+                categoriesByShipment.GetValueOrDefault(shipment.Id, ""), banking.ReceivingBank?.Name, shipment.BlAwbNo,
+                shipment.SobActualDate, shipment.BlAwbDate, banking.NecessaryGoodType,
+                lastOffshoreInvoicesByShipment.GetValueOrDefault(shipment.Id), banking.Tenor?.Days, dueDate, cbosDueDate,
                 clearance?.ImFormNo, clearance?.ImFormDate, banking.CollectionValue, banking.CollectionCurrency?.Code,
                 valueAed, paidAed, balanceAed));
         }
