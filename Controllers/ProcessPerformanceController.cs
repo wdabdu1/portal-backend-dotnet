@@ -68,6 +68,40 @@ public class ProcessPerformanceController : ControllerBase
     private readonly ShippingPortalDbContext _db;
     public ProcessPerformanceController(ShippingPortalDbContext db) => _db = db;
 
+    // Powers the shipment search box — matches on BL/AWB, Supplier, or
+    // Consignee, returning enough context in each result for the user
+    // to confirm they're picking the right one before it's too late.
+    [HttpGet("search-shipments")]
+    public async Task<ActionResult<IEnumerable<ShipmentSearchResult>>> SearchShipments(
+        [FromServices] BuAccessService buAccess, [FromQuery] string term)
+    {
+        if (string.IsNullOrWhiteSpace(term) || term.Trim().Length < 3) return Ok(new List<ShipmentSearchResult>());
+        var t = term.Trim();
+
+        var query = _db.Shipments
+            .Include(s => s.PurchaseOrder).ThenInclude(p => p!.Supplier)
+            .Include(s => s.PurchaseOrder).ThenInclude(p => p!.Consignee)
+            .Where(s =>
+                s.BlAwbNo.Contains(t) ||
+                (s.PurchaseOrder!.Supplier!.Name.Contains(t)) ||
+                (s.PurchaseOrder!.Consignee!.Name.Contains(t)))
+            .AsQueryable();
+
+        if (!buAccess.SeesAllBus(User))
+        {
+            var allowedBus = buAccess.GetAllowedBusinessUnitIds(User);
+            query = query.Where(s => allowedBus.Contains(s.PurchaseOrder!.BusinessUnitId));
+        }
+
+        var results = await query
+            .OrderByDescending(s => s.CreatedAt)
+            .Take(15)
+            .Select(s => new ShipmentSearchResult(s.Id, s.BlAwbNo, s.PurchaseOrder!.Supplier!.Name, s.PurchaseOrder!.Consignee!.Name))
+            .ToListAsync();
+
+        return Ok(results);
+    }
+
     [HttpGet]
     public async Task<ActionResult<ProcessPerformanceResult>> Get(
         [FromServices] BuAccessService buAccess,
