@@ -8,8 +8,9 @@ using ShippingPortal.Api.Models.Identity;
 namespace ShippingPortal.Api.Controllers;
 
 public record BuAccessRow(int BusinessUnitId, string BusinessUnitName, string AccessLevel);
-public record UserSummary(string Id, string Email, string DisplayName, string Role, bool IsActive, List<BuAccessRow> BusinessUnits);
+public record UserSummary(string Id, string Username, string Email, string DisplayName, string Role, bool IsActive, List<BuAccessRow> BusinessUnits);
 public record UpdateUserRolesRequest(string Role, List<CreateUserBuAccess> BusinessUnits);
+public record UpdateUsernameRequest(string Username);
 
 [ApiController]
 [Authorize(Roles = AppRoles.SuperUser)]
@@ -40,12 +41,32 @@ public class UsersController : ControllerBase
                 .Select(a => new BuAccessRow(a.BusinessUnitId, a.BusinessUnit!.Name, a.AccessLevel.ToString()))
                 .ToListAsync();
 
-            result.Add(new UserSummary(user.Id, user.Email ?? "", user.DisplayName, roles.FirstOrDefault() ?? "", user.IsActive, access));
+            result.Add(new UserSummary(user.Id, user.UserName ?? "", user.Email ?? "", user.DisplayName, roles.FirstOrDefault() ?? "", user.IsActive, access));
         }
 
         return Ok(result.OrderBy(u => u.Email).ToList());
     }
 
+// Uses SetUserNameAsync rather than setting UserName directly —
+    // Identity also maintains a separate normalized-username index for
+    // uniqueness/lookup, and only this method keeps both in sync.
+    [HttpPut("{id}/username")]
+    public async Task<IActionResult> UpdateUsername(string id, UpdateUsernameRequest req)
+    {
+        if (string.IsNullOrWhiteSpace(req.Username)) return BadRequest(new { message = "Username cannot be empty." });
+
+        var user = await _userManager.FindByIdAsync(id);
+        if (user is null) return NotFound();
+
+        var existing = await _userManager.FindByNameAsync(req.Username);
+        if (existing is not null && existing.Id != id) return BadRequest(new { message = "That username is already taken." });
+
+        var result = await _userManager.SetUserNameAsync(user, req.Username);
+        if (!result.Succeeded) return BadRequest(new { message = string.Join("; ", result.Errors.Select(e => e.Description)) });
+
+        return NoContent();
+    }
+    
     [HttpPut("{id}/roles")]
     public async Task<IActionResult> UpdateRoles(string id, UpdateUserRolesRequest req)
     {
