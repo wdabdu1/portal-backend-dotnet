@@ -58,9 +58,10 @@ public class HomePageController : ControllerBase
             var poQuery = _db.PurchaseOrders.Where(p => p.CreatedAt >= windowStart.ToDateTime(TimeOnly.MinValue) && p.CreatedAt <= windowEnd.ToDateTime(TimeOnly.MaxValue))
                 .Include(p => p.BusinessUnit).Include(p => p.Supplier).AsQueryable();
             if (!seesAllBus) poQuery = poQuery.Where(p => allowedBuIds!.Contains(p.BusinessUnitId));
-            recentPos = await poQuery
+            recentPos = (await poQuery
                 .Select(p => new HomePoRow(p.BusinessUnit!.Name, p.PoNumber, p.Supplier!.Name, DateOnly.FromDateTime(p.CreatedAt)))
-                .OrderByDescending(p => p.TargetDate).ToListAsync();
+                .ToListAsync())
+                .OrderByDescending(p => p.TargetDate).ToList();
         }
 
         var recentShipments = new List<HomeShipmentRow>();
