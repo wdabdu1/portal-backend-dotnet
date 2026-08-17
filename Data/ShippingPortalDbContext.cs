@@ -80,6 +80,7 @@ public class ShippingPortalDbContext : IdentityDbContext<ApplicationUser>
     public DbSet<LastOffshoreDetail> LastOffshoreDetails => Set<LastOffshoreDetail>();
     public DbSet<LastOffshoreItemDetail> LastOffshoreItemDetails => Set<LastOffshoreItemDetail>();
     public DbSet<ShippingPortal.Api.Models.TransferPricingEntry> TransferPricingEntries => Set<ShippingPortal.Api.Models.TransferPricingEntry>();
+    public DbSet<ShippingPortal.Api.Models.OffshoreMarkupDefault> OffshoreMarkupDefaults => Set<ShippingPortal.Api.Models.OffshoreMarkupDefault>();
 
     // Clearance
     public DbSet<ShippingPortal.Api.Models.Clearance.Clearance> Clearances => Set<ShippingPortal.Api.Models.Clearance.Clearance>();
@@ -245,6 +246,9 @@ public class ShippingPortalDbContext : IdentityDbContext<ApplicationUser>
 
         builder.Entity<ShippingPortal.Api.Models.TransferPricingEntry>()
             .HasIndex(x => new { x.ShipmentLineItemId, x.PurchaseOrderOffshorePartnerId })
+            .IsUnique();
+        builder.Entity<ShippingPortal.Api.Models.OffshoreMarkupDefault>()
+            .HasIndex(x => x.BusinessPartnerId)
             .IsUnique();
         builder.Entity<ShippingPortal.Api.Models.TransferPricingEntry>()
             .HasOne(x => x.ShipmentLineItem)
