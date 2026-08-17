@@ -25,7 +25,7 @@ public record SupplierInvoiceSummary(
 public record ShipmentBankingRequest(
     int? SenderBankId, DateOnly? OsDocDispatchDate, int? OsDocDispatchedViaId, string? OsDocTrackingNumber,
     int? ReceivingBankId, bool NecessaryGoodType, string? CollectionRefNo, decimal? CollectionValue, int? CollectionCurrencyId,
-    int? TenorId);
+    int? TenorId, int? AddCbosAllowanceId);
 
 public record ShipmentLineItemHsCode(int LineItemId, string ModelProduct, string? HsCode);
 
@@ -497,6 +497,7 @@ public class ShipmentDetailController : ControllerBase
         entity.CollectionValue = req.CollectionValue;
         entity.CollectionCurrencyId = req.CollectionCurrencyId;
         entity.TenorId = req.TenorId;
+        entity.AddCbosAllowanceId = req.AddCbosAllowanceId;
 
         if (req.CollectionValue.HasValue && req.SenderBankId.HasValue)
         {
