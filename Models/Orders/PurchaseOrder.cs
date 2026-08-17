@@ -48,6 +48,15 @@ public class PurchaseOrder
     public DateOnly? OrderExecutionDate { get; set; }
     public DateOnly? LatestShippingDate { get; set; }
 
+    // Advance paid once against the whole order — % is prorated down to
+    // each shipment's own invoice value when that shipment's Payment
+    // Due Schedule is opened. Genuinely editable after PO creation
+    // (unlike the rest of the PO), since the advance is typically
+    // agreed and paid weeks before the first shipment even exists.
+    public decimal? AdvancePaymentPercent { get; set; }
+    public DateOnly? AdvancePaymentPlannedDate { get; set; }
+    public DateOnly? AdvancePaymentExecutedDate { get; set; }
+
     public OrderStatus Status { get; set; } = OrderStatus.Draft;
     public string CreatedByUserId { get; set; } = "";
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
