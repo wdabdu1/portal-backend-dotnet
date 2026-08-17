@@ -9,7 +9,11 @@ namespace ShippingPortal.Api.Controllers;
 
 public record TpStageResponse(
     int PurchaseOrderOffshorePartnerId, string CompanyName, int SequenceOrder, bool IsLast,
-    decimal? MarkupPercent, int? CurrencyId, string? CurrencyCode, decimal? Total, decimal? TotalUsd);
+    decimal? MarkupPercent, int? CurrencyId, string? CurrencyCode, decimal? Total, decimal? TotalUsd,
+    // True when MarkupPercent/CurrencyId came from Settings/TP's default
+    // rather than a value someone actually entered and saved for this
+    // shipment — purely informational, still fully editable either way.
+    bool IsDefault);
 
 public record TpLineItemResponse(
     int ShipmentLineItemId, string BusinessUnit, string Category, string ModelProduct,
@@ -123,6 +127,11 @@ public class TransferPricingController : ControllerBase
             .Where(e => lineItems.Select(li => li.Id).Contains(e.ShipmentLineItemId))
             .ToListAsync();
 
+        var offshoreBusinessPartnerIds = offshorePartners.Select(op => op.BusinessPartnerId).Distinct().ToList();
+        var markupDefaults = await _db.OffshoreMarkupDefaults
+            .Where(d => offshoreBusinessPartnerIds.Contains(d.BusinessPartnerId))
+            .ToDictionaryAsync(d => d.BusinessPartnerId);
+
         var totalSupplierUsd = lineItems.Sum(li => li.PurchaseOrderLineItem?.TotalUsd ?? 0m);
 
         var result = new List<TpLineItemResponse>();
@@ -143,8 +152,11 @@ public class TransferPricingController : ControllerBase
 
                 if (!isLast)
                 {
-                    var stageCurrencyId = entry?.CurrencyId ?? await GetUsdCurrencyIdAsync();
-                    var markup = entry?.MarkupPercent ?? 0;
+                    markupDefaults.TryGetValue(partner.BusinessPartnerId, out var markupDefault);
+                    var isDefault = entry is null;
+
+                    var stageCurrencyId = entry?.CurrencyId ?? markupDefault?.DefaultCurrencyId ?? await GetUsdCurrencyIdAsync();
+                    var markup = entry?.MarkupPercent ?? markupDefault?.DefaultMarkupPercent ?? 0;
 
                     var stageValueInCurrency = await FromUsdAsync(runningUsd, stageCurrencyId);
                     var total = stageValueInCurrency * (1 + markup / 100);
@@ -153,7 +165,7 @@ public class TransferPricingController : ControllerBase
                     currencyCodes.TryGetValue(stageCurrencyId, out var currencyCode);
 
                     stages.Add(new TpStageResponse(partner.Id, partner.BusinessPartner!.Name, partner.SequenceOrder, false,
-                        entry?.MarkupPercent, entry?.CurrencyId, entry != null ? currencyCode : null, total, totalUsd));
+                        markup, stageCurrencyId, currencyCode, total, totalUsd, isDefault));
                     runningUsd = totalUsd;
                 }
                 else
@@ -170,12 +182,12 @@ public class TransferPricingController : ControllerBase
                         currencyCodes.TryGetValue(lastCurrencyId.Value, out var currencyCode);
 
                         stages.Add(new TpStageResponse(partner.Id, partner.BusinessPartner!.Name, partner.SequenceOrder, true,
-                            markupPercent, lastCurrencyId, currencyCode, lastTotal, lastTotalUsd));
+                            markupPercent, lastCurrencyId, currencyCode, lastTotal, lastTotalUsd, false));
                     }
                     else
                     {
                         stages.Add(new TpStageResponse(partner.Id, partner.BusinessPartner!.Name, partner.SequenceOrder, true,
-                            null, lastCurrencyId, null, lastTotal, null));
+                            null, lastCurrencyId, null, lastTotal, null, false));
                     }
                 }
             }
