@@ -159,6 +159,11 @@ public class ShipmentBanking
     public Currency? CollectionCurrency { get; set; }
     public int? TenorId { get; set; }
     public Tenor? Tenor { get; set; }
+    // Additional allowance beyond the standard tenor before CBOS
+    // itself considers a collection overdue — same day-count dropdown
+    // as Tenor, just a separate figure layered on top of it.
+    public int? AddCbosAllowanceId { get; set; }
+    public Tenor? AddCbosAllowance { get; set; }
     public decimal? ReceiverBankCharges { get; set; }
 }
 public class ShipmentCollectionRecord
