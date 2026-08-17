@@ -119,7 +119,6 @@ public class ShipmentPaymentDue
     // the PO's advance execution date is later recorded.
     public bool IsFromPoAdvance { get; set; }
 }
-}
 
 // Invoice Value/Currency are fully computed (sum of ShipmentLineItem
 // subtotals) — nothing stored here for the invoice header anymore.
