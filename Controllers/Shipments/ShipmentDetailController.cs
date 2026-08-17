@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using ShippingPortal.Api.Data;
 using ShippingPortal.Api.Models.Shipments;
 using ShippingPortal.Api.Models.Identity;
+using ShippingPortal.Api.Services;
 
 namespace ShippingPortal.Api.Controllers.Shipments;
 
