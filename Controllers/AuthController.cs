@@ -9,9 +9,9 @@ using ShippingPortal.Api.Services;
 
 namespace ShippingPortal.Api.Controllers;
 
-public record LoginRequest(string Email, string Password);
+public record LoginRequest(string Username, string Password);
 public record LoginResponse(string Token, string DisplayName, IList<string> Roles);
-public record CreateUserRequest(string Email, string Password, string DisplayName, string Role, List<CreateUserBuAccess> BusinessUnitAccess);
+public record CreateUserRequest(string Username, string Email, string Password, string DisplayName, string Role, List<CreateUserBuAccess> BusinessUnitAccess);
 public record CreateUserBuAccess(int BusinessUnitId, AccessLevel AccessLevel);
 
 [ApiController]
@@ -35,7 +35,7 @@ public class AuthController : ControllerBase
     [EnableRateLimiting("LoginPolicy")]
     public async Task<ActionResult<LoginResponse>> Login(LoginRequest request)
     {
-        var user = await _userManager.FindByEmailAsync(request.Email);
+        var user = await _userManager.FindByNameAsync(request.Username);
         if (user is null || !user.IsActive) return Unauthorized(new { message = "Invalid credentials." });
 
         var result = await _signInManager.CheckPasswordSignInAsync(user, request.Password, lockoutOnFailure: true);
@@ -52,7 +52,7 @@ public class AuthController : ControllerBase
     [Authorize(Roles = AppRoles.SuperUser)]
     public async Task<IActionResult> CreateUser(CreateUserRequest request)
     {
-        var user = new ApplicationUser { UserName = request.Email, Email = request.Email, DisplayName = request.DisplayName, IsActive = true };
+        var user = new ApplicationUser { UserName = request.Username, Email = request.Email, DisplayName = request.DisplayName, IsActive = true };
         var createResult = await _userManager.CreateAsync(user, request.Password);
         if (!createResult.Succeeded) return BadRequest(createResult.Errors);
 
