@@ -21,7 +21,8 @@ public record PurchaseOrderDetailResponse(
     string Incoterm, string PaymentTerm, string ApprovalType,
     decimal? TotalOrderValueUsd,
     List<PoLineItemDetail> LineItems,
-    List<PoOffshorePartnerDetail> OffshorePartners);
+    List<PoOffshorePartnerDetail> OffshorePartners,
+    decimal? AdvancePaymentPercent, DateOnly? AdvancePaymentPlannedDate, DateOnly? AdvancePaymentExecutedDate);
 
 [ApiController]
 [Authorize(Roles = AppRoles.OrdersShipmentsViewers)]
@@ -79,6 +80,7 @@ public class PurchaseOrderDetailController : ControllerBase
             isClearance ? null : po.Supplier?.Name,
             po.BrandManufacturer?.Name ?? "", po.Consignee?.Name ?? "",
             po.Incoterm?.Name ?? "", po.SupplierPaymentTerm?.Name ?? "", po.ApprovalType?.Name ?? "",
-            totalOrderValueUsd, lineItems, offshorePartners);
+            totalOrderValueUsd, lineItems, offshorePartners,
+            po.AdvancePaymentPercent, po.AdvancePaymentPlannedDate, po.AdvancePaymentExecutedDate);
     }
 }
