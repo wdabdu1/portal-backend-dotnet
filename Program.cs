@@ -1,5 +1,7 @@
 using System.Text;
+using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
@@ -86,6 +88,28 @@ builder.Services.AddCors(options =>
               .AllowAnyMethod());
 });
 
+// Login-specific limiter — per-account lockout already exists via
+// Identity, but that alone doesn't stop an attacker rotating across
+// many different email addresses. Partitioned by IP so one abusive
+// client can't starve out everyone else.
+builder.Services.AddRateLimiter(options =>
+{
+    options.AddPolicy("LoginPolicy", httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 10,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0
+            }));
+    options.OnRejected = async (context, token) =>
+    {
+        context.HttpContext.Response.StatusCode = StatusCodes.Status429TooManyRequests;
+        await context.HttpContext.Response.WriteAsync("Too many login attempts. Please wait a moment and try again.", token);
+    };
+});
+
 var app = builder.Build();
 
 using (var scope = app.Services.CreateScope())
@@ -96,9 +120,13 @@ using (var scope = app.Services.CreateScope())
 await ClearanceSlaSeeder.SeedAsync(app.Services);
 await SpcStorageTierSeeder.SeedAsync(app.Services);
 
-app.MapOpenApi();
+// Gated behind auth — the full API surface (every route, parameter,
+// and DTO shape) shouldn't be handed out to anyone who asks.
+app.MapOpenApi().RequireAuthorization();
 
 app.UseCors("Frontend");
+app.UseHttpsRedirection();
+app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();

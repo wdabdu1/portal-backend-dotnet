@@ -30,7 +30,12 @@ public record ActualChargesResponse(
     decimal? ForecastDemurrageSdg, decimal? ForecastStorageSdg, DateTime? ForecastCapturedAt,
     decimal? ActualDemurragePaidSdg, decimal? ActualStoragePaidSdg,
     DateOnly? ShippingLineDepositReturnDate, decimal? AmountReturnedFromDeposit,
-    DateOnly? PlannedCompletionDate);
+    DateOnly? PlannedCompletionDate,
+    // From the Cost Estimate's own "Ship. Line Deposit" charge type —
+    // shown alongside Amount Returned from Deposit so a discrepancy
+    // between what was paid and what's coming back is immediately
+    // visible, not something to go hunting for in a different section.
+    decimal? DepositPaidSdg);
 
 public record ActualChargesRequest(
     decimal? ActualDemurragePaidSdg, decimal? ActualStoragePaidSdg,
@@ -284,11 +289,25 @@ public class ClearanceRouteDetailsController : ControllerBase
         var charges = await _db.ClearanceActualCharges.FirstOrDefaultAsync(x => x.ClearanceId == clearance.Id);
         if (charges is null) return Ok(null);
 
+        var depositPaidSdg = await GetDepositPaidSdgAsync(clearance.Id);
+
         return Ok(new ActualChargesResponse(
             charges.ForecastDemurrageSdg, charges.ForecastStorageSdg, charges.ForecastCapturedAt,
             charges.ActualDemurragePaidSdg, charges.ActualStoragePaidSdg,
             charges.ShippingLineDepositReturnDate, charges.AmountReturnedFromDeposit,
-            charges.PlannedCompletionDate));
+            charges.PlannedCompletionDate, depositPaidSdg));
+    }
+
+    // Sums the Cost Estimate's own "Ship. Line Deposit" charge type —
+    // there's no dedicated field for this, so it's derived from
+    // whatever was actually entered under that charge type, the same
+    // source Cost Estimate itself displays.
+    private async Task<decimal?> GetDepositPaidSdgAsync(int clearanceId)
+    {
+        var total = await _db.ClearanceEstimateLineItems
+            .Where(x => x.ClearanceId == clearanceId && x.ChargeType != null && x.ChargeType.Name == "Ship. Line Deposit")
+            .SumAsync(x => (decimal?)x.ValueSdg);
+        return total;
     }
 
     [HttpPut("actual-charges")]
@@ -341,10 +360,11 @@ public class ClearanceRouteDetailsController : ControllerBase
         }
 
         await _db.SaveChangesAsync();
+        var depositPaidSdgForRecalc = await GetDepositPaidSdgAsync(clearance.Id);
         return Ok(new ActualChargesResponse(
             charges.ForecastDemurrageSdg, charges.ForecastStorageSdg, charges.ForecastCapturedAt,
             charges.ActualDemurragePaidSdg, charges.ActualStoragePaidSdg,
             charges.ShippingLineDepositReturnDate, charges.AmountReturnedFromDeposit,
-            charges.PlannedCompletionDate));
+            charges.PlannedCompletionDate, depositPaidSdgForRecalc));
     }
 }

@@ -43,7 +43,7 @@ public class DemurrageStorageService
         _scheduleService = scheduleService;
     }
 
-    public async Task<DemurrageStorageResult> CalculateAsync(int shipmentId)
+    public async Task<DemurrageStorageResult> CalculateAsync(int shipmentId, bool asOfToday = false)
     {
         var warnings = new List<string>();
 
@@ -58,12 +58,31 @@ public class DemurrageStorageService
             return new DemurrageStorageResult(false, null, null, false, null, false, 0, 0, shipment.Fcl20Count, shipment.Fcl40Count, 0, 0, null, null, null, null, 0, 0, 0, 0, warnings, new(), new(), new());
 
         var schedule = await _scheduleService.GetScheduleAsync(shipmentId);
-        if (!schedule.AnchorDate.HasValue)
+
+        // The shipping line's free-days clock starts ticking from the
+        // moment the container physically arrives — full stop. It has
+        // no awareness of, and no sympathy for, our internal MOT
+        // paperwork readiness. schedule.AnchorDate is deliberately
+        // pushed forward by MOT-blocking for SLA-performance purposes
+        // (a different, internal question — "when can our own
+        // clearance steps realistically start"), so it must NOT be
+        // reused here. If clearance work genuinely starts late for any
+        // reason, free days already burned while waiting are gone —
+        // even flawless execution afterward can't get them back.
+        var deliveryOrder = clearance is not null ? await _db.ClearanceDeliveryOrders.FirstOrDefaultAsync(d => d.ClearanceId == clearance.Id) : null;
+        var trueAnchor = deliveryOrder?.ActualArrivalDate ?? shipment.Eta;
+        if (!trueAnchor.HasValue)
             return new DemurrageStorageResult(false, null, null, false, null, false, 0, 0, shipment.Fcl20Count, shipment.Fcl40Count, 0, 0, null, null, null, null, 0, 0, 0, 0, warnings, new(), new(), new());
 
-        var anchor = schedule.AnchorDate.Value;
+        var anchor = trueAnchor.Value;
         var truckContainersItem = schedule.Items.FirstOrDefault(i => i.GroupItem == "Truck & Containers");
-        var projectedEnd = truckContainersItem?.TargetDate ?? anchor;
+        // Normal mode projects to the SLA-projected completion date —
+        // "what we'll owe if nothing else changes." asOfToday instead
+        // stops the clock right now — the real, already-accrued
+        // exposure, which is what actually matters for prioritizing
+        // action today rather than forecasting a future bill.
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var projectedEnd = asOfToday ? today : (truckContainersItem?.TargetDate ?? anchor);
 
         // Actual end dates come from the route-specific detail tables.
         DateOnly? truckPortEntryActual = null; // not currently a "final" marker on its own — storage end is the specific field below

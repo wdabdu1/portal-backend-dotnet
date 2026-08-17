@@ -59,7 +59,213 @@ public class ClearanceController : ControllerBase
 
         var shipmentIds = await query.Select(s => s.Id).ToListAsync();
         var readiness = await readinessService.CalculateAsync(shipmentIds);
-        return Ok(readiness);
+
+        // This report exists to prompt action on shipments still
+        // exposed to demurrage/storage risk — once a route has genuinely
+        // completed (cleared at port, or deposited into FZ), it's done
+        // and no longer belongs here, regardless of how its earlier
+        // pre-clearance readiness classification looked.
+        var clearances = await _db.Clearances.Where(c => shipmentIds.Contains(c.ShipmentId)).ToDictionaryAsync(c => c.ShipmentId);
+        var clearanceIds = clearances.Values.Select(c => c.Id).ToList();
+        var route1Completions = await _db.ClearanceRoute1Details.Where(r => clearanceIds.Contains(r.ClearanceId)).ToDictionaryAsync(r => r.ClearanceId, r => r.ClearanceActualCompletedDate);
+        var route2Completions = await _db.ClearanceRoute2Details.Where(r => clearanceIds.Contains(r.ClearanceId)).ToDictionaryAsync(r => r.ClearanceId, r => r.ClearanceActualCompletedDate);
+        var route3Completions = await _db.ClearanceRoute3Details.Where(r => clearanceIds.Contains(r.ClearanceId)).ToDictionaryAsync(r => r.ClearanceId, r => r.ClearanceActualCompletedDate);
+
+        var stillActive = readiness.Where(r =>
+        {
+            if (!clearances.TryGetValue(r.ShipmentId, out var clearance)) return true;
+            DateOnly? completion = clearance.Route switch
+            {
+                ShippingPortal.Api.Models.Clearance.ClearanceRouteType.Route1ClearAtPort => route1Completions.GetValueOrDefault(clearance.Id),
+                ShippingPortal.Api.Models.Clearance.ClearanceRouteType.Route2FzDeposit => route2Completions.GetValueOrDefault(clearance.Id),
+                ShippingPortal.Api.Models.Clearance.ClearanceRouteType.Route3ClearFromFz => route3Completions.GetValueOrDefault(clearance.Id),
+                _ => null
+            };
+            return !completion.HasValue;
+        }).ToList();
+
+        // Distill each shipment down to the ONE step that's currently
+        // active — the whole point of this report is a quick scan, not
+        // a full history. Walks Document Chain -> Vessel Arrival -> DO
+        // Received first; once that's done, the exact same DoReceivedDate
+        // field already shows Clearance's own "Delivery Order" step as
+        // complete too, so the walk continues seamlessly into the real
+        // clearance schedule (Cost Estimate -> Certificate Entry ->
+        // route-specific steps) with no special-casing needed. MOT/SSMO
+        // run in parallel and don't occupy a position in this sequence,
+        // but are checked separately below since an overdue one can
+        // silently delay everything that follows.
+        var scheduleService = HttpContext.RequestServices.GetRequiredService<ShippingPortal.Api.Services.ClearanceScheduleService>();
+        var demurrageService = HttpContext.RequestServices.GetRequiredService<ShippingPortal.Api.Services.DemurrageStorageService>();
+        var highlights = new List<ShippingPortal.Api.Services.ShipmentHighlight>();
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+
+        // Fixed, original total SLA allowance per route — never
+        // re-projected — for the cumulative-lateness check below.
+        var slaRowsForLateness = await _db.ClearanceSlaSettings.Where(s => s.IsActive).ToListAsync();
+        var slaByDivisionForLateness = slaRowsForLateness.GroupBy(s => s.Division).ToDictionary(g => g.Key, g => g.Sum(s => s.TargetDays));
+        var generalDaysForLateness = slaByDivisionForLateness.GetValueOrDefault(ShippingPortal.Api.Models.Clearance.ClearanceDivision.General, 0);
+        var holidaySetForLateness = (await _db.PublicHolidays.Where(h => h.AffectsClr).Select(h => h.Date).ToListAsync()).ToHashSet();
+        var deliveryOrdersForLateness = await _db.ClearanceDeliveryOrders.Where(d => clearanceIds.Contains(d.ClearanceId)).ToDictionaryAsync(d => d.ClearanceId);
+
+        var sobDates = await _db.Shipments.Where(s => shipmentIds.Contains(s.Id)).ToDictionaryAsync(s => s.Id, s => s.SobActualDate);
+        var marineInsurance = await _db.ShipmentForwarders.Where(f => shipmentIds.Contains(f.ShipmentId)).ToDictionaryAsync(f => f.ShipmentId, f => f.MarineInsurance);
+
+        foreach (var r in stillActive)
+        {
+            ShippingPortal.Api.Services.ReadinessItem? current = null;
+            string? currentTrackLabel = null;
+
+            foreach (var track in r.Tracks)
+            {
+                if (track.Track == "MOT Approval" || track.Track == "SSMO Approval") continue;
+                var incomplete = track.Items.FirstOrDefault(i => !i.ActualDate.HasValue);
+                if (incomplete is not null) { current = incomplete; currentTrackLabel = track.Track; break; }
+            }
+
+            string currentStepName;
+            DateOnly? currentStepTarget;
+            string currentStepStatus;
+            string currentStepLight;
+
+            if (current is not null)
+            {
+                currentStepName = current.GroupItem;
+                currentStepTarget = current.ShouldBeDoneBy;
+                currentStepStatus = current.Status;
+                currentStepLight = current.Light;
+            }
+            else
+            {
+                var schedule = await scheduleService.GetScheduleAsync(r.ShipmentId);
+
+                // Same false-buffer issue as Demurrage Analysis: the
+                // schedule engine always includes Customs Lab as a fixed
+                // step regardless of whether it's actually required —
+                // treating it as the current bottleneck when it's
+                // genuinely just skipped manufactures a "Green, on
+                // track" status that isn't real.
+                bool customsLabRequiredForHealth = true;
+                if (clearances.TryGetValue(r.ShipmentId, out var clearanceForHealth))
+                {
+                    customsLabRequiredForHealth = clearanceForHealth.Route switch
+                    {
+                        ShippingPortal.Api.Models.Clearance.ClearanceRouteType.Route1ClearAtPort =>
+                            (await _db.ClearanceRoute1Details.FirstOrDefaultAsync(x => x.ClearanceId == clearanceForHealth.Id))?.CustomsLabRequired ?? false,
+                        ShippingPortal.Api.Models.Clearance.ClearanceRouteType.Route3ClearFromFz =>
+                            (await _db.ClearanceRoute3Details.FirstOrDefaultAsync(x => x.ClearanceId == clearanceForHealth.Id))?.CustomsLabRequired ?? false,
+                        _ => true
+                    };
+                }
+
+                var incompleteItem = schedule.Items.FirstOrDefault(i =>
+                    !i.ActualDate.HasValue && !(i.GroupItem == "Customs Lab" && !customsLabRequiredForHealth));
+                if (incompleteItem is not null)
+                {
+                    currentStepName = incompleteItem.GroupItem;
+                    currentStepTarget = incompleteItem.TargetDate;
+                    currentStepStatus = incompleteItem.Status;
+                    currentStepLight = incompleteItem.Light;
+                }
+                else
+                {
+                    currentStepName = "All steps complete";
+                    currentStepTarget = null;
+                    currentStepStatus = "Awaiting Truck & Containers";
+                    currentStepLight = "Green";
+                }
+            }
+
+            string? motSsmoAlertLevel = null;
+            string? motSsmoAlertMessage = null;
+            var motTrack = r.Tracks.FirstOrDefault(t => t.Track == "MOT Approval")?.Items.FirstOrDefault();
+            var ssmoTrack = r.Tracks.FirstOrDefault(t => t.Track == "SSMO Approval")?.Items.FirstOrDefault();
+            foreach (var (label, item) in new[] { ("MOT", motTrack), ("SSMO", ssmoTrack) })
+            {
+                if (item is null || item.ActualDate.HasValue) continue;
+                var daysToDeadline = item.ShouldBeDoneBy.DayNumber - today.DayNumber;
+                var level = daysToDeadline <= 3 ? "Red" : "Yellow";
+                if (motSsmoAlertLevel != "Red") motSsmoAlertLevel = level;
+                motSsmoAlertMessage = motSsmoAlertMessage is null ? $"{label} not yet done" : $"{motSsmoAlertMessage}, {label} not yet done";
+            }
+
+            // --- Cumulative lateness: total elapsed vs. the original, fixed total allowance ---
+            bool isCumulativelyLate = false;
+            int? daysOverAllowance = null;
+            decimal currentHitSdg = 0;
+            decimal projectedHitSdg = 0;
+            DateOnly? zeroChargeDeadline = null;
+
+            if (clearances.TryGetValue(r.ShipmentId, out var clearanceForLateness))
+            {
+                var routeDivisionForLateness = clearanceForLateness.Route switch
+                {
+                    ShippingPortal.Api.Models.Clearance.ClearanceRouteType.Route1ClearAtPort => ShippingPortal.Api.Models.Clearance.ClearanceDivision.Route1,
+                    ShippingPortal.Api.Models.Clearance.ClearanceRouteType.Route2FzDeposit => ShippingPortal.Api.Models.Clearance.ClearanceDivision.Route2,
+                    ShippingPortal.Api.Models.Clearance.ClearanceRouteType.Route3ClearFromFz => ShippingPortal.Api.Models.Clearance.ClearanceDivision.Route3,
+                    _ => (string?)null
+                };
+
+                if (routeDivisionForLateness is not null)
+                {
+                    var routeDaysForLateness = slaByDivisionForLateness.GetValueOrDefault(routeDivisionForLateness, 0);
+                    var totalAllowedDays = routeDivisionForLateness == ShippingPortal.Api.Models.Clearance.ClearanceDivision.Route3
+                        ? routeDaysForLateness : generalDaysForLateness + routeDaysForLateness;
+
+                    var arrivalForLateness = deliveryOrdersForLateness.GetValueOrDefault(clearanceForLateness.Id)?.ActualArrivalDate;
+                    var anchorForLateness = arrivalForLateness ?? r.Eta;
+
+                    if (anchorForLateness.HasValue)
+                    {
+                        var elapsedDays = ShippingPortal.Api.Services.ClearanceScheduleService.BusinessDaysBetween(anchorForLateness.Value, today, holidaySetForLateness);
+                        var over = elapsedDays - (int)Math.Ceiling(totalAllowedDays);
+                        if (over > 0) { isCumulativelyLate = true; daysOverAllowance = over; }
+                    }
+                }
+
+                if (clearanceForLateness.Route == ShippingPortal.Api.Models.Clearance.ClearanceRouteType.Route1ClearAtPort
+                    || clearanceForLateness.Route == ShippingPortal.Api.Models.Clearance.ClearanceRouteType.Route2FzDeposit)
+                {
+                    var currentResult = await demurrageService.CalculateAsync(r.ShipmentId, asOfToday: true);
+                    currentHitSdg = currentResult.TotalStorageDemurrageSdg;
+
+                    var projectedResult = await demurrageService.CalculateAsync(r.ShipmentId, asOfToday: false);
+                    projectedHitSdg = projectedResult.TotalStorageDemurrageSdg;
+
+                    if (currentResult.AnchorDate.HasValue)
+                    {
+                        var freeDaysOptions = new List<int> { currentResult.StorageFreeDays };
+                        if (currentResult.DemurrageFreeDays20.HasValue) freeDaysOptions.Add(currentResult.DemurrageFreeDays20.Value);
+                        if (currentResult.DemurrageFreeDays40.HasValue) freeDaysOptions.Add(currentResult.DemurrageFreeDays40.Value);
+                        if (freeDaysOptions.Count > 0) zeroChargeDeadline = currentResult.AnchorDate.Value.AddDays(freeDaysOptions.Min());
+                    }
+                }
+            }
+
+            // --- Non-insured cargo risk ---
+            string? insuranceAlertLevel = null;
+            int? daysUninsuredPastReference = null;
+            var isInsured = marineInsurance.GetValueOrDefault(r.ShipmentId, false);
+            if (!isInsured)
+            {
+                var referenceDate = sobDates.GetValueOrDefault(r.ShipmentId) ?? r.Eta;
+                if (referenceDate.HasValue && today >= referenceDate.Value)
+                {
+                    var daysPast = today.DayNumber - referenceDate.Value.DayNumber;
+                    insuranceAlertLevel = daysPast > 3 ? "Red" : "Yellow";
+                    daysUninsuredPastReference = daysPast;
+                }
+            }
+
+            highlights.Add(new ShippingPortal.Api.Services.ShipmentHighlight(
+                r.ShipmentId, r.BlAwbNo, r.BusinessUnit, r.Category, r.Eta, r.Fcl20Count, r.Fcl40Count,
+                currentStepName, currentStepTarget, currentStepStatus, currentStepLight,
+                motSsmoAlertLevel, motSsmoAlertMessage,
+                isCumulativelyLate, daysOverAllowance, currentHitSdg, projectedHitSdg, zeroChargeDeadline,
+                insuranceAlertLevel, daysUninsuredPastReference));
+        }
+
+        return Ok(highlights);
     }
 
     // Selection screen: only Confirmed shipments (nothing to clear on a Draft),
@@ -89,11 +295,12 @@ public class ClearanceController : ControllerBase
             query = query.Where(s => allowedBus.Contains(s.PurchaseOrder!.BusinessUnitId));
         }
 
-        if (!string.IsNullOrWhiteSpace(search))
-        {
-            query = query.Where(s => EF.Functions.Like(s.BlAwbNo, $"%{search}%"));
-        }
-
+        // Search (BL/AWB or Declaration No.) is applied later, in
+        // memory, once Declaration No. has actually been resolved from
+        // Certificate Entry — a search-time SQL filter here could only
+        // ever check BlAwbNo (Declaration isn't a column on Shipment),
+        // which would silently exclude every declaration-only match
+        // before the real check even runs.
         var shipments = await query.ToListAsync();
         var shipmentIds = shipments.Select(s => s.Id).ToList();
 
@@ -140,11 +347,11 @@ public class ClearanceController : ControllerBase
                 declarationNo = certEntry.ScudaDeclarationNo;
             }
 
-            if (!string.IsNullOrWhiteSpace(search) && !string.IsNullOrEmpty(declarationNo)
-                && !s.BlAwbNo.Contains(search, StringComparison.OrdinalIgnoreCase)
-                && !declarationNo.Contains(search, StringComparison.OrdinalIgnoreCase))
+            if (!string.IsNullOrWhiteSpace(search))
             {
-                continue;
+                var blMatches = s.BlAwbNo.Contains(search, StringComparison.OrdinalIgnoreCase);
+                var declarationMatches = !string.IsNullOrEmpty(declarationNo) && declarationNo.Contains(search, StringComparison.OrdinalIgnoreCase);
+                if (!blMatches && !declarationMatches) continue;
             }
 
             var firstLine = s.LineItems.FirstOrDefault()?.PurchaseOrderLineItem;

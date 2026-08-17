@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -34,15 +35,46 @@ public abstract class LookupCrudController<TEntity> : ControllerBase where TEnti
 
     [HttpPut("{id:int}")]
     [Authorize(Roles = AppRoles.Manager + "," + AppRoles.SuperUser)]
-    public virtual async Task<IActionResult> Update(int id, TEntity entity)
+    public virtual async Task<IActionResult> Update(int id, [FromBody] JsonElement raw)
     {
         var existing = await Db.Set<TEntity>().FindAsync(id);
         if (existing is null) return NotFound();
+
+        // Bind manually from the same raw JSON we inspect below, rather
+        // than taking a second, separately-bound TEntity parameter —
+        // Kestrel's request stream can only be read once, so there's no
+        // reliable way to both let MVC model-bind an entity AND inspect
+        // the raw body afterward.
+        var entity = JsonSerializer.Deserialize<TEntity>(raw.GetRawText(), new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+        if (entity is null) return BadRequest();
+
+        // The request body only ever carries the fields actually being
+        // edited (e.g. a partial payload of just Name + TariffGroupId
+        // from Simple Lookup's inline row editor) — never Id, and often
+        // not IsActive either. Blindly applying SetValues() with
+        // whatever happened to be in the body risks two failure modes:
+        // a missing Id deserializes to 0, which EF refuses to apply as
+        // a primary-key change on an already-tracked entity (the exact
+        // cause of "Could not update this entry"), and a missing
+        // IsActive would silently flip every edited row inactive. Force
+        // the route's id regardless, and only touch IsActive if it was
+        // genuinely present in the payload.
+        var isActiveSupplied = raw.TryGetProperty("isActive", out _);
+        var isActiveProp = typeof(TEntity).GetProperty("IsActive");
+        var originalIsActive = isActiveProp?.GetValue(existing);
+
+        // Must match before SetValues() runs — EF refuses a primary-key
+        // change the instant it tries to apply one, so fixing Id
+        // afterward is already too late.
+        typeof(TEntity).GetProperty("Id")?.SetValue(entity, id);
+
         Db.Entry(existing).CurrentValues.SetValues(entity);
+
+        if (!isActiveSupplied && isActiveProp is not null) isActiveProp.SetValue(existing, originalIsActive);
+
         await Db.SaveChangesAsync();
         return NoContent();
     }
-
     [HttpDelete("{id:int}")]
     [Authorize(Roles = AppRoles.Manager + "," + AppRoles.SuperUser)]
     public virtual async Task<IActionResult> Delete(int id)

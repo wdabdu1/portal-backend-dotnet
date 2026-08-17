@@ -14,6 +14,8 @@ public record WithdrawalGeneralInfoRequest(DateOnly? WithdrawalRequestDate, stri
 
 public record WithdrawalProcessingRequest(
     DateOnly? CertificateEntryDate, string? ScudaDeclarationNo,
+    bool? SsmoCocRequired, bool? SsmoCocAvailable, DateOnly? SsmoApplicationDate, decimal? SsmoCost,
+    DateOnly? SsmoCostSettledDate, string? SsmoRefNumber, DateOnly? SsmoApprovalDate,
     DateOnly? MotApprovalDate,
     DateOnly? SsmoFileRequestDate, decimal? SsmoInspectionAmountSdg, DateOnly? SsmoFeesSettlementDate,
     DateOnly? CustExamStartDate, DateOnly? CustExamCompletedDate,
@@ -29,6 +31,8 @@ public record WithdrawalDetailResponse(
     int Id, int DepositShipmentId, string DepositBlAwbNo,
     DateOnly? WithdrawalRequestDate, string? WithdrawalRequestRefNo,
     DateOnly? CertificateEntryDate, string? ScudaDeclarationNo,
+    bool? SsmoCocRequired, bool? SsmoCocAvailable, DateOnly? SsmoApplicationDate, decimal? SsmoCost,
+    DateOnly? SsmoCostSettledDate, string? SsmoRefNumber, DateOnly? SsmoApprovalDate,
     DateOnly? MotApprovalDate,
     DateOnly? SsmoFileRequestDate, decimal? SsmoInspectionAmountSdg, DateOnly? SsmoFeesSettlementDate,
     DateOnly? CustExamStartDate, DateOnly? CustExamCompletedDate,
@@ -119,6 +123,7 @@ public class WithdrawalController : ControllerBase
             w.Id, w.DepositShipmentId, w.DepositShipment!.BlAwbNo,
             w.WithdrawalRequestDate, w.WithdrawalRequestRefNo,
             w.CertificateEntryDate, w.ScudaDeclarationNo,
+            w.SsmoCocRequired, w.SsmoCocAvailable, w.SsmoApplicationDate, w.SsmoCost, w.SsmoCostSettledDate, w.SsmoRefNumber, w.SsmoApprovalDate,
             w.MotApprovalDate,
             w.SsmoFileRequestDate, w.SsmoInspectionAmountSdg, w.SsmoFeesSettlementDate,
             w.CustExamStartDate, w.CustExamCompletedDate,
@@ -151,6 +156,13 @@ public class WithdrawalController : ControllerBase
 
         w.CertificateEntryDate = req.CertificateEntryDate;
         w.ScudaDeclarationNo = req.ScudaDeclarationNo;
+        w.SsmoCocRequired = req.SsmoCocRequired;
+        w.SsmoCocAvailable = req.SsmoCocAvailable;
+        w.SsmoApplicationDate = req.SsmoApplicationDate;
+        w.SsmoCost = req.SsmoCost;
+        w.SsmoCostSettledDate = req.SsmoCostSettledDate;
+        w.SsmoRefNumber = req.SsmoRefNumber;
+        w.SsmoApprovalDate = req.SsmoApprovalDate;
         w.MotApprovalDate = req.MotApprovalDate;
         w.SsmoFileRequestDate = req.SsmoFileRequestDate;
         w.SsmoInspectionAmountSdg = req.SsmoInspectionAmountSdg;

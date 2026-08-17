@@ -10,6 +10,42 @@ public record ShipmentReadiness(
     int ShipmentId, string BlAwbNo, string BusinessUnit, string Category, int Fcl20Count, int Fcl40Count,
     DateOnly? Etd, DateOnly? Eta, string Classification, List<TrackResult> Tracks);
 
+// Pipeline Health's actual display shape — one current step per
+// shipment (Document Chain -> Vessel Arrival -> DO Received, then
+// seamlessly into Clearance's own schedule) rather than the full
+// multi-track history above, plus a separate background alert for an
+// overdue MOT/SSMO even though they don't occupy a position in the
+// main sequence.
+public record ShipmentHighlight(
+    int ShipmentId, string BlAwbNo, string BusinessUnit, string Category, DateOnly? Eta,
+    int Fcl20Count, int Fcl40Count,
+    string CurrentStepName, DateOnly? CurrentStepTargetDate, string CurrentStepStatus, string CurrentStepLight,
+    string? MotSsmoAlertLevel, string? MotSsmoAlertMessage,
+    // Cumulative lateness: total business days actually elapsed since
+    // anchor vs. the shipment's original, fixed total SLA allowance —
+    // independent of the current step's own local status, which resets
+    // with every step and can look "on track" even while the shipment
+    // overall has drifted badly behind. Live cost is the real,
+    // already-accrued demurrage+storage exposure as of today, not a
+    // future projection — the magnitude that actually matters for
+    // prioritizing action across shipments of very different sizes.
+    bool IsCumulativelyLate, int? DaysOverAllowance, decimal CurrentDemurrageStorageHitSdg,
+    // At current pace, if nothing changes — genuinely different from
+    // CurrentDemurrageStorageHitSdg, which only counts what's already
+    // accrued as of today. A shipment can still be within its free
+    // days right now while heading toward a real hit by the time it
+    // actually finishes; this is what catches that in advance.
+    decimal ProjectedDemurrageStorageHitSdg,
+    // The real, concrete deadline — anchor + the smallest free-days
+    // window across whichever charge types apply. A supervisor can act
+    // on a date far more directly than a derived dollar figure.
+    DateOnly? ZeroChargeDeadline,
+    // Non-insured cargo risk. Reference date is SOB if it's been
+    // confirmed (a real event), else ETA. 0-3 days past that date is
+    // Yellow (just crossed, still recoverable); beyond that is Red.
+    // Not shown at all if insured, or before the reference date.
+    string? InsuranceAlertLevel, int? DaysUninsuredPastReference);
+
 // Shipment Pipeline Health — the full pre-clearance journey, entirely
 // separate from the forward clearance cascade itself. The Document
 // Chain is measured from BOTH ends: backward from ETA (catches things
