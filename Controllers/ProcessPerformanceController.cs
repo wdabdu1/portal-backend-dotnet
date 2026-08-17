@@ -166,7 +166,7 @@ public class ProcessPerformanceController : ControllerBase
         }
 
         if (perShipment.Count == 0)
-            return Ok(new ProcessPerformanceResult(shipmentId.HasValue, 0, null, null, null, new(), new()));
+            return Ok(new ProcessPerformanceResult(shipmentId.HasValue, 0, null, null, null, null, null, null, new(), new()));
 
         if (shipmentId.HasValue) return Ok(perShipment[0]);
 
