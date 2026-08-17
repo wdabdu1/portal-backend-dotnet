@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using ShippingPortal.Api.Data;
 
@@ -11,9 +12,11 @@ using ShippingPortal.Api.Data;
 namespace portal_backend_dotnet.Migrations
 {
     [DbContext(typeof(ShippingPortalDbContext))]
-    partial class ShippingPortalDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260809091342_AddActualDropOffDate")]
+    partial class AddActualDropOffDate
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -210,49 +213,6 @@ namespace portal_backend_dotnet.Migrations
                         .IsUnique();
 
                     b.ToTable("Clearances");
-                });
-
-            modelBuilder.Entity("ShippingPortal.Api.Models.Clearance.ClearanceActualCharges", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int");
-
-                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
-
-                    b.Property<decimal?>("ActualDemurragePaidSdg")
-                        .HasColumnType("decimal(65,30)");
-
-                    b.Property<decimal?>("ActualStoragePaidSdg")
-                        .HasColumnType("decimal(65,30)");
-
-                    b.Property<decimal?>("AmountReturnedFromDeposit")
-                        .HasColumnType("decimal(65,30)");
-
-                    b.Property<int>("ClearanceId")
-                        .HasColumnType("int");
-
-                    b.Property<DateTime?>("ForecastCapturedAt")
-                        .HasColumnType("datetime(6)");
-
-                    b.Property<decimal?>("ForecastDemurrageSdg")
-                        .HasColumnType("decimal(65,30)");
-
-                    b.Property<decimal?>("ForecastStorageSdg")
-                        .HasColumnType("decimal(65,30)");
-
-                    b.Property<DateOnly?>("PlannedCompletionDate")
-                        .HasColumnType("date");
-
-                    b.Property<DateOnly?>("ShippingLineDepositReturnDate")
-                        .HasColumnType("date");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ClearanceId")
-                        .IsUnique();
-
-                    b.ToTable("ClearanceActualCharges");
                 });
 
             modelBuilder.Entity("ShippingPortal.Api.Models.Clearance.ClearanceCertificateEntry", b =>
@@ -745,34 +705,13 @@ namespace portal_backend_dotnet.Migrations
                     b.Property<DateOnly?>("LabResultIssuanceDate")
                         .HasColumnType("date");
 
-                    b.Property<DateOnly?>("MotApprovalDate")
-                        .HasColumnType("date");
-
                     b.Property<DateOnly?>("ReleaseExitPassDate")
                         .HasColumnType("date");
 
                     b.Property<string>("ScudaDeclarationNo")
                         .HasColumnType("longtext");
 
-                    b.Property<DateOnly?>("SsmoApplicationDate")
-                        .HasColumnType("date");
-
-                    b.Property<DateOnly?>("SsmoApprovalDate")
-                        .HasColumnType("date");
-
                     b.Property<DateOnly?>("SsmoCertIssuanceDate")
-                        .HasColumnType("date");
-
-                    b.Property<bool?>("SsmoCocAvailable")
-                        .HasColumnType("tinyint(1)");
-
-                    b.Property<bool?>("SsmoCocRequired")
-                        .HasColumnType("tinyint(1)");
-
-                    b.Property<decimal?>("SsmoCost")
-                        .HasColumnType("decimal(65,30)");
-
-                    b.Property<DateOnly?>("SsmoCostSettledDate")
                         .HasColumnType("date");
 
                     b.Property<DateOnly?>("SsmoExamStartDate")
@@ -786,9 +725,6 @@ namespace portal_backend_dotnet.Migrations
 
                     b.Property<decimal?>("SsmoInspectionAmountSdg")
                         .HasColumnType("decimal(65,30)");
-
-                    b.Property<string>("SsmoRefNumber")
-                        .HasColumnType("longtext");
 
                     b.Property<DateOnly?>("TruckPortEntryPermitDate")
                         .HasColumnType("date");
@@ -2578,38 +2514,6 @@ namespace portal_backend_dotnet.Migrations
                     b.ToTable("ShipmentOffshoreErpInfos");
                 });
 
-            modelBuilder.Entity("ShippingPortal.Api.Models.Shipments.ShipmentPaymentDue", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int");
-
-                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
-
-                    b.Property<decimal>("Amount")
-                        .HasColumnType("decimal(65,30)");
-
-                    b.Property<int>("CurrencyId")
-                        .HasColumnType("int");
-
-                    b.Property<DateOnly>("DueDate")
-                        .HasColumnType("date");
-
-                    b.Property<string>("Label")
-                        .HasColumnType("longtext");
-
-                    b.Property<int>("ShipmentId")
-                        .HasColumnType("int");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("CurrencyId");
-
-                    b.HasIndex("ShipmentId");
-
-                    b.ToTable("ShipmentPaymentDues");
-                });
-
             modelBuilder.Entity("ShippingPortal.Api.Models.Shipments.ShipmentSsmo", b =>
                 {
                     b.Property<int>("Id")
@@ -2623,12 +2527,6 @@ namespace portal_backend_dotnet.Migrations
 
                     b.Property<DateOnly?>("ApprovalDate")
                         .HasColumnType("date");
-
-                    b.Property<bool?>("CocAvailable")
-                        .HasColumnType("tinyint(1)");
-
-                    b.Property<bool?>("CocRequired")
-                        .HasColumnType("tinyint(1)");
 
                     b.Property<decimal?>("Cost")
                         .HasColumnType("decimal(65,30)");
@@ -2703,9 +2601,6 @@ namespace portal_backend_dotnet.Migrations
                     b.Property<DateOnly>("PaymentDate")
                         .HasColumnType("date");
 
-                    b.Property<int?>("PaymentDueId")
-                        .HasColumnType("int");
-
                     b.Property<int>("ShipmentId")
                         .HasColumnType("int");
 
@@ -2718,8 +2613,6 @@ namespace portal_backend_dotnet.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("CurrencyId");
-
-                    b.HasIndex("PaymentDueId");
 
                     b.HasIndex("ShipmentId");
 
@@ -2765,34 +2658,6 @@ namespace portal_backend_dotnet.Migrations
                         .IsUnique();
 
                     b.ToTable("TransferPricingEntries");
-                });
-
-            modelBuilder.Entity("ShippingPortal.Api.Models.UserFavorite", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int");
-
-                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
-
-                    b.Property<string>("Label")
-                        .IsRequired()
-                        .HasColumnType("longtext");
-
-                    b.Property<string>("Route")
-                        .IsRequired()
-                        .HasColumnType("longtext");
-
-                    b.Property<int>("SortOrder")
-                        .HasColumnType("int");
-
-                    b.Property<string>("UserId")
-                        .IsRequired()
-                        .HasColumnType("longtext");
-
-                    b.HasKey("Id");
-
-                    b.ToTable("UserFavorites");
                 });
 
             modelBuilder.Entity("ShippingPortal.Api.Models.UserTablePreference", b =>
@@ -2889,17 +2754,6 @@ namespace portal_backend_dotnet.Migrations
                         .IsRequired();
 
                     b.Navigation("Shipment");
-                });
-
-            modelBuilder.Entity("ShippingPortal.Api.Models.Clearance.ClearanceActualCharges", b =>
-                {
-                    b.HasOne("ShippingPortal.Api.Models.Clearance.Clearance", "Clearance")
-                        .WithMany()
-                        .HasForeignKey("ClearanceId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Clearance");
                 });
 
             modelBuilder.Entity("ShippingPortal.Api.Models.Clearance.ClearanceCertificateEntry", b =>
@@ -3627,25 +3481,6 @@ namespace portal_backend_dotnet.Migrations
                     b.Navigation("Shipment");
                 });
 
-            modelBuilder.Entity("ShippingPortal.Api.Models.Shipments.ShipmentPaymentDue", b =>
-                {
-                    b.HasOne("ShippingPortal.Api.Models.Lookups.Currency", "Currency")
-                        .WithMany()
-                        .HasForeignKey("CurrencyId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("ShippingPortal.Api.Models.Shipments.Shipment", "Shipment")
-                        .WithMany()
-                        .HasForeignKey("ShipmentId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Currency");
-
-                    b.Navigation("Shipment");
-                });
-
             modelBuilder.Entity("ShippingPortal.Api.Models.Shipments.ShipmentSsmo", b =>
                 {
                     b.HasOne("ShippingPortal.Api.Models.Shipments.Shipment", "Shipment")
@@ -3683,11 +3518,6 @@ namespace portal_backend_dotnet.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
-                    b.HasOne("ShippingPortal.Api.Models.Shipments.ShipmentPaymentDue", "PaymentDue")
-                        .WithMany()
-                        .HasForeignKey("PaymentDueId")
-                        .OnDelete(DeleteBehavior.SetNull);
-
                     b.HasOne("ShippingPortal.Api.Models.Shipments.Shipment", "Shipment")
                         .WithMany()
                         .HasForeignKey("ShipmentId")
@@ -3695,8 +3525,6 @@ namespace portal_backend_dotnet.Migrations
                         .IsRequired();
 
                     b.Navigation("Currency");
-
-                    b.Navigation("PaymentDue");
 
                     b.Navigation("Shipment");
                 });
