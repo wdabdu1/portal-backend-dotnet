@@ -66,6 +66,7 @@ builder.Services.AddScoped<ClearanceScheduleService>();
 builder.Services.AddScoped<DemurrageStorageService>();
 builder.Services.AddScoped<ClearanceEstimatePdfService>();
 builder.Services.AddScoped<PreClearanceReadinessService>();
+builder.Services.AddScoped<BuAccessService>();
 builder.Services.AddScoped<PoAdvancePaymentService>();
 builder.Services.AddScoped<SectionLockService>();
 
