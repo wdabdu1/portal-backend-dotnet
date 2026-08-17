@@ -322,6 +322,7 @@ public class ShippingPortalDbContext : IdentityDbContext<ApplicationUser>
         builder.Entity<ShipmentSupplierFullSet>().HasOne(f => f.FsDispatchedVia).WithMany().OnDelete(DeleteBehavior.Restrict);
 
         builder.Entity<ShipmentBanking>().HasOne(b => b.Tenor).WithMany().OnDelete(DeleteBehavior.Restrict);
+        builder.Entity<ShipmentBanking>().HasOne(b => b.AddCbosAllowance).WithMany().OnDelete(DeleteBehavior.Restrict);
 
         builder.Entity<ShippingPortal.Api.Models.Lookups.Truck>()
             .HasOne(t => t.Driver)
