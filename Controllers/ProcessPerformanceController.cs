@@ -57,8 +57,11 @@ public record CategoryRollup(string Category, double AvgExecutionSpeedDays, doub
 public record ProcessPerformanceResult(
     bool IsSingleShipment, int ShipmentCount,
     string? BlAwbNo, string? BusinessUnit, string? Consignee,
+    string? Supplier, DateOnly? SobActualDate, DateOnly? ActualArrivalDate,
     List<ProcessStepDetail> Steps,
     List<CategoryRollup> CategoryRollups);
+
+public record ShipmentSearchResult(int ShipmentId, string BlAwbNo, string Supplier, string Consignee);
 
 [ApiController]
 [Route("api/dashboards/process-performance")]
@@ -150,7 +153,7 @@ public class ProcessPerformanceController : ControllerBase
         }
 
         if (targetIds.Count == 0)
-            return Ok(new ProcessPerformanceResult(shipmentId.HasValue, 0, null, null, null, new(), new()));
+            return Ok(new ProcessPerformanceResult(shipmentId.HasValue, 0, null, null, null, null, null, null, new(), new()));
 
         var holidaySet = (await _db.PublicHolidays.Where(h => h.AffectsClr).Select(h => h.Date).ToListAsync()).ToHashSet();
         var slaRows = await _db.ClearanceSlaSettings.Where(s => s.IsActive).ToListAsync();
@@ -191,7 +194,7 @@ public class ProcessPerformanceController : ControllerBase
             .OrderBy(r => r.AvgCompletionDateDeltaDays)
             .ToList();
 
-        return Ok(new ProcessPerformanceResult(false, perShipment.Count, null, null, null, avgSteps, rollups));
+        return Ok(new ProcessPerformanceResult(false, perShipment.Count, null, null, null, null, null, null, avgSteps, rollups));
     }
 
     private static DateOnly SubtractBusinessDays(DateOnly start, int days, HashSet<DateOnly> holidays) =>
@@ -206,6 +209,7 @@ public class ProcessPerformanceController : ControllerBase
         var shipment = await _db.Shipments
             .Include(s => s.PurchaseOrder).ThenInclude(p => p!.BusinessUnit)
             .Include(s => s.PurchaseOrder).ThenInclude(p => p!.Consignee)
+            .Include(s => s.PurchaseOrder).ThenInclude(p => p!.Supplier)
             .FirstOrDefaultAsync(s => s.Id == shipmentId);
         if (shipment is null || !shipment.Eta.HasValue) return null;
 
@@ -309,6 +313,7 @@ public class ProcessPerformanceController : ControllerBase
 
         return new ProcessPerformanceResult(
             true, 1, shipment.BlAwbNo, shipment.PurchaseOrder?.BusinessUnit?.Name, shipment.PurchaseOrder?.Consignee?.Name,
+            shipment.PurchaseOrder?.Supplier?.Name, shipment.SobActualDate, deliveryOrder?.ActualArrivalDate,
             steps, new());
     }
 
