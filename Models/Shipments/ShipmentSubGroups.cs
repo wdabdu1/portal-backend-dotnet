@@ -112,6 +112,13 @@ public class ShipmentPaymentDue
     public int CurrencyId { get; set; }
     public Currency? Currency { get; set; }
     public string? Label { get; set; } // e.g. "30% Advance", "Balance on BL"
+
+    // True only for the row silently auto-inserted from the PO's own
+    // Advance Payment configuration — lets the propagation logic find
+    // and update exactly these rows (never a manually-added one) when
+    // the PO's advance execution date is later recorded.
+    public bool IsFromPoAdvance { get; set; }
+}
 }
 
 // Invoice Value/Currency are fully computed (sum of ShipmentLineItem
