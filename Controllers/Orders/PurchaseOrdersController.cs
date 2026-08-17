@@ -217,6 +217,34 @@ public class PurchaseOrdersController : ControllerBase
         return NoContent();
     }
 
+    public record AdvancePaymentRequest(decimal? AdvancePaymentPercent, DateOnly? AdvancePaymentPlannedDate, DateOnly? AdvancePaymentExecutedDate);
+
+    // The one deliberately editable piece of an otherwise-immutable PO —
+    // the advance is typically agreed and paid weeks before the first
+    // shipment exists, so Finance needs to record it, and later record
+    // its real execution date, independent of the PO's own lifecycle.
+    [HttpPut("{id:int}/advance-payment")]
+    [Authorize(Roles = AppRoles.OrdersShipmentsEditors)]
+    public async Task<IActionResult> SaveAdvancePayment(int id, AdvancePaymentRequest req, [FromServices] PoAdvancePaymentService poAdvanceService)
+    {
+        var po = await _db.PurchaseOrders.FindAsync(id);
+        if (po is null) return NotFound();
+        if (!await HasWriteAccessAsync(po.BusinessUnitId)) return Forbid();
+
+        po.AdvancePaymentPercent = req.AdvancePaymentPercent;
+        po.AdvancePaymentPlannedDate = req.AdvancePaymentPlannedDate;
+        po.AdvancePaymentExecutedDate = req.AdvancePaymentExecutedDate;
+        po.UpdatedAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync();
+
+        // Propagate to every shipment that already has an Advance line
+        // from this PO — this is what overwrites a still-"planned" line
+        // with the real date/amount once execution is recorded.
+        await poAdvanceService.SyncAllForPoAsync(id);
+
+        return NoContent();
+    }
+
     private async Task<PurchaseOrder?> LoadFullOrderAsync(int id)
     {
         return await _db.PurchaseOrders
