@@ -58,6 +58,33 @@ builder.Services
             ValidAudience = builder.Configuration["JWT_AUDIENCE"] ?? "ShippingPortal.Client",
             IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey))
         };
+
+        // Cryptographic validity alone isn't enough — this checks the
+        // token's sessionVersion claim against the user's current value
+        // in the database on every request, so "Revoke Sessions" takes
+        // effect immediately rather than waiting for natural expiry.
+        options.Events = new JwtBearerEvents
+        {
+            OnTokenValidated = async context =>
+            {
+                var userId = context.Principal?.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value;
+                var tokenVersionClaim = context.Principal?.FindFirst("sessionVersion")?.Value;
+
+                if (userId is null || tokenVersionClaim is null || !int.TryParse(tokenVersionClaim, out var tokenVersion))
+                {
+                    context.Fail("Invalid token.");
+                    return;
+                }
+
+                var userManager = context.HttpContext.RequestServices.GetRequiredService<UserManager<ShippingPortal.Api.Models.Identity.ApplicationUser>>();
+                var user = await userManager.FindByIdAsync(userId);
+
+                if (user is null || user.SessionVersion != tokenVersion)
+                {
+                    context.Fail("Session has been revoked.");
+                }
+            }
+        };
     });
 
 builder.Services.AddScoped<TokenService>();
