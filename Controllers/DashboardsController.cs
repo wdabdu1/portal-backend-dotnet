@@ -6,7 +6,8 @@ using ShippingPortal.Api.Models.Identity;
 
 namespace ShippingPortal.Api.Controllers;
 
-public record CustomsClearancePaymentRow(string BusinessUnit, string ChargeType, decimal ValueSdg, DateOnly? DueDate, string BlAwbNo);
+public record CustomsClearancePaymentRow(int Id, string BusinessUnit, string ChargeType, decimal ValueSdg, DateOnly? DueDate, string BlAwbNo, bool IsPaid, DateOnly? PaidDate);
+public record MarkPaidRequest(List<int> LineItemIds);
 
 public record PoDashboardShipmentRow(
     string BlAwbNo, string Category, string ModelProduct, decimal Qty, decimal UnitPrice, string Currency,
@@ -400,12 +401,14 @@ public class DashboardsController : ControllerBase
         return Ok(result.OrderByDescending(r => r.PickupDate).ToList());
     }
 
-    // Pulled from Cost Estimates only, no settlement filtering — this is
-    // a budgeting view, not a payment-tracking one.
+    // Pulled from Cost Estimates directly — Finance can bulk-select and
+    // mark rows paid right here rather than opening each shipment's own
+    // Cost Estimate individually, so cash doesn't get double-reserved
+    // for something already settled.
     [HttpGet("customs-clearance-payments")]
     [Authorize(Roles = AppRoles.CorpFinance + "," + AppRoles.Treasury + "," + AppRoles.Manager + "," + AppRoles.SuperUser)]
     public async Task<ActionResult<IEnumerable<CustomsClearancePaymentRow>>> GetCustomsClearancePayments(
-        [FromServices] ShippingPortal.Api.Services.BuAccessService buAccess)
+        [FromServices] ShippingPortal.Api.Services.BuAccessService buAccess, [FromQuery] string status = "Unpaid")
     {
         var query = _db.ClearanceEstimateLineItems
             .Include(li => li.ChargeType)
@@ -418,15 +421,51 @@ public class DashboardsController : ControllerBase
             query = query.Where(li => allowedBus.Contains(li.Clearance!.Shipment!.PurchaseOrder!.BusinessUnitId));
         }
 
+        if (status == "Paid") query = query.Where(li => li.IsPaid);
+        else if (status == "Unpaid") query = query.Where(li => !li.IsPaid);
+        // else "All" — no filter
+
         var rows = await query.ToListAsync();
 
         return Ok(rows.Select(li => new CustomsClearancePaymentRow(
+            li.Id,
             li.Clearance?.Shipment?.PurchaseOrder?.BusinessUnit?.Name ?? "",
             li.ChargeType?.Name ?? "",
             li.ValueSdg,
             li.DueDate,
-            li.Clearance?.Shipment?.BlAwbNo ?? ""
+            li.Clearance?.Shipment?.BlAwbNo ?? "",
+            li.IsPaid, li.PaidDate
         )).ToList());
+    }
+
+    [HttpPost("customs-clearance-payments/mark-paid")]
+    [Authorize(Roles = AppRoles.CorpFinance + "," + AppRoles.Treasury + "," + AppRoles.Manager + "," + AppRoles.SuperUser)]
+    public async Task<IActionResult> MarkCustomsClearancePaymentsPaid(
+        MarkPaidRequest req, [FromServices] ShippingPortal.Api.Services.BuAccessService buAccess)
+    {
+        if (req.LineItemIds.Count == 0) return Ok();
+
+        var items = await _db.ClearanceEstimateLineItems
+            .Include(li => li.Clearance).ThenInclude(c => c!.Shipment).ThenInclude(s => s!.PurchaseOrder)
+            .Where(li => req.LineItemIds.Contains(li.Id))
+            .ToListAsync();
+
+        if (!buAccess.SeesAllBus(User))
+        {
+            var allowedBus = buAccess.GetAllowedBusinessUnitIds(User);
+            if (items.Any(li => !allowedBus.Contains(li.Clearance!.Shipment!.PurchaseOrder!.BusinessUnitId)))
+                return Forbid();
+        }
+
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        foreach (var item in items)
+        {
+            item.IsPaid = true;
+            item.PaidDate = today;
+        }
+
+        await _db.SaveChangesAsync();
+        return Ok();
     }
 
     // Every open shipment's payment due schedule, rolled up across the
