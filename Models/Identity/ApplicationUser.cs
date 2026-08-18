@@ -7,6 +7,13 @@ public class ApplicationUser : IdentityUser
 {
     public string DisplayName { get; set; } = "";
     public bool IsActive { get; set; } = true;
+
+    // Every JWT carries this as a claim. Bumping it (via "Revoke
+    // Sessions") instantly invalidates every token already issued to
+    // this user, regardless of how much time is left on it — the
+    // actual mechanism behind stolen-device / offboarding response.
+    public int SessionVersion { get; set; } = 1;
+
     public ICollection<UserBusinessUnitAccess> BusinessUnitAccess { get; set; }
         = new List<UserBusinessUnitAccess>();
 }
