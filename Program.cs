@@ -48,6 +48,11 @@ builder.Services
     })
     .AddJwtBearer(options =>
     {
+        // Without this, ASP.NET Core silently remaps short claim names
+        // like "sub" to long legacy URIs during inbound processing —
+        // which breaks any code looking up claims by their original
+        // name, exactly as it did here.
+        options.MapInboundClaims = false;
         options.TokenValidationParameters = new TokenValidationParameters
         {
             ValidateIssuer = true,
