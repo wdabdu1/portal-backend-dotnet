@@ -41,6 +41,13 @@ public class ClearanceEstimateLineItem
     public ClearanceChargeType? ChargeType { get; set; }
     public decimal ValueSdg { get; set; }
     public DateOnly? DueDate { get; set; }
+
+    // Bulk-settable directly from the Cashflow Dashboard — Finance
+    // reserves cash for upcoming dues there, and this is what lets
+    // them clear a line once it's genuinely been paid, without having
+    // to open each shipment's own Cost Estimate individually.
+    public bool IsPaid { get; set; }
+    public DateOnly? PaidDate { get; set; }
 }
 
 public class ClearanceCertificateEntry
