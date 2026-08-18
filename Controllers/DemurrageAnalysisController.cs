@@ -45,7 +45,7 @@ public record DemurrageAnalysisResult(
 // meaningfully.
 [ApiController]
 [Route("api/dashboards/demurrage-analysis")]
-[Authorize(Roles = AppRoles.Manager + "," + AppRoles.SuperUser + "," + AppRoles.CorpFinance)]
+[Authorize(Roles = AppRoles.Manager + "," + AppRoles.SuperUser + "," + AppRoles.CorpFinance + "," + AppRoles.IpSupervisor)]
 public class DemurrageAnalysisController : ControllerBase
 {
     private readonly ShippingPortalDbContext _db;
