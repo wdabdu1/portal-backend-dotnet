@@ -6,17 +6,26 @@ using ShippingPortal.Api.Models.Identity;
 using ShippingPortal.Api.Models.Orders;
 using ShippingPortal.Api.Services;
 using System.Security.Claims;
+using System.ComponentModel.DataAnnotations;
 using ShippingPortal.Api.Models.Shipments;
 
 namespace ShippingPortal.Api.Controllers.Orders;
 
 public record LineItemRemainingResponse(int Id, string ProductCategory, string ModelProduct, string ProductType, decimal Qty, decimal QtyShipped, decimal QtyRemaining, string UnitOfMeasure, decimal UnitPrice, string Currency);
-public record LineItemRequest(int ProductCategoryId, int ModelProductId, int ProductTypeId, decimal Qty, int UnitOfMeasureId, decimal UnitPrice, int CurrencyId);
+public record LineItemRequest(
+    int ProductCategoryId, int ModelProductId, int ProductTypeId,
+    [property: Range(typeof(decimal), "0.0001", "79228162514264337593543950335", ErrorMessage = "Qty must be greater than zero.")] decimal Qty,
+    int UnitOfMeasureId,
+    [property: Range(typeof(decimal), "0", "79228162514264337593543950335", ErrorMessage = "Unit Price cannot be negative.")] decimal UnitPrice,
+    int CurrencyId);
 public record OffshorePartnerRequest(int BusinessPartnerId, int SequenceOrder);
 
 public record CreatePurchaseOrderRequest(
-    string PoNumber, int BusinessUnitId, int DivisionId, int SupplierId, int BrandManufacturerId, int ApprovalTypeId, int ConsigneeId,
-    string? SupplierPiNo, DateOnly? SupplierPiDate, int SupplierPaymentTermId, int IncotermId, int OriginCountryId, decimal? BuShippingBudget, int ShipmentModeId,
+    [property: Required(ErrorMessage = "PO Number is required."), MaxLength(50)] string PoNumber,
+    int BusinessUnitId, int DivisionId, int SupplierId, int BrandManufacturerId, int ApprovalTypeId, int ConsigneeId,
+    string? SupplierPiNo, DateOnly? SupplierPiDate, int SupplierPaymentTermId, int IncotermId, int OriginCountryId,
+    [property: Range(typeof(decimal), "0", "79228162514264337593543950335", ErrorMessage = "BU Shipping Budget cannot be negative.")] decimal? BuShippingBudget,
+    int ShipmentModeId,
     string? OffshorePoNo, DateOnly? OffshorePoDate, DateOnly? ReceivedSignedPiDate, DateOnly? SentSignedPiDate, DateOnly? BuPoDate, DateOnly? OrderExecutionDate, DateOnly? LatestShippingDate,
     List<LineItemRequest> LineItems, List<OffshorePartnerRequest> OffshorePartners);
 
