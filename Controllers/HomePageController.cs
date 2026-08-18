@@ -8,7 +8,7 @@ using ShippingPortal.Api.Services;
 
 namespace ShippingPortal.Api.Controllers;
 
-public record HomePoRow(string BusinessUnit, string PoNumber, string Supplier, DateOnly TargetDate);
+public record HomePoRow(string BusinessUnit, string PoNumber, string Supplier, string Category, DateOnly TargetDate);
 public record HomeShipmentRow(string BusinessUnit, string Consignee, string Category, string BlAwbNo, string Extra1, DateOnly TargetDate, bool IsActual);
 public record HomeTruckRow(string BusinessUnit, string Consignee, string Category, string TruckNo, string Extra1, DateOnly TargetDate, bool IsActual);
 
@@ -58,9 +58,17 @@ public class HomePageController : ControllerBase
             var poQuery = _db.PurchaseOrders.Where(p => p.CreatedAt >= windowStart.ToDateTime(TimeOnly.MinValue) && p.CreatedAt <= windowEnd.ToDateTime(TimeOnly.MaxValue))
                 .Include(p => p.BusinessUnit).Include(p => p.Supplier).AsQueryable();
             if (!seesAllBus) poQuery = poQuery.Where(p => allowedBuIds!.Contains(p.BusinessUnitId));
-            recentPos = (await poQuery
-                .Select(p => new HomePoRow(p.BusinessUnit!.Name, p.PoNumber, p.Supplier!.Name, DateOnly.FromDateTime(p.CreatedAt)))
-                .ToListAsync())
+            var poList = await poQuery.ToListAsync();
+            var poIdsForCategory = poList.Select(p => p.Id).ToList();
+            var categoriesByPo = await _db.PurchaseOrderLineItems
+                .Where(li => poIdsForCategory.Contains(li.PurchaseOrderId))
+                .Include(li => li.ProductCategory)
+                .GroupBy(li => li.PurchaseOrderId)
+                .Select(g => new { PoId = g.Key, Category = g.First().ProductCategory!.Name })
+                .ToDictionaryAsync(x => x.PoId, x => x.Category);
+
+            recentPos = poList
+                .Select(p => new HomePoRow(p.BusinessUnit!.Name, p.PoNumber, p.Supplier!.Name, categoriesByPo.GetValueOrDefault(p.Id, ""), DateOnly.FromDateTime(p.CreatedAt)))
                 .OrderByDescending(p => p.TargetDate).ToList();
         }
 
@@ -146,7 +154,7 @@ public class HomePageController : ControllerBase
                             s.LineItems.FirstOrDefault()?.PurchaseOrderLineItem?.ProductCategory?.Name ?? "", s.BlAwbNo,
                             clearance.Route.ToString(), target.Value, actualComplete.HasValue));
                     }
-                    clearedAboutToClear = clearedAboutToClear.OrderBy(r => r.TargetDate).ToList();
+                    FormatRouteName(clearance.Route), target.Value, actualComplete.HasValue));
                 }
 
                 if (showFz)
