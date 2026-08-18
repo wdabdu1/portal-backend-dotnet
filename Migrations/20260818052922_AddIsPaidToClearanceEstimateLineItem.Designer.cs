@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using ShippingPortal.Api.Data;
 
@@ -11,9 +12,11 @@ using ShippingPortal.Api.Data;
 namespace portal_backend_dotnet.Migrations
 {
     [DbContext(typeof(ShippingPortalDbContext))]
-    partial class ShippingPortalDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260818052922_AddIsPaidToClearanceEstimateLineItem")]
+    partial class AddIsPaidToClearanceEstimateLineItem
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
