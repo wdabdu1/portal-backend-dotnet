@@ -15,7 +15,10 @@ public record ShipmentDraftDocumentsRequest(DateOnly? InitialDraftReceivedDate, 
 public record ShipmentSsmoRequest(bool? CocRequired, bool? CocAvailable, DateOnly? ApplicationDate, decimal? Cost, DateOnly? CostSettledDate, string? RefNumber, DateOnly? ApprovalDate);
 public record ShipmentMotRequest(DateOnly? ProcessDate, decimal? Cost, DateOnly? CostSettledDate, string? RefNumber, DateOnly? ApprovalDate, string? OffshoreApprovedPiNumber);
 public record ShipmentSupplierFullSetRequest(string? SupplierInvoiceNo, DateOnly? SupplierInvoiceDate, DateOnly? FsDispatchDate, int? FsDispatchedViaId, string? FsTrackingNumber, DateOnly? FsReceivedDate);
-public record PaymentRecordRequest(DateOnly PaymentDate, int CurrencyId, [Range(typeof(decimal), "0.0001", "79228162514264337593543950335", ErrorMessage = "Value must be greater than zero.")] decimal Value, int? PaymentDueId);
+// Negative values are intentional here, not bad data — they represent
+// supplier credit notes/refunds, a legitimate payment record type.
+// No lower bound, unlike the other financial fields in this file.
+public record PaymentRecordRequest(DateOnly PaymentDate, int CurrencyId, decimal Value, int? PaymentDueId);
 public record PaymentRecordResponse(int Id, DateOnly PaymentDate, int CurrencyId, string CurrencyCode, decimal Value, decimal ValueUsd, int? PaymentDueId);
 
 public record PaymentDueRequest(DateOnly DueDate, [Range(typeof(decimal), "0.0001", "79228162514264337593543950335", ErrorMessage = "Amount must be greater than zero.")] decimal Amount, int CurrencyId, string? Label);
