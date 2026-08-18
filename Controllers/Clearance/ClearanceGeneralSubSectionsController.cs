@@ -5,6 +5,7 @@ using ShippingPortal.Api.Data;
 using ClearanceEntity = ShippingPortal.Api.Models.Clearance.Clearance;
 using ShippingPortal.Api.Models.Clearance;
 using ShippingPortal.Api.Models.Identity;
+using System.ComponentModel.DataAnnotations;
 
 namespace ShippingPortal.Api.Controllers.Clearance;
 
@@ -14,7 +15,7 @@ public record DeliveryOrderRequest(
 
 public record CostEstimateRequest(DateOnly? EstimateDate, DateOnly? NotifyBuDate, DateOnly? AmountSettledDate);
 
-public record EstimateLineItemRequest(int ChargeTypeId, decimal ValueSdg, DateOnly? DueDate);
+public record EstimateLineItemRequest(int ChargeTypeId, [Range(0, double.MaxValue, ErrorMessage = "Value cannot be negative.")] decimal ValueSdg, DateOnly? DueDate);
 public record EstimateLineItemResponse(int Id, int ChargeTypeId, string ChargeTypeName, decimal ValueSdg, DateOnly? DueDate);
 
 public record CertificateEntryRequest(DateOnly? CertificateEntryDate, string? ScudaDeclarationNo);
