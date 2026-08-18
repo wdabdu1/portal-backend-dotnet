@@ -19,7 +19,8 @@ public class TokenService
         {
             new(JwtRegisteredClaimNames.Sub, user.Id),
             new(JwtRegisteredClaimNames.Email, user.Email ?? ""),
-            new("displayName", user.DisplayName)
+            new("displayName", user.DisplayName),
+            new("sessionVersion", user.SessionVersion.ToString())
         };
         claims.AddRange(roles.Select(r => new Claim(ClaimTypes.Role, r)));
         claims.AddRange(buAccess.Select(a => new Claim("bu", $"{a.BusinessUnitId}:{a.AccessLevel}")));
