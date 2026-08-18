@@ -33,6 +33,14 @@ public class HomePageController : ControllerBase
     private readonly ShippingPortalDbContext _db;
     public HomePageController(ShippingPortalDbContext db) => _db = db;
 
+    private static string FormatRouteName(Models.Clearance.ClearanceRouteType route) => route switch
+    {
+        Models.Clearance.ClearanceRouteType.Route1ClearAtPort => "Clear at Port",
+        Models.Clearance.ClearanceRouteType.Route2FzDeposit => "FZ Deposit",
+        Models.Clearance.ClearanceRouteType.Route3ClearFromFz => "Clear from FZ",
+        _ => "—"
+    };
+
     [HttpGet]
     public async Task<ActionResult<HomePageResponse>> Get([FromServices] BuAccessService buAccess)
     {
