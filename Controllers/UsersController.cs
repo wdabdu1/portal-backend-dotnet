@@ -66,7 +66,22 @@ public class UsersController : ControllerBase
 
         return NoContent();
     }
-    
+
+    // Instantly invalidates every token already issued to this user —
+    // the actual response to a stolen device or offboarding, since it
+    // doesn't wait for the token's own natural expiry.
+    [HttpPost("{id}/revoke-sessions")]
+    public async Task<IActionResult> RevokeSessions(string id)
+    {
+        var user = await _userManager.FindByIdAsync(id);
+        if (user is null) return NotFound();
+
+        user.SessionVersion += 1;
+        await _userManager.UpdateAsync(user);
+
+        return NoContent();
+    }
+
     [HttpPut("{id}/roles")]
     public async Task<IActionResult> UpdateRoles(string id, UpdateUserRolesRequest req)
     {
