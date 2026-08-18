@@ -11,6 +11,7 @@ public record BuAccessRow(int BusinessUnitId, string BusinessUnitName, string Ac
 public record UserSummary(string Id, string Username, string Email, string DisplayName, string Role, bool IsActive, List<BuAccessRow> BusinessUnits);
 public record UpdateUserRolesRequest(string Role, List<CreateUserBuAccess> BusinessUnits);
 public record UpdateUsernameRequest(string Username);
+public record UpdateDisplayNameRequest(string DisplayName);
 
 [ApiController]
 [Authorize(Roles = AppRoles.SuperUser)]
@@ -67,10 +68,25 @@ public class UsersController : ControllerBase
         return NoContent();
     }
 
+[HttpPut("{id}/display-name")]
+    public async Task<IActionResult> UpdateDisplayName(string id, UpdateDisplayNameRequest req)
+    {
+        if (string.IsNullOrWhiteSpace(req.DisplayName)) return BadRequest(new { message = "Display name cannot be empty." });
+
+        var user = await _userManager.FindByIdAsync(id);
+        if (user is null) return NotFound();
+
+        user.DisplayName = req.DisplayName;
+        await _userManager.UpdateAsync(user);
+
+        return NoContent();
+    }
+
     // Instantly invalidates every token already issued to this user —
     // the actual response to a stolen device or offboarding, since it
     // doesn't wait for the token's own natural expiry.
     [HttpPost("{id}/revoke-sessions")]
+
     public async Task<IActionResult> RevokeSessions(string id)
     {
         var user = await _userManager.FindByIdAsync(id);
