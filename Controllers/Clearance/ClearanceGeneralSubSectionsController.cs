@@ -15,7 +15,7 @@ public record DeliveryOrderRequest(
 
 public record CostEstimateRequest(DateOnly? EstimateDate, DateOnly? NotifyBuDate, DateOnly? AmountSettledDate);
 
-public record EstimateLineItemRequest(int ChargeTypeId, [Range(0, double.MaxValue, ErrorMessage = "Value cannot be negative.")] decimal ValueSdg, DateOnly? DueDate);
+public record EstimateLineItemRequest(int ChargeTypeId, [Range(typeof(decimal), "0", "79228162514264337593543950335", ErrorMessage = "Value cannot be negative.")] decimal ValueSdg, DateOnly? DueDate);
 public record EstimateLineItemResponse(int Id, int ChargeTypeId, string ChargeTypeName, decimal ValueSdg, DateOnly? DueDate);
 
 public record CertificateEntryRequest(DateOnly? CertificateEntryDate, string? ScudaDeclarationNo);
