@@ -16,7 +16,7 @@ public record BankDueRow(
     string? ImFormNo, DateOnly? ImFormDate,
     decimal? Value, string? Currency, decimal ValueAed, decimal PaidAed, decimal BalanceAed);
 
-public record CollectionRecordRequest(DateOnly PaymentDate, int CurrencyId, [Range(0.0001, double.MaxValue, ErrorMessage = "Value must be greater than zero.")] decimal Value);
+public record CollectionRecordRequest(DateOnly PaymentDate, int CurrencyId, [Range(typeof(decimal), "0.0001", "79228162514264337593543950335", ErrorMessage = "Value must be greater than zero.")] decimal Value);
 public record CollectionRecordResponse(int Id, DateOnly PaymentDate, int CurrencyId, string CurrencyCode, decimal Value, decimal ValueAed);
 
 [ApiController]
