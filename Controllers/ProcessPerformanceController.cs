@@ -65,7 +65,7 @@ public record ShipmentSearchResult(int ShipmentId, string BlAwbNo, string Suppli
 
 [ApiController]
 [Route("api/dashboards/process-performance")]
-[Authorize(Roles = AppRoles.Manager + "," + AppRoles.SuperUser)]
+[Authorize(Roles = AppRoles.Manager + "," + AppRoles.SuperUser + "," + AppRoles.IpSupervisor)]
 public class ProcessPerformanceController : ControllerBase
 {
     private readonly ShippingPortalDbContext _db;
