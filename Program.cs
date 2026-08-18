@@ -48,11 +48,6 @@ builder.Services
     })
     .AddJwtBearer(options =>
     {
-        // Without this, ASP.NET Core silently remaps short claim names
-        // like "sub" to long legacy URIs during inbound processing —
-        // which breaks any code looking up claims by their original
-        // name, exactly as it did here.
-        options.MapInboundClaims = false;
         options.TokenValidationParameters = new TokenValidationParameters
         {
             ValidateIssuer = true,
@@ -72,7 +67,11 @@ builder.Services
         {
             OnTokenValidated = async context =>
             {
-                var userId = context.Principal?.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value;
+                // Uses the standard ASP.NET Core convention (matching
+                // every other controller's own user-lookup), rather
+                // than the raw JWT "sub" claim name, which the
+                // framework automatically remaps to this by default.
+                var userId = context.Principal?.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
                 var tokenVersionClaim = context.Principal?.FindFirst("sessionVersion")?.Value;
 
                 if (userId is null || tokenVersionClaim is null || !int.TryParse(tokenVersionClaim, out var tokenVersion))
