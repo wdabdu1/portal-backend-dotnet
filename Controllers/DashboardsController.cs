@@ -406,7 +406,7 @@ public class DashboardsController : ControllerBase
     // Cost Estimate individually, so cash doesn't get double-reserved
     // for something already settled.
     [HttpGet("customs-clearance-payments")]
-    [Authorize(Roles = AppRoles.CorpFinance + "," + AppRoles.Treasury + "," + AppRoles.Manager + "," + AppRoles.SuperUser)]
+    [Authorize(Roles = AppRoles.CorpFinance + "," + AppRoles.Treasury + "," + AppRoles.Manager + "," + AppRoles.SuperUser + "," + AppRoles.IpSupervisor)]
     public async Task<ActionResult<IEnumerable<CustomsClearancePaymentRow>>> GetCustomsClearancePayments(
         [FromServices] ShippingPortal.Api.Services.BuAccessService buAccess, [FromQuery] string status = "Unpaid")
     {
