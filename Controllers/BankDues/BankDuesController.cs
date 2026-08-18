@@ -2,9 +2,10 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using ShippingPortal.Api.Data;
-using ShippingPortal.Api.Models.Identity;
 using ShippingPortal.Api.Models.Shipments;
+using ShippingPortal.Api.Models.Identity;
 using ShippingPortal.Api.Services;
+using System.ComponentModel.DataAnnotations;
 
 namespace ShippingPortal.Api.Controllers.BankDues;
 
@@ -15,7 +16,7 @@ public record BankDueRow(
     string? ImFormNo, DateOnly? ImFormDate,
     decimal? Value, string? Currency, decimal ValueAed, decimal PaidAed, decimal BalanceAed);
 
-public record CollectionRecordRequest(DateOnly PaymentDate, int CurrencyId, decimal Value);
+public record CollectionRecordRequest(DateOnly PaymentDate, int CurrencyId, [Range(0.0001, double.MaxValue, ErrorMessage = "Value must be greater than zero.")] decimal Value);
 public record CollectionRecordResponse(int Id, DateOnly PaymentDate, int CurrencyId, string CurrencyCode, decimal Value, decimal ValueAed);
 
 [ApiController]
