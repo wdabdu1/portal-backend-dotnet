@@ -152,9 +152,8 @@ public class HomePageController : ControllerBase
                         clearedAboutToClear.Add(new HomeShipmentRow(
                             s.PurchaseOrder?.BusinessUnit?.Name ?? "", s.PurchaseOrder?.Consignee?.Name ?? "",
                             s.LineItems.FirstOrDefault()?.PurchaseOrderLineItem?.ProductCategory?.Name ?? "", s.BlAwbNo,
-                            clearance.Route.ToString(), target.Value, actualComplete.HasValue));
+                            FormatRouteName(clearance.Route), target.Value, actualComplete.HasValue));
                     }
-                    FormatRouteName(clearance.Route), target.Value, actualComplete.HasValue));
                 }
 
                 if (showFz)
