@@ -30,7 +30,7 @@ public record DepartmentPerformanceResponse(
 // date or completion date, which would each tell a different story.
 [ApiController]
 [Route("api/dashboards/department-performance")]
-[Authorize(Roles = AppRoles.Manager + "," + AppRoles.SuperUser)]
+[Authorize(Roles = AppRoles.Manager + "," + AppRoles.SuperUser + "," + AppRoles.IpSupervisor)]
 public class DepartmentPerformanceController : ControllerBase
 {
     private readonly ShippingPortalDbContext _db;
