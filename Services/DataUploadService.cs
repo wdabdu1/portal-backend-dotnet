@@ -149,8 +149,8 @@ public class DataUploadService
                 if (po is null)
                 {
                     var buCode = S(ws, row, 2);
-                    var businessUnit = lk.BusinessUnits.FirstOrDefault(b => b.Code == buCode);
-                    if (businessUnit is null) { errors.Add($"Row {row}: Business Unit '{buCode}' not found."); continue; }
+                    var businessUnit = lk.BusinessUnits.FirstOrDefault(b => b.Code == buCode || b.Name == buCode);
+                    if (businessUnit is null) { errors.Add($"Row {row}: Business Unit '{buCode}' not found (checked both Code and Name)."); continue; }
 
                     var divisionCode = S(ws, row, 3);
                     var division = await _db.Divisions.FirstOrDefaultAsync(d => d.BusinessUnitId == businessUnit.Id && d.Code == divisionCode);
