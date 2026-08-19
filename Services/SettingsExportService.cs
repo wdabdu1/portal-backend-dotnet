@@ -62,7 +62,7 @@ public class SettingsExportService
                 bool b => b ? "TRUE" : "FALSE",
                 DateOnly d => d.ToString("yyyy-MM-dd"),
                 null => "",
-                var v => v.ToString() ?? ""
+                var v => (v.ToString() ?? "").Trim()
             };
             ws.Cell(row, i + 1).Value = text;
         }
