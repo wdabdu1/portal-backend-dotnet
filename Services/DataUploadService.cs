@@ -87,7 +87,7 @@ public class DataUploadService
     {
         public List<BusinessPartner> Partners = new();
         public List<ApprovalType> ApprovalTypes = new();
-        public List<BusinessUnit> BusinessUnits = new(); // not on Main sheet directly but kept for future use
+        public List<BusinessUnit> BusinessUnits = new();
         public List<PaymentTerm> PaymentTerms = new();
         public List<Incoterm> Incoterms = new();
         public List<OriginCountry> OriginCountries = new();
@@ -104,6 +104,7 @@ public class DataUploadService
     private async Task<LookupCache> LoadLookups() => new LookupCache
     {
         Partners = await _db.BusinessPartners.ToListAsync(),
+        BusinessUnits = await _db.BusinessUnits.ToListAsync(),
         ApprovalTypes = await _db.ApprovalTypes.ToListAsync(),
         PaymentTerms = await _db.PaymentTerms.ToListAsync(),
         Incoterms = await _db.Incoterms.ToListAsync(),
@@ -118,7 +119,7 @@ public class DataUploadService
         Couriers = await _db.Couriers.ToListAsync()
     };
 
-  private async Task<SheetUploadResult> ProcessMain(IXLWorksheet ws)
+    private async Task<SheetUploadResult> ProcessMain(IXLWorksheet ws)
     {
         var errors = new List<string>();
         int posCreated = 0, poLinesCreated = 0, shipmentsCreated = 0, shipmentLinesCreated = 0, sectionsUpdated = 0;
@@ -131,11 +132,11 @@ public class DataUploadService
 
         for (int row = MainFirstDataRow; row <= lastRow; row++)
         {
-            if (RowIsBlank(ws, row, 67)) continue;
+            if (RowIsBlank(ws, row, 70)) continue;
 
-            // --- PO section (cols 1-16) ---
+            // --- PO section (cols 1-19) ---
             var poNumber = S(ws, row, 1);
-            var blAwbNo = S(ws, row, 25);
+            var blAwbNo = S(ws, row, 28);
             if (poNumber is null || blAwbNo is null)
             {
                 errors.Add($"Row {row}: PoNumber and B/L NO are both required — row skipped.");
@@ -147,42 +148,66 @@ public class DataUploadService
                 po = await _db.PurchaseOrders.FirstOrDefaultAsync(p => p.PoNumber == poNumber);
                 if (po is null)
                 {
-                    var supplierName = S(ws, row, 2);
-                    var supplier = lk.Partners.FirstOrDefault(p => p.Name == supplierName && p.IsSupplier);
-                    var brandName = S(ws, row, 3);
-                    var brand = lk.Partners.FirstOrDefault(p => p.Name == brandName && p.IsBrandManufacturer);
-                    var approvalName = S(ws, row, 4);
-                    var approval = lk.ApprovalTypes.FirstOrDefault(a => a.Name == approvalName);
-                    var consigneeName = S(ws, row, 5);
-                    var consignee = lk.Partners.FirstOrDefault(p => p.Name == consigneeName && p.IsConsignee);
-                    var paymentTermName = S(ws, row, 8);
-                    var paymentTerm = lk.PaymentTerms.FirstOrDefault(t => t.Name == paymentTermName);
-                    var incotermCode = S(ws, row, 14);
-                    var incoterm = lk.Incoterms.FirstOrDefault(t => t.Code == incotermCode);
-                    var originName = S(ws, row, 15);
-                    var origin = lk.OriginCountries.FirstOrDefault(o => o.Name == originName);
+                    var buCode = S(ws, row, 2);
+                    var businessUnit = lk.BusinessUnits.FirstOrDefault(b => b.Code == buCode);
+                    if (businessUnit is null) { errors.Add($"Row {row}: Business Unit '{buCode}' not found."); continue; }
 
+                    var divisionCode = S(ws, row, 3);
+                    var division = await _db.Divisions.FirstOrDefaultAsync(d => d.BusinessUnitId == businessUnit.Id && d.Code == divisionCode);
+                    if (division is null) { errors.Add($"Row {row}: Division '{divisionCode}' not found under Business Unit '{buCode}'."); continue; }
+
+                    var supplierName = S(ws, row, 4);
+                    var supplier = lk.Partners.FirstOrDefault(p => p.Name == supplierName && p.IsSupplier);
                     if (supplier is null) { errors.Add($"Row {row}: Supplier '{supplierName}' not found (or not flagged as Supplier)."); continue; }
+
+                    var brandName = S(ws, row, 5);
+                    var brand = lk.Partners.FirstOrDefault(p => p.Name == brandName && p.IsBrandManufacturer);
+
+                    var approvalName = S(ws, row, 6);
+                    var approval = lk.ApprovalTypes.FirstOrDefault(a => a.Name == approvalName);
+                    if (approval is null) { errors.Add($"Row {row}: Approval Type '{approvalName}' not found."); continue; }
+
+                    var consigneeName = S(ws, row, 7);
+                    var consignee = lk.Partners.FirstOrDefault(p => p.Name == consigneeName && p.IsConsignee);
                     if (consignee is null) { errors.Add($"Row {row}: Consignee '{consigneeName}' not found (or not flagged as Consignee)."); continue; }
+
+                    var paymentTermName = S(ws, row, 10);
+                    var paymentTerm = lk.PaymentTerms.FirstOrDefault(t => t.Name == paymentTermName);
+                    if (paymentTerm is null) { errors.Add($"Row {row}: Payment Term '{paymentTermName}' not found."); continue; }
+
+                    var incotermCode = S(ws, row, 16);
+                    var incoterm = lk.Incoterms.FirstOrDefault(t => t.Code == incotermCode);
+                    if (incoterm is null) { errors.Add($"Row {row}: Incoterm '{incotermCode}' not found."); continue; }
+
+                    var originName = S(ws, row, 17);
+                    var origin = lk.OriginCountries.FirstOrDefault(o => o.Name == originName);
+                    if (origin is null) { errors.Add($"Row {row}: Origin Country '{originName}' not found."); continue; }
+
+                    var shipmentModeName = S(ws, row, 18);
+                    var shipmentMode = await _db.ShipmentModes.FirstOrDefaultAsync(m => m.Name == shipmentModeName);
+                    if (shipmentMode is null) { errors.Add($"Row {row}: Shipment Mode '{shipmentModeName}' not found."); continue; }
 
                     po = new PurchaseOrder
                     {
                         PoNumber = poNumber,
+                        BusinessUnitId = businessUnit.Id,
+                        DivisionId = division.Id,
                         SupplierId = supplier.Id,
                         BrandManufacturerId = brand?.Id ?? supplier.Id,
-                        ApprovalTypeId = approval?.Id ?? 0,
+                        ApprovalTypeId = approval.Id,
                         ConsigneeId = consignee.Id,
-                        SupplierPiNo = S(ws, row, 6),
-                        SupplierPiDate = Dt(ws, row, 7),
-                        SupplierPaymentTermId = paymentTerm?.Id ?? 0,
-                        ReceivedSignedPiDate = Dt(ws, row, 9),
-                        SentSignedPiDate = Dt(ws, row, 10),
-                        BuPoDate = Dt(ws, row, 11),
-                        OrderExecutionDate = Dt(ws, row, 12),
-                        LatestShippingDate = Dt(ws, row, 13),
-                        IncotermId = incoterm?.Id ?? 0,
-                        OriginCountryId = origin?.Id ?? 0,
-                        BuShippingBudget = D(ws, row, 16),
+                        SupplierPiNo = S(ws, row, 8),
+                        SupplierPiDate = Dt(ws, row, 9),
+                        SupplierPaymentTermId = paymentTerm.Id,
+                        ReceivedSignedPiDate = Dt(ws, row, 11),
+                        SentSignedPiDate = Dt(ws, row, 12),
+                        BuPoDate = Dt(ws, row, 13),
+                        OrderExecutionDate = Dt(ws, row, 14),
+                        LatestShippingDate = Dt(ws, row, 15),
+                        IncotermId = incoterm.Id,
+                        OriginCountryId = origin.Id,
+                        ShipmentModeId = shipmentMode.Id,
+                        BuShippingBudget = D(ws, row, 19),
                         Status = OrderStatus.Confirmed,
                         CreatedAt = DateTime.UtcNow,
                         UpdatedAt = DateTime.UtcNow
@@ -194,8 +219,8 @@ public class DataUploadService
                 poCache[poNumber] = po;
             }
 
-            // --- PO Line Item section (cols 17-23; col 24 is computed, ignored) ---
-            var modelName = S(ws, row, 18);
+            // --- PO Line Item section (cols 20-26; col 27 is computed, ignored) ---
+            var modelName = S(ws, row, 21);
             if (modelName is null) { errors.Add($"Row {row}: MODEL is required — row skipped."); continue; }
 
             var poLineKey = (poNumber, modelName);
@@ -204,18 +229,20 @@ public class DataUploadService
                 poLine = await _db.PurchaseOrderLineItems.FirstOrDefaultAsync(li => li.PurchaseOrderId == po.Id && li.ModelProduct!.Name == modelName);
                 if (poLine is null)
                 {
-                    var catName = S(ws, row, 17);
+                    var catName = S(ws, row, 20);
                     var category = lk.Categories.FirstOrDefault(c => c.Name == catName);
                     var model = lk.Models_.FirstOrDefault(m => m.Name == modelName);
-                    var typeName = S(ws, row, 19);
+                    var typeName = S(ws, row, 22);
                     var type = lk.Types.FirstOrDefault(t => t.Name == typeName);
-                    var uomCode = S(ws, row, 20);
+                    var uomCode = S(ws, row, 23);
                     var uom = lk.Uoms.FirstOrDefault(u => u.Code == uomCode);
-                    var currencyCode = S(ws, row, 23);
+                    var currencyCode = S(ws, row, 26);
                     var currency = lk.Currencies.FirstOrDefault(c => c.Code == currencyCode);
 
                     if (category is null) { errors.Add($"Row {row}: Product Category '{catName}' not found."); continue; }
                     if (model is null) { errors.Add($"Row {row}: Model/Product '{modelName}' not found."); continue; }
+                    if (type is null) { errors.Add($"Row {row}: Product Type '{typeName}' not found."); continue; }
+                    if (uom is null) { errors.Add($"Row {row}: Unit of Measure '{uomCode}' not found."); continue; }
                     if (currency is null) { errors.Add($"Row {row}: Currency '{currencyCode}' not found."); continue; }
 
                     poLine = new PurchaseOrderLineItem
@@ -223,10 +250,10 @@ public class DataUploadService
                         PurchaseOrderId = po.Id,
                         ProductCategoryId = category.Id,
                         ModelProductId = model.Id,
-                        ProductTypeId = type?.Id ?? 0,
-                        Qty = D(ws, row, 21) ?? 0,
-                        UnitOfMeasureId = uom?.Id ?? 0,
-                        UnitPrice = D(ws, row, 22) ?? 0,
+                        ProductTypeId = type.Id,
+                        Qty = D(ws, row, 24) ?? 0,
+                        UnitOfMeasureId = uom.Id,
+                        UnitPrice = D(ws, row, 25) ?? 0,
                         CurrencyId = currency.Id
                     };
                     _db.PurchaseOrderLineItems.Add(poLine);
@@ -236,17 +263,17 @@ public class DataUploadService
                 poLineCache[poLineKey] = poLine;
             }
 
-            // --- Shipment section (cols 25-32) ---
+            // --- Shipment section (cols 28-35) ---
             if (!shipmentCache.TryGetValue(blAwbNo, out var shipment))
             {
                 shipment = await _db.Shipments.FirstOrDefaultAsync(s => s.BlAwbNo == blAwbNo);
                 if (shipment is null)
                 {
-                    var shippingLineName = S(ws, row, 30);
+                    var shippingLineName = S(ws, row, 33);
                     var shippingLine = lk.ShippingLines.FirstOrDefault(l => l.Name == shippingLineName);
                     if (shippingLine is null) { errors.Add($"Row {row}: Shipping Line '{shippingLineName}' not found."); continue; }
 
-                    var statusText = S(ws, row, 29);
+                    var statusText = S(ws, row, 32);
                     var status = statusText?.ToUpperInvariant() switch
                     {
                         "CONFIRMED" => ShipmentStatus.Confirmed,
@@ -258,13 +285,13 @@ public class DataUploadService
                     {
                         PurchaseOrderId = po.Id,
                         BlAwbNo = blAwbNo,
-                        BlAwbDate = Dt(ws, row, 26),
-                        Etd = Dt(ws, row, 27),
-                        Eta = Dt(ws, row, 28),
+                        BlAwbDate = Dt(ws, row, 29),
+                        Etd = Dt(ws, row, 30),
+                        Eta = Dt(ws, row, 31),
                         Status = status,
                         ShippingLineId = shippingLine.Id,
-                        Fcl20Count = I(ws, row, 31) ?? 0,
-                        Fcl40Count = I(ws, row, 32) ?? 0,
+                        Fcl20Count = I(ws, row, 34) ?? 0,
+                        Fcl40Count = I(ws, row, 35) ?? 0,
                         CreatedAt = DateTime.UtcNow,
                         UpdatedAt = DateTime.UtcNow
                     };
@@ -275,7 +302,7 @@ public class DataUploadService
                 shipmentCache[blAwbNo] = shipment;
             }
 
-            // --- Shipment Line Item (cols 33, 35; col 34 is reference-only, ignored) ---
+            // --- Shipment Line Item (cols 36, 38; col 37 is reference-only, ignored) ---
             var existingShipLine = await _db.ShipmentLineItems.FirstOrDefaultAsync(sl => sl.ShipmentId == shipment.Id && sl.PurchaseOrderLineItemId == poLine.Id);
             if (existingShipLine is null)
             {
@@ -283,8 +310,8 @@ public class DataUploadService
                 {
                     ShipmentId = shipment.Id,
                     PurchaseOrderLineItemId = poLine.Id,
-                    QtyInBl = D(ws, row, 33) ?? 0,
-                    ItemSubtotal = D(ws, row, 35) ?? 0
+                    QtyInBl = D(ws, row, 36) ?? 0,
+                    ItemSubtotal = D(ws, row, 38) ?? 0
                 };
                 _db.ShipmentLineItems.Add(existingShipLine);
                 await _db.SaveChangesAsync();
@@ -293,8 +320,8 @@ public class DataUploadService
 
             await UpsertShipmentSections(shipment.Id, ws, row, lk);
 
-            // --- Last Offshore Item Detail (per line item; col 55 = Approved MOT Unit Price USD) ---
-            var lastOffshoreUnitPrice = D(ws, row, 55);
+            // --- Last Offshore Item Detail (per line item; col 58 = Approved MOT Unit Price USD) ---
+            var lastOffshoreUnitPrice = D(ws, row, 58);
             if (lastOffshoreUnitPrice.HasValue)
             {
                 var existingItemDetail = await _db.LastOffshoreItemDetails.FirstOrDefaultAsync(d => d.ShipmentLineItemId == existingShipLine.Id);
@@ -308,8 +335,8 @@ public class DataUploadService
                 }
             }
 
-            // --- Clearance Remarks (col 57) ---
-            var remarks = S(ws, row, 57);
+            // --- Clearance Remarks (col 60) ---
+            var remarks = S(ws, row, 60);
             if (remarks is not null)
             {
                 var clearance = await _db.Clearances.FirstOrDefaultAsync(c => c.ShipmentId == shipment.Id);
@@ -336,26 +363,27 @@ public class DataUploadService
     // found-or-created then overwritten with this row's values. Safe to
     // call repeatedly for the same shipment (later rows just re-save
     // the same data, by construction of the sheet's own shape).
+    // the same data, by construction of the sheet's own shape).
     private async Task UpsertShipmentSections(int shipmentId, IXLWorksheet ws, int row, LookupCache lk)
     {
-        // Forwarder (cols 36-40)
-        var forwarderName = S(ws, row, 36);
+        // Forwarder (cols 39-43)
+        var forwarderName = S(ws, row, 39);
         if (forwarderName is not null)
         {
             var forwarder = lk.Forwarders.FirstOrDefault(f => f.Name == forwarderName);
             var fwd = await _db.ShipmentForwarders.FirstOrDefaultAsync(f => f.ShipmentId == shipmentId) ?? new ShipmentForwarder { ShipmentId = shipmentId };
             if (fwd.Id == 0) _db.ShipmentForwarders.Add(fwd);
             fwd.ForwarderId = forwarder?.Id;
-            fwd.ActualShippingCost = D(ws, row, 37);
-            var fwdCurrency = lk.Currencies.FirstOrDefault(c => c.Code == S(ws, row, 38));
+            fwd.ActualShippingCost = D(ws, row, 40);
+            var fwdCurrency = lk.Currencies.FirstOrDefault(c => c.Code == S(ws, row, 41));
             fwd.CurrencyId = fwdCurrency?.Id;
-            fwd.AmountSaved = D(ws, row, 39);
-            fwd.MarineInsurance = B(ws, row, 40) ?? false;
+            fwd.AmountSaved = D(ws, row, 42);
+            fwd.MarineInsurance = B(ws, row, 43) ?? false;
         }
 
-        // Draft Documents (cols 41-42) + Supplier Full Set (cols 43-47)
-        var draftDate = Dt(ws, row, 41);
-        var finalConfirmedDate = Dt(ws, row, 42);
+        // Draft Documents (cols 44-45) + Supplier Full Set (cols 46-50)
+        var draftDate = Dt(ws, row, 44);
+        var finalConfirmedDate = Dt(ws, row, 45);
         if (draftDate.HasValue || finalConfirmedDate.HasValue)
         {
             var docs = await _db.ShipmentDraftDocuments.FirstOrDefaultAsync(d => d.ShipmentId == shipmentId) ?? new ShipmentDraftDocuments { ShipmentId = shipmentId };
@@ -364,20 +392,20 @@ public class DataUploadService
             docs.FinalDraftConfirmedDate = finalConfirmedDate;
         }
 
-        var supplierInvoiceNo = S(ws, row, 43);
+        var supplierInvoiceNo = S(ws, row, 46);
         if (supplierInvoiceNo is not null)
         {
             var fullSet = await _db.ShipmentSupplierFullSets.FirstOrDefaultAsync(f => f.ShipmentId == shipmentId) ?? new ShipmentSupplierFullSet { ShipmentId = shipmentId };
             if (fullSet.Id == 0) _db.ShipmentSupplierFullSets.Add(fullSet);
             fullSet.SupplierInvoiceNo = supplierInvoiceNo;
-            fullSet.SupplierInvoiceDate = Dt(ws, row, 44);
-            fullSet.FsDispatchDate = Dt(ws, row, 45);
-            fullSet.FsTrackingNumber = S(ws, row, 46);
-            fullSet.FsReceivedDate = Dt(ws, row, 47);
+            fullSet.SupplierInvoiceDate = Dt(ws, row, 47);
+            fullSet.FsDispatchDate = Dt(ws, row, 48);
+            fullSet.FsTrackingNumber = S(ws, row, 49);
+            fullSet.FsReceivedDate = Dt(ws, row, 50);
         }
 
-        // Banking (col 48 — dispatch tracking number only, per this sheet's reduced scope)
-        var bankTrackingNo = S(ws, row, 48);
+        // Banking (col 51 — dispatch tracking number only, per this sheet's reduced scope)
+        var bankTrackingNo = S(ws, row, 51);
         if (bankTrackingNo is not null)
         {
             var banking = await _db.ShipmentBankings.FirstOrDefaultAsync(b => b.ShipmentId == shipmentId) ?? new ShipmentBanking { ShipmentId = shipmentId };
@@ -385,8 +413,8 @@ public class DataUploadService
             banking.OsDocTrackingNumber = bankTrackingNo;
         }
 
-        // ACD (col 49)
-        var acdCost = D(ws, row, 49);
+        // ACD (col 52)
+        var acdCost = D(ws, row, 52);
         if (acdCost.HasValue)
         {
             var acd = await _db.ShipmentAcds.FirstOrDefaultAsync(a => a.ShipmentId == shipmentId) ?? new ShipmentAcd { ShipmentId = shipmentId };
@@ -394,20 +422,20 @@ public class DataUploadService
             acd.CostUsd = acdCost;
         }
 
-        // MOT (cols 50-51)
-        var motPiNo = S(ws, row, 50);
+        // MOT (cols 53-54)
+        var motPiNo = S(ws, row, 53);
         if (motPiNo is not null)
         {
             var mot = await _db.ShipmentMots.FirstOrDefaultAsync(m => m.ShipmentId == shipmentId) ?? new ShipmentMot { ShipmentId = shipmentId };
             if (mot.Id == 0) _db.ShipmentMots.Add(mot);
             mot.OffshoreApprovedPiNumber = motPiNo;
-            mot.ApprovalDate = Dt(ws, row, 51);
+            mot.ApprovalDate = Dt(ws, row, 54);
         }
 
-        // Last Offshore Details header (cols 52-54; 55-56 handled per-line-item by the caller)
-        var offshoreInvoiceNo = S(ws, row, 52);
-        var inspectionNo = S(ws, row, 53);
-        var grn = S(ws, row, 54);
+        // Last Offshore Details header (cols 55-57; 58-59 handled per-line-item by the caller)
+        var offshoreInvoiceNo = S(ws, row, 55);
+        var inspectionNo = S(ws, row, 56);
+        var grn = S(ws, row, 57);
         if (offshoreInvoiceNo is not null || inspectionNo is not null || grn is not null)
         {
             var offshore = await _db.LastOffshoreDetails.FirstOrDefaultAsync(o => o.ShipmentId == shipmentId) ?? new LastOffshoreDetail { ShipmentId = shipmentId };
