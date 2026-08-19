@@ -22,6 +22,21 @@ public class DataMigrationController : ControllerBase
         return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", fileName);
     }
 
+    public record CompleteDeleteRequest(string ConfirmationPhrase);
+
+    // Deliberately requires typing an exact phrase, not just a role
+    // check — this wipes every Settings and operational data table in
+    // one action, and that shouldn't be one click away for anyone.
+    [HttpPost("complete-delete")]
+    public async Task<IActionResult> CompleteDelete(CompleteDeleteRequest req, [FromServices] CompleteDeleteService service)
+    {
+        if (req.ConfirmationPhrase != "DELETE EVERYTHING")
+            return BadRequest(new { message = "Confirmation phrase did not match. Type exactly: DELETE EVERYTHING" });
+
+        var wipedTables = await service.DeleteAllAsync();
+        return Ok(new { message = $"Wiped {wipedTables.Count} tables.", tables = wipedTables });
+    }
+
     [HttpPost("settings-upload")]
     [RequestSizeLimit(50_000_000)]
     public async Task<ActionResult<UploadSummary>> UploadSettings(IFormFile file, [FromServices] SettingsUploadService service)
