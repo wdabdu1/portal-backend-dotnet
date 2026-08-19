@@ -261,8 +261,8 @@ public class DataUploadService
                         Eta = Dt(ws, row, 28),
                         Status = status,
                         ShippingLineId = shippingLine?.Id,
-                        Fcl20Count = I(ws, row, 31),
-                        Fcl40Count = I(ws, row, 32),
+                        Fcl20Count = I(ws, row, 31) ?? 0,
+                        Fcl40Count = I(ws, row, 32) ?? 0,
                         CreatedAt = DateTime.UtcNow,
                         UpdatedAt = DateTime.UtcNow
                     };
