@@ -244,6 +244,8 @@ public class DataUploadService
                 {
                     var shippingLineName = S(ws, row, 30);
                     var shippingLine = lk.ShippingLines.FirstOrDefault(l => l.Name == shippingLineName);
+                    if (shippingLine is null) { errors.Add($"Row {row}: Shipping Line '{shippingLineName}' not found."); continue; }
+
                     var statusText = S(ws, row, 29);
                     var status = statusText?.ToUpperInvariant() switch
                     {
@@ -260,7 +262,7 @@ public class DataUploadService
                         Etd = Dt(ws, row, 27),
                         Eta = Dt(ws, row, 28),
                         Status = status,
-                        ShippingLineId = shippingLine?.Id,
+                        ShippingLineId = shippingLine.Id,
                         Fcl20Count = I(ws, row, 31) ?? 0,
                         Fcl40Count = I(ws, row, 32) ?? 0,
                         CreatedAt = DateTime.UtcNow,
