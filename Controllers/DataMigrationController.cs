@@ -47,4 +47,15 @@ public class DataMigrationController : ControllerBase
         var summary = await service.ProcessAsync(stream);
         return Ok(summary);
     }
+
+    [HttpPost("data-upload")]
+    [RequestSizeLimit(50_000_000)]
+    public async Task<ActionResult<UploadSummary>> UploadData(IFormFile file, [FromServices] DataUploadService service)
+    {
+        if (file is null || file.Length == 0) return BadRequest(new { message = "No file uploaded." });
+
+        using var stream = file.OpenReadStream();
+        var summary = await service.ProcessAsync(stream);
+        return Ok(summary);
+    }
 }
