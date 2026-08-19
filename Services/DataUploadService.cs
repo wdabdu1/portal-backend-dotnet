@@ -325,6 +325,10 @@ public class DataUploadService
             sectionsUpdated++;
         }
 
+        var totalCreated = posCreated + poLinesCreated + shipmentsCreated + shipmentLinesCreated;
+        return new SheetUploadResult("Main", totalCreated, sectionsUpdated, errors);
+    }
+
     // Forwarder, Draft Docs/Supplier Full Set, Banking, ACD, MOT, Last
     // Offshore Details — all 1:1 with the shipment, so each is simply
     // found-or-created then overwritten with this row's values. Safe to
@@ -491,7 +495,3 @@ public class DataUploadService
         return new SheetUploadResult("Supplier_Payment_Records", created, updated, errors);
     }
 }
-
-        var totalCreated = posCreated + poLinesCreated + shipmentsCreated + shipmentLinesCreated;
-        return new SheetUploadResult("Main", totalCreated, sectionsUpdated, errors);
-    }
