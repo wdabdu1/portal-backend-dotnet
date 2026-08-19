@@ -14,6 +14,14 @@ namespace ShippingPortal.Api.Controllers;
 [Authorize(Roles = AppRoles.SuperUser)]
 public class DataMigrationController : ControllerBase
 {
+    [HttpGet("settings-export")]
+    public async Task<IActionResult> ExportSettings([FromServices] SettingsExportService service)
+    {
+        var bytes = await service.ExportAsync();
+        var fileName = $"CTC_Portal_Settings_Backup_{DateTime.UtcNow:yyyy-MM-dd-HHmmss}.xlsx";
+        return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", fileName);
+    }
+
     [HttpPost("settings-upload")]
     [RequestSizeLimit(50_000_000)]
     public async Task<ActionResult<UploadSummary>> UploadSettings(IFormFile file, [FromServices] SettingsUploadService service)
