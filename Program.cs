@@ -99,6 +99,7 @@ builder.Services.AddScoped<ClearanceEstimatePdfService>();
 builder.Services.AddScoped<PreClearanceReadinessService>();
 builder.Services.AddScoped<BuAccessService>();
 builder.Services.AddScoped<PoAdvancePaymentService>();
+builder.Services.AddScoped<SettingsUploadService>();
 builder.Services.AddScoped<SectionLockService>();
 
 builder.Services.AddControllers()
