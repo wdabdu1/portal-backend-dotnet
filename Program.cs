@@ -100,6 +100,7 @@ builder.Services.AddScoped<PreClearanceReadinessService>();
 builder.Services.AddScoped<BuAccessService>();
 builder.Services.AddScoped<PoAdvancePaymentService>();
 builder.Services.AddScoped<SettingsUploadService>();
+builder.Services.AddScoped<SettingsExportService>();
 builder.Services.AddScoped<SectionLockService>();
 
 builder.Services.AddControllers()
