@@ -390,10 +390,10 @@ public class SettingsUploadService
         for (int row = FirstDataRow; row <= lastRow; row++)
         {
             if (RowIsBlank(ws, row, 7)) continue;
-            var lineName = S(ws, row, 1); var tariffName = S(ws, row, 2); var size = I(ws, row, 3);
+            var lineName = S(ws, row, 1); var tariffName = S(ws, row, 2); var size = S(ws, row, 3);
             var freeDays = I(ws, row, 4); var firstDays = I(ws, row, 5); var firstRate = D(ws, row, 6); var afterRate = D(ws, row, 7);
             if (lineName is null || tariffName is null || size is null) { errors.Add($"Row {row}: ShippingLineName, TariffGroupName, and ContainerSize are all required."); continue; }
-            if (size != 20 && size != 40) { errors.Add($"Row {row}: ContainerSize must be 20 or 40."); continue; }
+            if (size != "20" && size != "40") { errors.Add($"Row {row}: ContainerSize must be 20 or 40."); continue; }
             var line = lines.FirstOrDefault(l => l.Name == lineName);
             if (line is null) { errors.Add($"Row {row}: Shipping Line '{lineName}' not found."); continue; }
             var tg = tariffGroups.FirstOrDefault(t => t.Name == tariffName);
@@ -404,7 +404,7 @@ public class SettingsUploadService
             {
                 var x = new ShippingLineDemurrageTariff
                 {
-                    ShippingLineId = line.Id, TariffGroupId = tg.Id, ContainerSize = size.Value,
+                    ShippingLineId = line.Id, TariffGroupId = tg.Id, ContainerSize = size,
                     FreeDays = freeDays ?? 0, FirstPeriodDays = firstDays ?? 0, FirstPeriodRateSdg = firstRate ?? 0, AfterwardRateSdg = afterRate ?? 0
                 };
                 _db.ShippingLineDemurrageTariffs.Add(x); existing.Add(x); created++;
@@ -431,7 +431,7 @@ public class SettingsUploadService
             if (RowIsBlank(ws, row, 4)) continue;
             var name = S(ws, row, 1);
             if (name is null) { errors.Add($"Row {row}: Name is required."); continue; }
-            var isFz = B(ws, row, 2) ?? false; var duration = I(ws, row, 3); var active = B(ws, row, 4) ?? true;
+            var isFz = B(ws, row, 2) ?? false; var duration = I(ws, row, 3) ?? 0; var active = B(ws, row, 4) ?? true;
             var match = existing.FirstOrDefault(d => d.Name == name);
             if (match is null)
             {
