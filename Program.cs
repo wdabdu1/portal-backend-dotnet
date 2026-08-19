@@ -102,6 +102,7 @@ builder.Services.AddScoped<PoAdvancePaymentService>();
 builder.Services.AddScoped<SettingsUploadService>();
 builder.Services.AddScoped<SettingsExportService>();
 builder.Services.AddScoped<CompleteDeleteService>();
+builder.Services.AddScoped<DataUploadService>();
 builder.Services.AddScoped<SectionLockService>();
 
 builder.Services.AddControllers()
