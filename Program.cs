@@ -86,6 +86,16 @@ builder.Services
                 if (user is null || user.SessionVersion != tokenVersion)
                 {
                     context.Fail("Session has been revoked.");
+                    return;
+                }
+
+                // Throttled to once a minute per user — plenty of precision
+                // for a 5-minute "Live Now" threshold, without a DB write
+                // on every single request.
+                if (user.LastActivityAt is null || (DateTime.UtcNow - user.LastActivityAt.Value).TotalMinutes >= 1)
+                {
+                    user.LastActivityAt = DateTime.UtcNow;
+                    await userManager.UpdateAsync(user);
                 }
             }
         };
