@@ -103,6 +103,7 @@ builder.Services.AddScoped<SettingsUploadService>();
 builder.Services.AddScoped<SettingsExportService>();
 builder.Services.AddScoped<CompleteDeleteService>();
 builder.Services.AddScoped<DataUploadService>();
+builder.Services.AddScoped<DataExportService>();
 builder.Services.AddScoped<SectionLockService>();
 
 builder.Services.AddControllers()
