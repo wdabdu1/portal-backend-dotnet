@@ -119,25 +119,34 @@ public class DataExportService
         for (int c = 1; c <= MainColumns.Length; c++)
             ws.Cell(3, c).Style.Fill.BackgroundColor = LegendFill;
 
-        var lineItems = _db.ShipmentLineItems
-            .Include(sl => sl.Shipment!).ThenInclude(s => s.ShippingLine)
-            .Include(sl => sl.Shipment!).ThenInclude(s => s.PurchaseOrder!).ThenInclude(po => po.BusinessUnit)
-            .Include(sl => sl.Shipment!).ThenInclude(s => s.PurchaseOrder!).ThenInclude(po => po.Division)
-            .Include(sl => sl.Shipment!).ThenInclude(s => s.PurchaseOrder!).ThenInclude(po => po.Supplier)
-            .Include(sl => sl.Shipment!).ThenInclude(s => s.PurchaseOrder!).ThenInclude(po => po.BrandManufacturer)
-            .Include(sl => sl.Shipment!).ThenInclude(s => s.PurchaseOrder!).ThenInclude(po => po.ApprovalType)
-            .Include(sl => sl.Shipment!).ThenInclude(s => s.PurchaseOrder!).ThenInclude(po => po.Consignee)
-            .Include(sl => sl.Shipment!).ThenInclude(s => s.PurchaseOrder!).ThenInclude(po => po.SupplierPaymentTerm)
-            .Include(sl => sl.Shipment!).ThenInclude(s => s.PurchaseOrder!).ThenInclude(po => po.Incoterm)
-            .Include(sl => sl.Shipment!).ThenInclude(s => s.PurchaseOrder!).ThenInclude(po => po.OriginCountry)
-            .Include(sl => sl.Shipment!).ThenInclude(s => s.PurchaseOrder!).ThenInclude(po => po.ShipmentMode)
-            .Include(sl => sl.PurchaseOrderLineItem!).ThenInclude(li => li.ProductCategory)
-            .Include(sl => sl.PurchaseOrderLineItem!).ThenInclude(li => li.ModelProduct)
-            .Include(sl => sl.PurchaseOrderLineItem!).ThenInclude(li => li.ProductType)
-            .Include(sl => sl.PurchaseOrderLineItem!).ThenInclude(li => li.UnitOfMeasure)
-            .Include(sl => sl.PurchaseOrderLineItem!).ThenInclude(li => li.Currency)
-            .OrderBy(sl => sl.Shipment!.PurchaseOrder!.PoNumber).ThenBy(sl => sl.Id)
+                // Built from PO Line Items outward (not Shipment Line Items) so a
+        // PO that hasn't shipped yet — a genuinely common, valid state —
+        // still gets a row, with every shipment-related column left blank
+        // rather than being silently dropped from the backup entirely.
+        var poLines = _db.PurchaseOrderLineItems
+            .Include(li => li.PurchaseOrder!).ThenInclude(po => po.BusinessUnit)
+            .Include(li => li.PurchaseOrder!).ThenInclude(po => po.Division)
+            .Include(li => li.PurchaseOrder!).ThenInclude(po => po.Supplier)
+            .Include(li => li.PurchaseOrder!).ThenInclude(po => po.BrandManufacturer)
+            .Include(li => li.PurchaseOrder!).ThenInclude(po => po.ApprovalType)
+            .Include(li => li.PurchaseOrder!).ThenInclude(po => po.Consignee)
+            .Include(li => li.PurchaseOrder!).ThenInclude(po => po.SupplierPaymentTerm)
+            .Include(li => li.PurchaseOrder!).ThenInclude(po => po.Incoterm)
+            .Include(li => li.PurchaseOrder!).ThenInclude(po => po.OriginCountry)
+            .Include(li => li.PurchaseOrder!).ThenInclude(po => po.ShipmentMode)
+            .Include(li => li.ProductCategory)
+            .Include(li => li.ModelProduct)
+            .Include(li => li.ProductType)
+            .Include(li => li.UnitOfMeasure)
+            .Include(li => li.Currency)
+            .OrderBy(li => li.PurchaseOrder!.PoNumber).ThenBy(li => li.Id)
             .ToList();
+
+        var shipmentLinesByPoLine = _db.ShipmentLineItems
+            .Include(sl => sl.Shipment!).ThenInclude(s => s.ShippingLine)
+            .ToList()
+            .GroupBy(sl => sl.PurchaseOrderLineItemId)
+            .ToDictionary(g => g.Key, g => g.ToList());
 
         // Sub-section tables keyed by ShipmentId — loaded separately (rather
         // than deeply nested .Include chains) to keep the main query simple.
@@ -152,98 +161,122 @@ public class DataExportService
         var clearances = _db.Clearances.ToDictionary(c => c.ShipmentId);
 
         int row = 4;
-        foreach (var sl in lineItems)
+        foreach (var poLine in poLines)
         {
-            var ship = sl.Shipment!;
-            var po = ship.PurchaseOrder!;
-            var poLine = sl.PurchaseOrderLineItem!;
-            forwarders.TryGetValue(ship.Id, out var fwd);
-            draftDocs.TryGetValue(ship.Id, out var docs);
-            fullSets.TryGetValue(ship.Id, out var fullSet);
-            bankings.TryGetValue(ship.Id, out var banking);
-            acds.TryGetValue(ship.Id, out var acd);
-            mots.TryGetValue(ship.Id, out var mot);
-            lastOffshores.TryGetValue(ship.Id, out var offshore);
-            lastOffshoreItems.TryGetValue(sl.Id, out var offshoreItem);
-            clearances.TryGetValue(ship.Id, out var clearance);
+            var po = poLine.PurchaseOrder!;
+            shipmentLinesByPoLine.TryGetValue(poLine.Id, out var shipLines);
 
-            int c = 1;
-            SetCell(ws, row, c++, po.PoNumber);
-            SetCell(ws, row, c++, po.BusinessUnit?.Code);
-            SetCell(ws, row, c++, po.Division?.Code);
-            SetCell(ws, row, c++, po.Supplier?.Name);
-            SetCell(ws, row, c++, po.BrandManufacturer?.Name);
-            SetCell(ws, row, c++, po.ApprovalType?.Name);
-            SetCell(ws, row, c++, po.Consignee?.Name);
-            SetCell(ws, row, c++, po.SupplierPiNo);
-            SetCell(ws, row, c++, po.SupplierPiDate);
-            SetCell(ws, row, c++, po.SupplierPaymentTerm?.Name);
-            SetCell(ws, row, c++, po.ReceivedSignedPiDate);
-            SetCell(ws, row, c++, po.SentSignedPiDate);
-            SetCell(ws, row, c++, po.BuPoDate);
-            SetCell(ws, row, c++, po.OrderExecutionDate);
-            SetCell(ws, row, c++, po.LatestShippingDate);
-            SetCell(ws, row, c++, po.Incoterm?.Code);
-            SetCell(ws, row, c++, po.OriginCountry?.Name);
-            SetCell(ws, row, c++, po.ShipmentMode?.Name);
-            SetCell(ws, row, c++, po.BuShippingBudget);
+            // No shipment yet — write one row with just PO + PO Line data,
+            // every shipment-related column left blank.
+            if (shipLines is null || shipLines.Count == 0)
+            {
+                WriteMainRow(ws, row, po, poLine, null, null, null, null, null, null, null, null, null, null);
+                row++;
+                continue;
+            }
 
-            SetCell(ws, row, c++, poLine.ProductCategory?.Name);
-            SetCell(ws, row, c++, poLine.ModelProduct?.Name);
-            SetCell(ws, row, c++, poLine.ProductType?.Name);
-            SetCell(ws, row, c++, poLine.UnitOfMeasure?.Code);
-            SetCell(ws, row, c++, poLine.Qty);
-            SetCell(ws, row, c++, poLine.UnitPrice);
-            SetCell(ws, row, c++, poLine.Currency?.Code);
-            SetCell(ws, row, c++, poLine.Total);
+            // One row per shipment this line item actually shipped on
+            // (almost always one, but partial shipments across multiple
+            // BLs are a real, valid scenario).
+            foreach (var sl in shipLines)
+            {
+                var ship = sl.Shipment!;
+                forwarders.TryGetValue(ship.Id, out var fwd);
+                draftDocs.TryGetValue(ship.Id, out var docs);
+                fullSets.TryGetValue(ship.Id, out var fullSet);
+                bankings.TryGetValue(ship.Id, out var banking);
+                acds.TryGetValue(ship.Id, out var acd);
+                mots.TryGetValue(ship.Id, out var mot);
+                lastOffshores.TryGetValue(ship.Id, out var offshore);
+                lastOffshoreItems.TryGetValue(sl.Id, out var offshoreItem);
+                clearances.TryGetValue(ship.Id, out var clearance);
 
-            SetCell(ws, row, c++, ship.BlAwbNo);
-            SetCell(ws, row, c++, ship.BlAwbDate);
-            SetCell(ws, row, c++, ship.Etd);
-            SetCell(ws, row, c++, ship.Eta);
-            SetCell(ws, row, c++, ship.Status.ToString());
-            SetCell(ws, row, c++, ship.ShippingLine?.Name);
-            SetCell(ws, row, c++, ship.Fcl20Count);
-            SetCell(ws, row, c++, ship.Fcl40Count);
-
-            SetCell(ws, row, c++, sl.QtyInBl);
-            SetCell(ws, row, c++, poLine.UnitPrice);
-            SetCell(ws, row, c++, sl.ItemSubtotal);
-
-            SetCell(ws, row, c++, fwd?.ForwarderEntity?.Name);
-            SetCell(ws, row, c++, fwd?.ActualShippingCost);
-            SetCell(ws, row, c++, fwd?.Currency?.Code);
-            SetCell(ws, row, c++, fwd?.AmountSaved);
-            SetCell(ws, row, c++, fwd?.MarineInsurance);
-
-            SetCell(ws, row, c++, docs?.InitialDraftReceivedDate);
-            SetCell(ws, row, c++, docs?.FinalDraftConfirmedDate);
-            SetCell(ws, row, c++, fullSet?.SupplierInvoiceNo);
-            SetCell(ws, row, c++, fullSet?.SupplierInvoiceDate);
-            SetCell(ws, row, c++, fullSet?.FsDispatchDate);
-            SetCell(ws, row, c++, fullSet?.FsTrackingNumber);
-            SetCell(ws, row, c++, fullSet?.FsReceivedDate);
-
-            SetCell(ws, row, c++, banking?.OsDocTrackingNumber);
-
-            SetCell(ws, row, c++, acd?.CostUsd);
-
-            SetCell(ws, row, c++, mot?.OffshoreApprovedPiNumber);
-            SetCell(ws, row, c++, mot?.ApprovalDate);
-
-            SetCell(ws, row, c++, offshore?.InvoiceNo);
-            SetCell(ws, row, c++, offshore?.InspectionNo);
-            SetCell(ws, row, c++, offshore?.Grn);
-            SetCell(ws, row, c++, offshoreItem?.UnitPrice);
-            SetCell(ws, row, c++, offshoreItem is not null && offshoreItem.UnitPrice.HasValue ? offshoreItem.UnitPrice.Value * sl.QtyInBl : (decimal?)null);
-
-            SetCell(ws, row, c++, clearance?.Notes);
-
-            row++;
+                WriteMainRow(ws, row, po, poLine, ship, sl, fwd, docs, fullSet, banking, acd, mot, offshore, offshoreItem, clearance);
+                row++;
+            }
         }
 
         ws.SheetView.FreezeRows(3);
         ws.Columns().AdjustToContents();
+    }
+
+    private void WriteMainRow(IXLWorksheet ws, int row, Models.Orders.PurchaseOrder po, Models.Orders.PurchaseOrderLineItem poLine,
+        Models.Shipments.Shipment? ship, Models.Shipments.ShipmentLineItem? sl, Models.Shipments.ShipmentForwarder? fwd,
+        Models.Shipments.ShipmentDraftDocuments? docs, Models.Shipments.ShipmentSupplierFullSet? fullSet, Models.Shipments.ShipmentBanking? banking,
+        Models.Shipments.ShipmentAcd? acd, Models.Shipments.ShipmentMot? mot, Models.Shipments.LastOffshoreDetail? offshore,
+        Models.Shipments.LastOffshoreItemDetail? offshoreItem, Models.Clearance.Clearance? clearance = null)
+    {
+        int c = 1;
+        SetCell(ws, row, c++, po.PoNumber);
+        SetCell(ws, row, c++, po.BusinessUnit?.Code);
+        SetCell(ws, row, c++, po.Division?.Code);
+        SetCell(ws, row, c++, po.Supplier?.Name);
+        SetCell(ws, row, c++, po.BrandManufacturer?.Name);
+        SetCell(ws, row, c++, po.ApprovalType?.Name);
+        SetCell(ws, row, c++, po.Consignee?.Name);
+        SetCell(ws, row, c++, po.SupplierPiNo);
+        SetCell(ws, row, c++, po.SupplierPiDate);
+        SetCell(ws, row, c++, po.SupplierPaymentTerm?.Name);
+        SetCell(ws, row, c++, po.ReceivedSignedPiDate);
+        SetCell(ws, row, c++, po.SentSignedPiDate);
+        SetCell(ws, row, c++, po.BuPoDate);
+        SetCell(ws, row, c++, po.OrderExecutionDate);
+        SetCell(ws, row, c++, po.LatestShippingDate);
+        SetCell(ws, row, c++, po.Incoterm?.Code);
+        SetCell(ws, row, c++, po.OriginCountry?.Name);
+        SetCell(ws, row, c++, po.ShipmentMode?.Name);
+        SetCell(ws, row, c++, po.BuShippingBudget);
+
+        SetCell(ws, row, c++, poLine.ProductCategory?.Name);
+        SetCell(ws, row, c++, poLine.ModelProduct?.Name);
+        SetCell(ws, row, c++, poLine.ProductType?.Name);
+        SetCell(ws, row, c++, poLine.UnitOfMeasure?.Code);
+        SetCell(ws, row, c++, poLine.Qty);
+        SetCell(ws, row, c++, poLine.UnitPrice);
+        SetCell(ws, row, c++, poLine.Currency?.Code);
+        SetCell(ws, row, c++, poLine.Total);
+
+        SetCell(ws, row, c++, ship?.BlAwbNo);
+        SetCell(ws, row, c++, ship?.BlAwbDate);
+        SetCell(ws, row, c++, ship?.Etd);
+        SetCell(ws, row, c++, ship?.Eta);
+        SetCell(ws, row, c++, ship?.Status.ToString());
+        SetCell(ws, row, c++, ship?.ShippingLine?.Name);
+        SetCell(ws, row, c++, ship?.Fcl20Count);
+        SetCell(ws, row, c++, ship?.Fcl40Count);
+
+        SetCell(ws, row, c++, sl?.QtyInBl);
+        SetCell(ws, row, c++, poLine.UnitPrice);
+        SetCell(ws, row, c++, sl?.ItemSubtotal);
+
+        SetCell(ws, row, c++, fwd?.ForwarderEntity?.Name);
+        SetCell(ws, row, c++, fwd?.ActualShippingCost);
+        SetCell(ws, row, c++, fwd?.Currency?.Code);
+        SetCell(ws, row, c++, fwd?.AmountSaved);
+        SetCell(ws, row, c++, fwd?.MarineInsurance);
+
+        SetCell(ws, row, c++, docs?.InitialDraftReceivedDate);
+        SetCell(ws, row, c++, docs?.FinalDraftConfirmedDate);
+        SetCell(ws, row, c++, fullSet?.SupplierInvoiceNo);
+        SetCell(ws, row, c++, fullSet?.SupplierInvoiceDate);
+        SetCell(ws, row, c++, fullSet?.FsDispatchDate);
+        SetCell(ws, row, c++, fullSet?.FsTrackingNumber);
+        SetCell(ws, row, c++, fullSet?.FsReceivedDate);
+
+        SetCell(ws, row, c++, banking?.OsDocTrackingNumber);
+
+        SetCell(ws, row, c++, acd?.CostUsd);
+
+        SetCell(ws, row, c++, mot?.OffshoreApprovedPiNumber);
+        SetCell(ws, row, c++, mot?.ApprovalDate);
+
+        SetCell(ws, row, c++, offshore?.InvoiceNo);
+        SetCell(ws, row, c++, offshore?.InspectionNo);
+        SetCell(ws, row, c++, offshore?.Grn);
+        SetCell(ws, row, c++, offshoreItem?.UnitPrice);
+        SetCell(ws, row, c++, sl is not null && offshoreItem is not null && offshoreItem.UnitPrice.HasValue ? offshoreItem.UnitPrice.Value * sl.QtyInBl : (decimal?)null);
+
+        SetCell(ws, row, c++, clearance?.Notes);
     }
     
     private void BuildPaymentDueSheet(XLWorkbook wb)
