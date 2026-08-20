@@ -413,6 +413,26 @@ public class TestDataGeneratorService
         await _db.SaveChangesAsync();
     }
 
+        // Genuine, already-incurred demurrage/storage — this is what the
+    // Demurrage Analysis dashboard's "shipments with hits" specifically
+    // looks for (an estimate alone isn't enough; it requires both an
+    // actual paid amount AND the relevant completion date to have
+    // genuinely happened).
+    private async Task AddActualChargesAsync(Clearance clearance, DateOnly plannedCompletion, decimal demurragePaid, decimal storagePaid)
+    {
+        _db.ClearanceActualCharges.Add(new ClearanceActualCharges
+        {
+            ClearanceId = clearance.Id,
+            ForecastDemurrageSdg = demurragePaid * 0.7m,
+            ForecastStorageSdg = storagePaid * 0.7m,
+            ForecastCapturedAt = DateTime.UtcNow.AddDays(-5),
+            PlannedCompletionDate = plannedCompletion,
+            ActualDemurragePaidSdg = demurragePaid,
+            ActualStoragePaidSdg = storagePaid
+        });
+        await _db.SaveChangesAsync();
+    }
+
     private async Task AddTruckAllocationAsync(Lookups lk, ShipmentLineItem shipLine, DateOnly expected, string status)
     {
         if (lk.Trucks.Count == 0 || lk.Warehouses.Count == 0) return;
@@ -559,7 +579,7 @@ public class TestDataGeneratorService
             (5, 4, 1.0m, "on-track"), (7, 5, 0.8m, "on-track"), (4, 3, 1.0m, "on-track"), (9, 6, 0.5m, "on-track"), (3, 2, 1.0m, "on-track"),
             (18, 3, 0.3m, "behind"), (22, 4, 0.2m, "behind"), (16, 2, 0.4m, "behind"), (20, 5, 0.1m, "behind"),
             (12, 2, 0.0m, "stuck-ssmo"), (15, 1, 0.0m, "stuck-ssmo"), (10, 2, 0.0m, "stuck-ssmo"),
-            (28, 6, 0.9m, "demurrage"), (25, 5, 0.7m, "demurrage"), (30, 7, 1.0m, "demurrage"),
+            (28, 8, 0.9m, "demurrage"), (25, 8, 0.7m, "demurrage"), (30, 8, 1.0m, "demurrage"),
         };
         for (int i = 0; i < r1Scenarios.Count(); i++)
         {
@@ -590,6 +610,13 @@ public class TestDataGeneratorService
             var clearance = await ArriveAndClear(ship, arrivedDaysAgo, ClearanceRouteType.Route1ClearAtPort);
             await AddCostEstimateAsync(clearance, lk, Today.AddDays(-arrivedDaysAgo), paidFraction);
             await AddRoute1ProgressAsync(clearance, Today.AddDays(-arrivedDaysAgo + 1), stepsDone);
+
+            // Genuine, already-paid demurrage/storage — makes this shipment
+            // show up as a real "hit" on the Demurrage Analysis dashboard.
+            if (label == "demurrage")
+            {
+                await AddActualChargesAsync(clearance, Today.AddDays(-arrivedDaysAgo + 10), demurragePaid: 45000 + _rng.Next(0, 60000), storagePaid: 20000 + _rng.Next(0, 30000));
+            }
 
             // Trucks for shipments nearing/at completion.
             if (stepsDone >= 6)
