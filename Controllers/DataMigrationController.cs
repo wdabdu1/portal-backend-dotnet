@@ -58,4 +58,12 @@ public class DataMigrationController : ControllerBase
         var summary = await service.ProcessAsync(stream);
         return Ok(summary);
     }
+
+    [HttpGet("data-export")]
+    public async Task<IActionResult> ExportData([FromServices] DataExportService service)
+    {
+        var bytes = await service.ExportAsync();
+        var fileName = $"CTC_Portal_Data_Backup_{DateTime.UtcNow:yyyy-MM-dd-HHmmss}.xlsx";
+        return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", fileName);
+    }
 }
