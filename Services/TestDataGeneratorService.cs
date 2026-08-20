@@ -61,6 +61,9 @@ public class TestDataGeneratorService
         public List<Driver> Drivers = new();
         public List<Truck> Trucks = new();
         public List<Warehouse> Warehouses = new();
+        public List<ReceiverBank> ReceiverBanks = new();
+        public List<SenderBank> SenderBanks = new();
+        public List<Tenor> Tenors = new();
     }
 
     private async Task<Lookups> LoadLookups()
@@ -96,6 +99,9 @@ public class TestDataGeneratorService
         lk.Drivers = await _db.Drivers.Where(d => d.IsActive).ToListAsync();
         lk.Trucks = await _db.Trucks.Where(t => t.IsActive).ToListAsync();
         lk.Warehouses = await _db.Warehouses.Where(w => w.IsActive).ToListAsync();
+        lk.ReceiverBanks = await _db.ReceiverBanks.Where(b => b.IsActive).ToListAsync();
+        lk.SenderBanks = await _db.SenderBanks.Where(b => b.IsActive).ToListAsync();
+        lk.Tenors = await _db.Tenors.Where(t => t.IsActive).ToListAsync();
 
         return lk;
     }
@@ -133,12 +139,12 @@ public class TestDataGeneratorService
             IncotermId = lk.Incoterm.Id,
             OriginCountryId = lk.Origin.Id,
             ShipmentModeId = lk.SeaMode.Id,
-            BuShippingBudget = 15000 + _rng.Next(0, 10000),
-            Status = status,
-            CreatedAt = DateTime.UtcNow,
-            UpdatedAt = DateTime.UtcNow
+            Fcl20Count = 1 + _rng.Next(0, 2),
+            Fcl40Count = _rng.Next(0, 2),
+            CreatedAt = blAwbDate.ToDateTime(TimeOnly.MinValue),
+            UpdatedAt = blAwbDate.ToDateTime(TimeOnly.MinValue)
         };
-        _db.PurchaseOrders.Add(po);
+        _db.Shipments.Add(ship);
         await _db.SaveChangesAsync();
         return po;
     }
@@ -240,13 +246,23 @@ public class TestDataGeneratorService
         await _db.SaveChangesAsync();
     }
 
-    private async Task AddBankingAsync(Shipment ship, DateOnly blAwbDate)
+    private async Task AddBankingAsync(Shipment ship, Lookups lk, decimal collectionValue)
     {
+        var senderBank = lk.SenderBanks.Count > 0 ? Pick(lk.SenderBanks) : null;
+        var receiverBank = lk.ReceiverBanks.Count > 0 ? Pick(lk.ReceiverBanks) : null;
+        var tenor = lk.Tenors.Count > 0 ? Pick(lk.Tenors) : null;
         _db.ShipmentBankings.Add(new ShipmentBanking
         {
             ShipmentId = ship.Id,
-            OsDocDispatchDate = blAwbDate.AddDays(1),
-            OsDocTrackingNumber = $"{_rng.Next(100000000, 999999999)}"
+            SenderBankId = senderBank?.Id,
+            OsDocDispatchDate = ship.BlAwbDate!.Value.AddDays(1),
+            OsDocTrackingNumber = $"{_rng.Next(100000000, 999999999)}",
+            ReceivingBankId = receiverBank?.Id,
+            NecessaryGoodType = _rng.Next(0, 2) == 0,
+            CollectionRefNo = $"COLL-{ship.BlAwbNo}",
+            CollectionValue = collectionValue,
+            CollectionCurrencyId = lk.Usd.Id,
+            TenorId = tenor?.Id
         });
         await _db.SaveChangesAsync();
     }
@@ -290,6 +306,32 @@ public class TestDataGeneratorService
             OffshoreApprovedPiNumber = approved ? $"PI-APPR-{ship.BlAwbNo}" : null
         });
         await _db.SaveChangesAsync();
+    }
+
+        // Supplier Payment Due Schedule + actual Records — split into a
+    // "1st Payment" (paid, if the shipment's progressed enough) and a
+    // "Balance" (still outstanding), so Supplier Dues has real, varied
+    // due/paid/remaining figures to show rather than nothing at all.
+    private async Task AddSupplierPaymentAsync(Shipment ship, Lookups lk, DateOnly blAwbDate, decimal totalValue, bool firstPaymentPaid)
+    {
+        var firstAmount = Math.Round(totalValue * 0.3m, 0);
+        var balanceAmount = totalValue - firstAmount;
+
+        var firstDue = new ShipmentPaymentDue { ShipmentId = ship.Id, DueDate = blAwbDate.AddDays(-5), Amount = firstAmount, CurrencyId = lk.Usd.Id, Label = "1st Payment" };
+        var balanceDue = new ShipmentPaymentDue { ShipmentId = ship.Id, DueDate = blAwbDate.AddDays(30), Amount = balanceAmount, CurrencyId = lk.Usd.Id, Label = "Balance on BL" };
+        _db.ShipmentPaymentDues.Add(firstDue);
+        _db.ShipmentPaymentDues.Add(balanceDue);
+        await _db.SaveChangesAsync();
+
+        if (firstPaymentPaid)
+        {
+            _db.ShipmentSupplierPaymentRecords.Add(new ShipmentSupplierPaymentRecord
+            {
+                ShipmentId = ship.Id, PaymentDate = blAwbDate.AddDays(-3), CurrencyId = lk.Usd.Id,
+                Value = firstAmount, ValueUsd = firstAmount, PaymentDueId = firstDue.Id
+            });
+            await _db.SaveChangesAsync();
+        }
     }
 
     // ---------- Clearance ----------
@@ -516,7 +558,7 @@ public class TestDataGeneratorService
             await AddShipmentLineItemsAsync(ship, lines);
             await AddDraftDocsAsync(ship, blDate);
             await AddSupplierFullSetAsync(ship, blDate);
-            await AddBankingAsync(ship, blDate);
+            await AddBankingAsync(ship, lk, lines.Sum(l => l.Total));
             await AddForwarderAsync(ship, lk, marineInsurance: i % 3 != 0);
             await AddAcdAsync(ship, blDate);
             await AddMotAsync(ship, blDate, approved: i % 4 != 3); // 1 in 4 stuck on MOT
@@ -553,7 +595,7 @@ public class TestDataGeneratorService
             await AddShipmentLineItemsAsync(ship, lines);
             await AddDraftDocsAsync(ship, blDate);
             if (transitStages[i] != "draft-only") await AddSupplierFullSetAsync(ship, blDate);
-            if (transitStages[i] == "banking") await AddBankingAsync(ship, blDate);
+            if (transitStages[i] == "banking") await AddBankingAsync(ship, lk, lines.Sum(l => l.Total));
             await AddForwarderAsync(ship, lk, marineInsurance: i % 2 == 0);
             // COC/SSMO: 1 in 3 required-but-not-done, 1 in 3 not needed, rest done
             if (i % 3 == 0) await AddMotAsync(ship, blDate, approved: false);
@@ -600,10 +642,9 @@ public class TestDataGeneratorService
                 await AddShipmentLineItemsAsync(ship, lines);
                 await AddDraftDocsAsync(ship, blDate);
                 await AddSupplierFullSetAsync(ship, blDate);
-                await AddBankingAsync(ship, blDate);
+                await AddBankingAsync(ship, lk, lines.Sum(l => l.Total));
                 await AddForwarderAsync(ship, lk, marineInsurance: true);
-                await AddAcdAsync(ship, blDate);
-                await AddMotAsync(ship, blDate, approved: label != "stuck-ssmo");
+                await AddMotAsync(ship, blDate, approved: true);
                 shipmentsCreated++;
             }
 
