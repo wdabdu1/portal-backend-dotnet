@@ -629,6 +629,6 @@ public class TestDataGeneratorService
             await AddRoute2ProgressAsync(clearance, fzDestinations[i], Today.AddDays(-arrivedDaysAgo + 1), depositedAtFz: true);
         }
 
-        return $"Generated {posCounter - 1} Purchase Orders and {blCounter - 1} Shipments, with varied document/clearance/FZ/trucking stages across all 7 real BU/Division/Supplier families.";
+            return $"Generated {poCounter - 1} Purchase Orders and {blCounter - 1} Shipments, with varied document/clearance/FZ/trucking stages across all 7 real BU/Division/Supplier families.";
     }
 }
