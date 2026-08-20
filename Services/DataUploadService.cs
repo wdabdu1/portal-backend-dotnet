@@ -137,9 +137,13 @@ public class DataUploadService
             // --- PO section (cols 1-19) ---
             var poNumber = S(ws, row, 1);
             var blAwbNo = S(ws, row, 28);
-            if (poNumber is null || blAwbNo is null)
+                        // B/L No. is intentionally optional — a row with a PoNumber but
+            // no B/L No. means this PO line item exists but hasn't shipped
+            // yet (a genuinely common, valid state). Every shipment-related
+            // section below is skipped for such a row.
+            if (poNumber is null)
             {
-                errors.Add($"Row {row}: PoNumber and B/L NO are both required — row skipped.");
+                errors.Add($"Row {row}: PoNumber is required — row skipped.");
                 continue;
             }
 
@@ -268,6 +272,16 @@ public class DataUploadService
                     poLinesCreated++;
                 }
                 poLineCache[poLineKey] = poLine;
+            }
+
+                        // Everything from here on only applies once the line item has
+            // actually shipped — a row with no B/L No. stops here, having
+            // already found-or-created its PO and PO Line Item above.
+            if (blAwbNo is null)
+            {
+                await _db.SaveChangesAsync();
+                sectionsUpdated++;
+                continue;
             }
 
             // --- Shipment section (cols 28-35) ---
