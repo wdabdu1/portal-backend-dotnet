@@ -141,7 +141,7 @@ public class DataExportService
 
         // Sub-section tables keyed by ShipmentId — loaded separately (rather
         // than deeply nested .Include chains) to keep the main query simple.
-        var forwarders = _db.ShipmentForwarders.Include(f => f.Forwarder).Include(f => f.Currency).ToDictionary(f => f.ShipmentId);
+        var forwarders = _db.ShipmentForwarders.Include(f => f.ForwarderEntity).Include(f => f.Currency).ToDictionary(f => f.ShipmentId);
         var draftDocs = _db.ShipmentDraftDocuments.ToDictionary(d => d.ShipmentId);
         var fullSets = _db.ShipmentSupplierFullSets.ToDictionary(f => f.ShipmentId);
         var bankings = _db.ShipmentBankings.ToDictionary(b => b.ShipmentId);
@@ -210,7 +210,7 @@ public class DataExportService
             SetCell(ws, row, c++, poLine.UnitPrice);
             SetCell(ws, row, c++, sl.ItemSubtotal);
 
-            SetCell(ws, row, c++, fwd?.Forwarder?.Name);
+            SetCell(ws, row, c++, fwd?.ForwarderEntity?.Name);
             SetCell(ws, row, c++, fwd?.ActualShippingCost);
             SetCell(ws, row, c++, fwd?.Currency?.Code);
             SetCell(ws, row, c++, fwd?.AmountSaved);
