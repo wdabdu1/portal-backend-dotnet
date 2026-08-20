@@ -245,16 +245,23 @@ public class DataUploadService
                     if (uom is null) { errors.Add($"Row {row}: Unit of Measure '{uomCode}' not found."); continue; }
                     if (currency is null) { errors.Add($"Row {row}: Currency '{currencyCode}' not found."); continue; }
 
+                    var lineQty = D(ws, row, 24) ?? 0;
+                    var lineUnitPrice = D(ws, row, 25) ?? 0;
+                    var lineTotal = lineQty * lineUnitPrice;
+                    var lineFxRate = await _fx.GetRateToUsdAsync(currency.Id);
+
                     poLine = new PurchaseOrderLineItem
                     {
                         PurchaseOrderId = po.Id,
                         ProductCategoryId = category.Id,
                         ModelProductId = model.Id,
                         ProductTypeId = type.Id,
-                        Qty = D(ws, row, 24) ?? 0,
+                        Qty = lineQty,
                         UnitOfMeasureId = uom.Id,
-                        UnitPrice = D(ws, row, 25) ?? 0,
-                        CurrencyId = currency.Id
+                        UnitPrice = lineUnitPrice,
+                        CurrencyId = currency.Id,
+                        Total = lineTotal,
+                        TotalUsd = lineTotal / lineFxRate
                     };
                     _db.PurchaseOrderLineItems.Add(poLine);
                     await _db.SaveChangesAsync();
