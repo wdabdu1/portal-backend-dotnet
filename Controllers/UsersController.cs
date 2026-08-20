@@ -12,6 +12,7 @@ public record UserSummary(string Id, string Username, string Email, string Displ
 public record UpdateUserRolesRequest(string Role, List<CreateUserBuAccess> BusinessUnits);
 public record UpdateUsernameRequest(string Username);
 public record UpdateDisplayNameRequest(string DisplayName);
+public record UserActivityRow(string Id, string Username, string DisplayName, string Role, bool IsActive, DateTime? LastActivityAt, int LoginCount, bool IsLiveNow);
 
 [ApiController]
 [Authorize(Roles = AppRoles.SuperUser)]
@@ -163,5 +164,27 @@ public class UsersController : ControllerBase
         if (!result.Succeeded) return BadRequest(new { message = string.Join("; ", result.Errors.Select(e => e.Description)) });
 
         return NoContent();
+    }
+
+    // "Live Now" is an approximation (recent activity within the last
+    // few minutes), not true real-time presence — there's no reliable
+    // "logged out" signal with stateless JWT auth, so this is the
+    // honest, practical proxy.
+    [HttpGet("activity")]
+    public async Task<ActionResult<IEnumerable<UserActivityRow>>> GetActivity()
+    {
+        var users = await _userManager.Users.ToListAsync();
+        var result = new List<UserActivityRow>();
+        var liveThreshold = DateTime.UtcNow.AddMinutes(-5);
+
+        foreach (var user in users)
+        {
+            var roles = await _userManager.GetRolesAsync(user);
+            var isLive = user.LastActivityAt.HasValue && user.LastActivityAt.Value >= liveThreshold;
+            result.Add(new UserActivityRow(user.Id, user.UserName ?? "", user.DisplayName, roles.FirstOrDefault() ?? "",
+                user.IsActive, user.LastActivityAt, user.LoginCount, isLive));
+        }
+
+        return Ok(result.OrderByDescending(u => u.LastActivityAt).ToList());
     }
 }
