@@ -66,4 +66,14 @@ public class DataMigrationController : ControllerBase
         var fileName = $"CTC_Portal_Data_Backup_{DateTime.UtcNow:yyyy-MM-dd-HHmmss}.xlsx";
         return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", fileName);
     }
+
+    // One-time, deliberately not wired into any frontend button — the
+    // scenario data (BU/Division/Supplier families) is hand-built for
+    // this specific Settings baseline. Run directly via API once.
+    [HttpPost("generate-test-data")]
+    public async Task<IActionResult> GenerateTestData([FromServices] TestDataGeneratorService service)
+    {
+        var summary = await service.GenerateAsync();
+        return Ok(new { message = summary });
+    }
 }
