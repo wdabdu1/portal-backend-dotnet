@@ -11,10 +11,11 @@ namespace ShippingPortal.Api.Services;
 // One-time, deliberately hand-built generator that creates a realistic,
 // fully interlinked test dataset — POs at every stage of execution,
 // Shipments at every document/clearance stage, real Cost Estimates,
-// completed FZ deposits, and truck allocations — using the 7 real
-// BU/Division/Supplier/OffshoreChain/Consignee combinations already in
-// Settings. Not exposed for repeated casual use; meant to be run once
-// against a clean, real Settings baseline.
+// real Banking/Bank Dues, Supplier Payment Due Schedules, completed FZ
+// deposits, and truck allocations — using the 7 real BU/Division/
+// Supplier/OffshoreChain/Consignee combinations already in Settings.
+// Not exposed for repeated casual use; meant to be run once against a
+// clean, real Settings baseline.
 public class TestDataGeneratorService
 {
     private readonly ShippingPortalDbContext _db;
@@ -61,8 +62,8 @@ public class TestDataGeneratorService
         public List<Driver> Drivers = new();
         public List<Truck> Trucks = new();
         public List<Warehouse> Warehouses = new();
-        public List<ReceiverBank> ReceiverBanks = new();
         public List<SenderBank> SenderBanks = new();
+        public List<ReceiverBank> ReceiverBanks = new();
         public List<Tenor> Tenors = new();
     }
 
@@ -99,15 +100,15 @@ public class TestDataGeneratorService
         lk.Drivers = await _db.Drivers.Where(d => d.IsActive).ToListAsync();
         lk.Trucks = await _db.Trucks.Where(t => t.IsActive).ToListAsync();
         lk.Warehouses = await _db.Warehouses.Where(w => w.IsActive).ToListAsync();
-        lk.ReceiverBanks = await _db.ReceiverBanks.Where(b => b.IsActive).ToListAsync();
         lk.SenderBanks = await _db.SenderBanks.Where(b => b.IsActive).ToListAsync();
+        lk.ReceiverBanks = await _db.ReceiverBanks.Where(b => b.IsActive).ToListAsync();
         lk.Tenors = await _db.Tenors.Where(t => t.IsActive).ToListAsync();
 
         return lk;
     }
 
     private T Pick<T>(List<T> list) => list[_rng.Next(list.Count)];
-  
+
     // ---------- PO / Shipment creation ----------
 
     private async Task<PurchaseOrder> CreatePoAsync(Lookups lk, Family fam, string poNumber, int placedDaysAgo, OrderStatus status)
@@ -119,6 +120,7 @@ public class TestDataGeneratorService
         var consignee = lk.Partners[fam.ConsigneeName];
 
         var poDate = Today.AddDays(-placedDaysAgo);
+        var poCreatedAt = poDate.ToDateTime(TimeOnly.MinValue);
         var po = new PurchaseOrder
         {
             PoNumber = poNumber,
@@ -139,12 +141,17 @@ public class TestDataGeneratorService
             IncotermId = lk.Incoterm.Id,
             OriginCountryId = lk.Origin.Id,
             ShipmentModeId = lk.SeaMode.Id,
-            Fcl20Count = 1 + _rng.Next(0, 2),
-            Fcl40Count = _rng.Next(0, 2),
-            CreatedAt = blAwbDate.ToDateTime(TimeOnly.MinValue),
-            UpdatedAt = blAwbDate.ToDateTime(TimeOnly.MinValue)
+            BuShippingBudget = 15000 + _rng.Next(0, 10000),
+            Status = status,
+            // Deliberately set to the PO's own business date, not "now" —
+            // otherwise every generated PO would share the exact same
+            // creation timestamp and all cluster together on the Home
+            // Page's "recently added" widget regardless of how old they're
+            // meant to represent.
+            CreatedAt = poCreatedAt,
+            UpdatedAt = poCreatedAt
         };
-        _db.Shipments.Add(ship);
+        _db.PurchaseOrders.Add(po);
         await _db.SaveChangesAsync();
         return po;
     }
@@ -181,6 +188,7 @@ public class TestDataGeneratorService
         DateOnly blAwbDate, DateOnly eta, ShipmentStatus status, bool marineInsurance)
     {
         var line = lk.ShippingLines.Count > 0 ? Pick(lk.ShippingLines) : null;
+        var shipCreatedAt = blAwbDate.ToDateTime(TimeOnly.MinValue);
         var ship = new Shipment
         {
             PurchaseOrderId = po.Id,
@@ -192,8 +200,127 @@ public class TestDataGeneratorService
             ShippingLineId = line?.Id ?? 1,
             Fcl20Count = 1 + _rng.Next(0, 2),
             Fcl40Count = _rng.Next(0, 2),
-            CreatedAt = DateTime.UtcNow,
-            UpdatedAt = DateTime.UtcNow
+            // Same reasoning as PurchaseOrder.CreatedAt above — anchored to
+            // the shipment's own BL/AWB date, not "now".
+            CreatedAt = shipCreatedAt,
+            UpdatedAt = shipCreatedAt
+        };
+        _db.Shipments.Add(ship);
+        await _db.SaveChangesAsync();
+        return ship;
+    }
+
+    private async Task<List<ShipmentLineItem>> AddShipmentLineItemsAsync(Shipment ship, List<PurchaseOrderLineItem> poLines)
+    {
+        var result = new List<ShipmentLineItem>();
+        foreach (var pl in poLines)
+        {
+            var sl = new ShipmentLineItem
+            {
+                ShipmentId = ship.Id,
+                PurchaseOrderLineItemId = pl.Id,
+                QtyInBl = pl.Qty,
+                ItemSubtotal = pl.Total
+            };
+            _db.ShipmentLineItems.Add(sl);
+            result.Add(sl);
+        }
+        await _db.SaveChangesAsync();
+        return result;
+    }
+    
+    // ---------- PO / Shipment creation ----------
+
+    private async Task<PurchaseOrder> CreatePoAsync(Lookups lk, Family fam, string poNumber, int placedDaysAgo, OrderStatus status)
+    {
+        var bu = lk.BusinessUnits[fam.BuCode];
+        var division = lk.Divisions[(fam.BuCode, fam.DivisionCode)];
+        var supplier = lk.Partners[fam.SupplierName];
+        var brand = fam.BrandName is not null ? lk.Partners[fam.BrandName] : supplier;
+        var consignee = lk.Partners[fam.ConsigneeName];
+
+        var poDate = Today.AddDays(-placedDaysAgo);
+        // Backdated to match the PO's own business date — otherwise every
+        // record shows as "created today" on the Home Page's recent-activity
+        // view, regardless of how far in the past it's meant to represent.
+        var createdAt = poDate.ToDateTime(TimeOnly.MinValue);
+        var po = new PurchaseOrder
+        {
+            PoNumber = poNumber,
+            BusinessUnitId = bu.Id,
+            DivisionId = division.Id,
+            SupplierId = supplier.Id,
+            BrandManufacturerId = brand.Id,
+            ApprovalTypeId = lk.Approval.Id,
+            ConsigneeId = consignee.Id,
+            SupplierPiNo = $"PI-{poNumber}",
+            SupplierPiDate = poDate.AddDays(-3),
+            SupplierPaymentTermId = lk.PaymentTerm.Id,
+            ReceivedSignedPiDate = poDate.AddDays(-2),
+            SentSignedPiDate = poDate.AddDays(-1),
+            BuPoDate = poDate,
+            OrderExecutionDate = poDate.AddDays(2),
+            LatestShippingDate = poDate.AddDays(45),
+            IncotermId = lk.Incoterm.Id,
+            OriginCountryId = lk.Origin.Id,
+            ShipmentModeId = lk.SeaMode.Id,
+            BuShippingBudget = 15000 + _rng.Next(0, 10000),
+            Status = status,
+            CreatedAt = createdAt,
+            UpdatedAt = createdAt
+        };
+        _db.PurchaseOrders.Add(po);
+        await _db.SaveChangesAsync();
+        return po;
+    }
+
+    private async Task<List<PurchaseOrderLineItem>> AddPoLineItemsAsync(Lookups lk, PurchaseOrder po, int count)
+    {
+        var lines = new List<PurchaseOrderLineItem>();
+        for (int i = 0; i < count; i++)
+        {
+            var model = Pick(lk.Models);
+            var qty = 100 + _rng.Next(0, 400);
+            var unitPrice = 50 + _rng.Next(0, 450);
+            var line = new PurchaseOrderLineItem
+            {
+                PurchaseOrderId = po.Id,
+                ProductCategoryId = model.ProductCategoryId ?? Pick(lk.Categories).Id,
+                ModelProductId = model.Id,
+                ProductTypeId = model.ProductTypeId ?? Pick(lk.Types).Id,
+                Qty = qty,
+                UnitOfMeasureId = Pick(lk.Uoms).Id,
+                UnitPrice = unitPrice,
+                CurrencyId = lk.Usd.Id,
+                Total = qty * unitPrice,
+                TotalUsd = qty * unitPrice
+            };
+            _db.PurchaseOrderLineItems.Add(line);
+            lines.Add(line);
+        }
+        await _db.SaveChangesAsync();
+        return lines;
+    }
+
+    private async Task<Shipment> CreateShipmentAsync(Lookups lk, PurchaseOrder po, string blAwbNo,
+        DateOnly blAwbDate, DateOnly eta, ShipmentStatus status, bool marineInsurance)
+    {
+        var line = lk.ShippingLines.Count > 0 ? Pick(lk.ShippingLines) : null;
+        // Same backdating reasoning as PurchaseOrder.CreatedAt above.
+        var createdAt = blAwbDate.ToDateTime(TimeOnly.MinValue);
+        var ship = new Shipment
+        {
+            PurchaseOrderId = po.Id,
+            BlAwbNo = blAwbNo,
+            BlAwbDate = blAwbDate,
+            Etd = blAwbDate.AddDays(2),
+            Eta = eta,
+            Status = status,
+            ShippingLineId = line?.Id ?? 1,
+            Fcl20Count = 1 + _rng.Next(0, 2),
+            Fcl40Count = _rng.Next(0, 2),
+            CreatedAt = createdAt,
+            UpdatedAt = createdAt
         };
         _db.Shipments.Add(ship);
         await _db.SaveChangesAsync();
@@ -246,23 +373,27 @@ public class TestDataGeneratorService
         await _db.SaveChangesAsync();
     }
 
-    private async Task AddBankingAsync(Shipment ship, Lookups lk, decimal collectionValue)
+    // Now populates the fields Bank Dues actually reads from
+    // (ReceivingBankId, CollectionValue, CollectionCurrencyId, TenorId) —
+    // previously only the DHL tracking number was set, so no shipment
+    // could ever appear on the Bank Dues list at all.
+        private async Task AddBankingAsync(Shipment ship, Lookups lk, DateOnly blAwbDate, decimal collectionValueUsd)
     {
         var senderBank = lk.SenderBanks.Count > 0 ? Pick(lk.SenderBanks) : null;
         var receiverBank = lk.ReceiverBanks.Count > 0 ? Pick(lk.ReceiverBanks) : null;
-        var tenor = lk.Tenors.Count > 0 ? Pick(lk.Tenors) : null;
         _db.ShipmentBankings.Add(new ShipmentBanking
         {
             ShipmentId = ship.Id,
             SenderBankId = senderBank?.Id,
-            OsDocDispatchDate = ship.BlAwbDate!.Value.AddDays(1),
+            OsDocDispatchDate = blAwbDate.AddDays(1),
+            OsDocDispatchedViaId = lk.Couriers.Count > 0 ? Pick(lk.Couriers).Id : null,
             OsDocTrackingNumber = $"{_rng.Next(100000000, 999999999)}",
             ReceivingBankId = receiverBank?.Id,
             NecessaryGoodType = _rng.Next(0, 2) == 0,
             CollectionRefNo = $"COLL-{ship.BlAwbNo}",
-            CollectionValue = collectionValue,
+            CollectionValue = collectionValueUsd,
             CollectionCurrencyId = lk.Usd.Id,
-            TenorId = tenor?.Id
+            TenorId = lk.Tenor?.Id
         });
         await _db.SaveChangesAsync();
     }
@@ -279,7 +410,7 @@ public class TestDataGeneratorService
         });
         await _db.SaveChangesAsync();
     }
-  
+
     private async Task AddAcdAsync(Shipment ship, DateOnly blAwbDate)
     {
         _db.ShipmentAcds.Add(new ShipmentAcd
@@ -308,30 +439,37 @@ public class TestDataGeneratorService
         await _db.SaveChangesAsync();
     }
 
-        // Supplier Payment Due Schedule + actual Records — split into a
-    // "1st Payment" (paid, if the shipment's progressed enough) and a
-    // "Balance" (still outstanding), so Supplier Dues has real, varied
-    // due/paid/remaining figures to show rather than nothing at all.
-    private async Task AddSupplierPaymentAsync(Shipment ship, Lookups lk, DateOnly blAwbDate, decimal totalValue, bool firstPaymentPaid)
-    {
-        var firstAmount = Math.Round(totalValue * 0.3m, 0);
-        var balanceAmount = totalValue - firstAmount;
+    // ---------- Supplier Dues ----------
 
-        var firstDue = new ShipmentPaymentDue { ShipmentId = ship.Id, DueDate = blAwbDate.AddDays(-5), Amount = firstAmount, CurrencyId = lk.Usd.Id, Label = "1st Payment" };
-        var balanceDue = new ShipmentPaymentDue { ShipmentId = ship.Id, DueDate = blAwbDate.AddDays(30), Amount = balanceAmount, CurrencyId = lk.Usd.Id, Label = "Balance on BL" };
-        _db.ShipmentPaymentDues.Add(firstDue);
-        _db.ShipmentPaymentDues.Add(balanceDue);
+    // Creates a Payment Due milestone, and — for a subset — a matching
+    // Payment Record too, so Supplier Dues shows a genuine mix of fully
+    // paid, partially paid, and still-outstanding shipments.
+    private async Task AddSupplierDueAsync(Shipment ship, Lookups lk, DateOnly blAwbDate, decimal amountUsd, string paymentState)
+    {
+        var due = new ShipmentPaymentDue
+        {
+            ShipmentId = ship.Id,
+            DueDate = blAwbDate.AddDays(30),
+            Amount = amountUsd,
+            CurrencyId = lk.Usd.Id,
+            Label = "Balance on BL"
+        };
+        _db.ShipmentPaymentDues.Add(due);
         await _db.SaveChangesAsync();
 
-        if (firstPaymentPaid)
+        if (paymentState == "unpaid") return;
+
+        var paidAmount = paymentState == "partial" ? Math.Round(amountUsd * 0.5m, 0) : amountUsd;
+        _db.ShipmentSupplierPaymentRecords.Add(new ShipmentSupplierPaymentRecord
         {
-            _db.ShipmentSupplierPaymentRecords.Add(new ShipmentSupplierPaymentRecord
-            {
-                ShipmentId = ship.Id, PaymentDate = blAwbDate.AddDays(-3), CurrencyId = lk.Usd.Id,
-                Value = firstAmount, ValueUsd = firstAmount, PaymentDueId = firstDue.Id
-            });
-            await _db.SaveChangesAsync();
-        }
+            ShipmentId = ship.Id,
+            PaymentDate = blAwbDate.AddDays(25),
+            CurrencyId = lk.Usd.Id,
+            Value = paidAmount,
+            ValueUsd = paidAmount,
+            PaymentDueId = due.Id
+        });
+        await _db.SaveChangesAsync();
     }
 
     // ---------- Clearance ----------
@@ -382,7 +520,7 @@ public class TestDataGeneratorService
     // shipment's real customs cost profile. Some marked paid, some not,
     // driven by the caller.
     private async Task AddCostEstimateAsync(Clearance clearance, Lookups lk, DateOnly estimateDate, decimal paidFraction)
-    {
+            {
         _db.ClearanceCostEstimates.Add(new ClearanceCostEstimate { ClearanceId = clearance.Id, EstimateDate = estimateDate, NotifyBuDate = estimateDate });
 
         var weights = new Dictionary<string, decimal> { ["DO Fees"] = 0.05m, ["Ship. Line Deposit"] = 0.10m, ["Move"] = 0.03m, ["SPC"] = 0.08m, ["Customs Duties"] = 0.65m, ["SSMO"] = 0.09m };
@@ -455,7 +593,7 @@ public class TestDataGeneratorService
         await _db.SaveChangesAsync();
     }
 
-        // Genuine, already-incurred demurrage/storage — this is what the
+    // Genuine, already-incurred demurrage/storage — this is what the
     // Demurrage Analysis dashboard's "shipments with hits" specifically
     // looks for (an estimate alone isn't enough; it requires both an
     // actual paid amount AND the relevant completion date to have
@@ -501,10 +639,9 @@ public class TestDataGeneratorService
         _db.TruckLoadItems.Add(new TruckLoadItem { TruckLoadDropId = drop.Id, WarehouseAllocationId = allocation.Id, Qty = shipLine.QtyInBl });
         await _db.SaveChangesAsync();
     }
-  
-    // ---------- Main orchestration ----------
 
-    public async Task<string> GenerateAsync()
+    // ---------- Main orchestration ----------
+        public async Task<string> GenerateAsync()
     {
         var lk = await LoadLookups();
         int poCounter = 1, blCounter = 1;
@@ -516,6 +653,9 @@ public class TestDataGeneratorService
         // Round-robin through the 7 families so every PO uses real,
         // correctly-matched Supplier/Division/Offshore/Consignee data.
         Family FamAt(int i) => Families[i % Families.Length];
+
+        // Payment states cycle through unpaid/partial/paid for realistic variety.
+        string[] paymentCycle = { "unpaid", "partial", "paid" };
 
         // --- 3 New POs (Draft, no shipments at all) ---
         for (int i = 0; i < 3; i++)
@@ -540,6 +680,8 @@ public class TestDataGeneratorService
             await AddShipmentLineItemsAsync(ship, new List<PurchaseOrderLineItem> { lines[0] });
             await AddDraftDocsAsync(ship, blDate);
             await AddForwarderAsync(ship, lk, marineInsurance: i % 2 == 0);
+            await AddBankingAsync(ship, lk, blDate, lines[0].Total);
+            await AddSupplierDueAsync(ship, lk, blDate, lines[0].Total, paymentCycle[i % 3]);
             shipmentsCreated++;
         }
 
@@ -558,10 +700,12 @@ public class TestDataGeneratorService
             await AddShipmentLineItemsAsync(ship, lines);
             await AddDraftDocsAsync(ship, blDate);
             await AddSupplierFullSetAsync(ship, blDate);
-            await AddBankingAsync(ship, lk, lines.Sum(l => l.Total));
+            var totalValue = lines.Sum(l => l.Total);
+            await AddBankingAsync(ship, lk, blDate, totalValue);
             await AddForwarderAsync(ship, lk, marineInsurance: i % 3 != 0);
             await AddAcdAsync(ship, blDate);
             await AddMotAsync(ship, blDate, approved: i % 4 != 3); // 1 in 4 stuck on MOT
+            await AddSupplierDueAsync(ship, lk, blDate, totalValue, paymentCycle[i % 3]);
             shipmentsCreated++;
             fullyExecutedShipments.Add(ship);
             fullyExecutedPoIndex.Add(fam);
@@ -595,7 +739,7 @@ public class TestDataGeneratorService
             await AddShipmentLineItemsAsync(ship, lines);
             await AddDraftDocsAsync(ship, blDate);
             if (transitStages[i] != "draft-only") await AddSupplierFullSetAsync(ship, blDate);
-            if (transitStages[i] == "banking") await AddBankingAsync(ship, lk, lines.Sum(l => l.Total));
+            if (transitStages[i] == "banking") await AddBankingAsync(ship, lk, blDate, lines[0].Total);
             await AddForwarderAsync(ship, lk, marineInsurance: i % 2 == 0);
             // COC/SSMO: 1 in 3 required-but-not-done, 1 in 3 not needed, rest done
             if (i % 3 == 0) await AddMotAsync(ship, blDate, approved: false);
@@ -614,8 +758,10 @@ public class TestDataGeneratorService
             return clearance;
         }
 
-        // --- Route 1 shipments: 5 on-track, 4 behind schedule, 3 stuck on SSMO, 3 with demurrage exposure ---
+        // --- Route 1 shipments: 5 on-track, 4 behind schedule, 3 stuck on SSMO, 3 with genuine demurrage hits ---
         // (15 shipments total: the 7 fully-executed ones are reused, plus 8 fresh ones)
+        // Demurrage rows use stepsDone: 8 (fully cleared, Containers Returned set) —
+        // required for a real "hit" to register on the Demurrage Analysis dashboard.
         var r1Scenarios = new (int arrivedDaysAgo, int stepsDone, decimal paidFraction, string label)[]
         {
             (5, 4, 1.0m, "on-track"), (7, 5, 0.8m, "on-track"), (4, 3, 1.0m, "on-track"), (9, 6, 0.5m, "on-track"), (3, 2, 1.0m, "on-track"),
@@ -642,9 +788,11 @@ public class TestDataGeneratorService
                 await AddShipmentLineItemsAsync(ship, lines);
                 await AddDraftDocsAsync(ship, blDate);
                 await AddSupplierFullSetAsync(ship, blDate);
-                await AddBankingAsync(ship, lk, lines.Sum(l => l.Total));
+                await AddBankingAsync(ship, lk, blDate, lines[0].Total);
                 await AddForwarderAsync(ship, lk, marineInsurance: true);
-                await AddMotAsync(ship, blDate, approved: true);
+                await AddAcdAsync(ship, blDate);
+                await AddMotAsync(ship, blDate, approved: label != "stuck-ssmo");
+                await AddSupplierDueAsync(ship, lk, blDate, lines[0].Total, paymentCycle[i % 3]);
                 shipmentsCreated++;
             }
 
@@ -687,9 +835,10 @@ public class TestDataGeneratorService
             await AddShipmentLineItemsAsync(ship, lines);
             await AddDraftDocsAsync(ship, blDate);
             await AddSupplierFullSetAsync(ship, blDate);
-            await AddBankingAsync(ship, blDate);
+            await AddBankingAsync(ship, lk, blDate, lines[0].Total);
             await AddForwarderAsync(ship, lk, marineInsurance: true);
             await AddMotAsync(ship, blDate, approved: true);
+            await AddSupplierDueAsync(ship, lk, blDate, lines[0].Total, paymentCycle[i % 3]);
             shipmentsCreated++;
 
             var clearance = await ArriveAndClear(ship, arrivedDaysAgo, ClearanceRouteType.Route2FzDeposit);
@@ -697,6 +846,6 @@ public class TestDataGeneratorService
             await AddRoute2ProgressAsync(clearance, fzDestinations[i], Today.AddDays(-arrivedDaysAgo + 1), depositedAtFz: true);
         }
 
-            return $"Generated {poCounter - 1} Purchase Orders and {blCounter - 1} Shipments, with varied document/clearance/FZ/trucking stages across all 7 real BU/Division/Supplier families.";
+        return $"Generated {poCounter - 1} Purchase Orders and {blCounter - 1} Shipments, with varied document/clearance/FZ/trucking/banking/supplier-dues stages across all 7 real BU/Division/Supplier families.";
     }
 }
