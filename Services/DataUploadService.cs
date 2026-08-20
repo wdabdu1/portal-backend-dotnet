@@ -381,9 +381,11 @@ public class DataUploadService
             var fwd = await _db.ShipmentForwarders.FirstOrDefaultAsync(f => f.ShipmentId == shipmentId) ?? new ShipmentForwarder { ShipmentId = shipmentId };
             if (fwd.Id == 0) _db.ShipmentForwarders.Add(fwd);
             fwd.ForwarderId = forwarder?.Id;
-            fwd.ActualShippingCost = D(ws, row, 40);
+            var fwdCost = D(ws, row, 40);
+            fwd.ActualShippingCost = fwdCost;
             var fwdCurrency = lk.Currencies.FirstOrDefault(c => c.Code == S(ws, row, 41));
             fwd.CurrencyId = fwdCurrency?.Id;
+            fwd.ActualShippingCostUsd = fwdCost.HasValue && fwdCurrency is not null ? fwdCost.Value / await _fx.GetRateToUsdAsync(fwdCurrency.Id) : null;
             fwd.AmountSaved = D(ws, row, 42);
             fwd.MarineInsurance = B(ws, row, 43) ?? false;
         }
