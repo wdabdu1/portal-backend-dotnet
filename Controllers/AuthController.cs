@@ -44,6 +44,10 @@ public class AuthController : ControllerBase
         var roles = await _userManager.GetRolesAsync(user);
         var buAccess = await _db.UserBusinessUnitAccess.Where(a => a.UserId == user.Id).ToListAsync();
 
+        user.LoginCount++;
+        user.LastActivityAt = DateTime.UtcNow;
+        await _userManager.UpdateAsync(user);
+
         var token = _tokenService.CreateToken(user, roles, buAccess);
         return Ok(new LoginResponse(token, user.DisplayName, roles));
     }
