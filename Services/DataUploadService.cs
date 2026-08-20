@@ -153,7 +153,7 @@ public class DataUploadService
                     if (businessUnit is null) { errors.Add($"Row {row}: Business Unit '{buCode}' not found (checked both Code and Name)."); continue; }
 
                     var divisionCode = S(ws, row, 3);
-                    var division = await _db.Divisions.FirstOrDefaultAsync(d => d.BusinessUnitId == businessUnit.Id && d.Code == divisionCode);
+                    var division = await _db.Divisions.FirstOrDefaultAsync(d => d.BusinessUnitId == businessUnit.Id && (d.Code == divisionCode || d.Name == divisionCode));
                     if (division is null) { errors.Add($"Row {row}: Division '{divisionCode}' not found under Business Unit '{buCode}'."); continue; }
 
                     var supplierName = S(ws, row, 4);
