@@ -210,8 +210,8 @@ public class SettingsUploadService
             if (RowIsBlank(ws, row, 4)) continue;
             var buCode = S(ws, row, 1); var code = S(ws, row, 2); var name = S(ws, row, 3);
             if (buCode is null || code is null || name is null) { errors.Add($"Row {row}: BusinessUnitCode, Code, and Name are all required."); continue; }
-            var bu = bus.FirstOrDefault(b => b.Code == buCode);
-            if (bu is null) { errors.Add($"Row {row}: Business Unit '{buCode}' not found."); continue; }
+            var bu = bus.FirstOrDefault(b => b.Code == buCode || b.Name == buCode);
+            if (bu is null) { errors.Add($"Row {row}: Business Unit '{buCode}' not found (checked both Code and Name)."); continue; }
             var active = B(ws, row, 4) ?? true;
 
             var match = existing.FirstOrDefault(d => d.BusinessUnitId == bu.Id && d.Code == code);
@@ -364,8 +364,8 @@ public class SettingsUploadService
             if (RowIsBlank(ws, row, 3)) continue;
             var code = S(ws, row, 1); var rate = D(ws, row, 2); var date = Dt(ws, row, 3);
             if (code is null || rate is null || date is null) { errors.Add($"Row {row}: CurrencyCode, RateToUsd, and EffectiveDate are all required."); continue; }
-            var cur = currencies.FirstOrDefault(c => c.Code == code);
-            if (cur is null) { errors.Add($"Row {row}: Currency '{code}' not found."); continue; }
+            var cur = currencies.FirstOrDefault(c => c.Code == code || c.Name == code);
+            if (cur is null) { errors.Add($"Row {row}: Currency '{code}' not found (checked both Code and Name)."); continue; }
 
             var match = existing.FirstOrDefault(f => f.CurrencyId == cur.Id && f.EffectiveDate == date);
             if (match is null)
@@ -677,8 +677,8 @@ public class SettingsUploadService
             var partner = partners.FirstOrDefault(p => p.Name == partnerName);
             if (partner is null) { errors.Add($"Row {row}: Business Partner '{partnerName}' not found."); continue; }
             if (!partner.IsOffshoreEntity) { errors.Add($"Row {row}: '{partnerName}' is not flagged as an Offshore Entity."); continue; }
-            var cur = currencies.FirstOrDefault(c => c.Code == curCode);
-            if (cur is null) { errors.Add($"Row {row}: Currency '{curCode}' not found."); continue; }
+            var cur = currencies.FirstOrDefault(c => c.Code == curCode || c.Name == curCode);
+            if (cur is null) { errors.Add($"Row {row}: Currency '{curCode}' not found (checked both Code and Name)."); continue; }
 
             var match = existing.FirstOrDefault(m => m.BusinessPartnerId == partner.Id);
             if (match is null)
