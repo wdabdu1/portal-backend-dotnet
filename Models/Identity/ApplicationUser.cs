@@ -14,6 +14,14 @@ public class ApplicationUser : IdentityUser
     // actual mechanism behind stolen-device / offboarding response.
     public int SessionVersion { get; set; } = 1;
 
+    // Updated on every authenticated request (see OnTokenValidated in
+    // Program.cs) — used to approximate "Live Now" (recent activity)
+    // and "Last Used" on the User Activity report.
+    public DateTime? LastActivityAt { get; set; }
+    // Incremented once per successful login — a simple, honest proxy
+    // for how often an account is actually used.
+    public int LoginCount { get; set; } = 0;
+
     public ICollection<UserBusinessUnitAccess> BusinessUnitAccess { get; set; }
         = new List<UserBusinessUnitAccess>();
 }
