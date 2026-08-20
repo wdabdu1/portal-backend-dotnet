@@ -1,6 +1,9 @@
 using ClosedXML.Excel;
 using Microsoft.EntityFrameworkCore;
 using ShippingPortal.Api.Data;
+using ShippingPortal.Api.Models.Orders;
+using ShippingPortal.Api.Models.Shipments;
+using ShippingPortal.Api.Models.Clearance;
 
 namespace ShippingPortal.Api.Services;
 
@@ -119,7 +122,7 @@ public class DataExportService
         for (int c = 1; c <= MainColumns.Length; c++)
             ws.Cell(3, c).Style.Fill.BackgroundColor = LegendFill;
 
-                // Built from PO Line Items outward (not Shipment Line Items) so a
+        // Built from PO Line Items outward (not Shipment Line Items) so a
         // PO that hasn't shipped yet — a genuinely common, valid state —
         // still gets a row, with every shipment-related column left blank
         // rather than being silently dropped from the backup entirely.
@@ -200,11 +203,11 @@ public class DataExportService
         ws.Columns().AdjustToContents();
     }
 
-    private void WriteMainRow(IXLWorksheet ws, int row, Models.Orders.PurchaseOrder po, Models.Orders.PurchaseOrderLineItem poLine,
-        Models.Shipments.Shipment? ship, Models.Shipments.ShipmentLineItem? sl, Models.Shipments.ShipmentForwarder? fwd,
-        Models.Shipments.ShipmentDraftDocuments? docs, Models.Shipments.ShipmentSupplierFullSet? fullSet, Models.Shipments.ShipmentBanking? banking,
-        Models.Shipments.ShipmentAcd? acd, Models.Shipments.ShipmentMot? mot, Models.Shipments.LastOffshoreDetail? offshore,
-        Models.Shipments.LastOffshoreItemDetail? offshoreItem, Models.Clearance.Clearance? clearance = null)
+    private void WriteMainRow(IXLWorksheet ws, int row, PurchaseOrder po, PurchaseOrderLineItem poLine,
+        Shipment? ship, ShipmentLineItem? sl, ShipmentForwarder? fwd,
+        ShipmentDraftDocuments? docs, ShipmentSupplierFullSet? fullSet, ShipmentBanking? banking,
+        ShipmentAcd? acd, ShipmentMot? mot, LastOffshoreDetail? offshore,
+        LastOffshoreItemDetail? offshoreItem, Clearance? clearance = null)
     {
         int c = 1;
         SetCell(ws, row, c++, po.PoNumber);
@@ -278,7 +281,7 @@ public class DataExportService
 
         SetCell(ws, row, c++, clearance?.Notes);
     }
-    
+
     private void BuildPaymentDueSheet(XLWorkbook wb)
     {
         var ws = wb.Worksheets.Add("Supplier_Payment_Due_Schedule");
