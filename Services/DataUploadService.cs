@@ -518,17 +518,31 @@ public class DataUploadService
                 paymentDueId = due?.Id;
             }
 
+                        // Matched by (Shipment, Date, Currency, Value) — the same real
+            // payment described the same way twice (e.g. re-uploading an
+            // export) is treated as the same record rather than duplicated.
+            // A genuinely new payment on the same date for the same amount
+            // is rare enough that this is a safe, practical compromise.
+            var existing = await _db.ShipmentSupplierPaymentRecords.FirstOrDefaultAsync(r =>
+                r.ShipmentId == shipment.Id && r.PaymentDate == paymentDate && r.CurrencyId == currency.Id && r.Value == value);
+
             var rate = await _fx.GetRateToUsdAsync(currency.Id);
 
-            // No natural unique key for a payment record beyond its own
-            // content — always inserted fresh, matching how actual
-            // payments are recorded one at a time in the portal itself.
-            _db.ShipmentSupplierPaymentRecords.Add(new ShipmentSupplierPaymentRecord
+            if (existing is null)
             {
-                ShipmentId = shipment.Id, PaymentDate = paymentDate.Value, CurrencyId = currency.Id,
-                Value = value.Value, ValueUsd = value.Value / rate, PaymentDueId = paymentDueId
-            });
-            created++;
+                _db.ShipmentSupplierPaymentRecords.Add(new ShipmentSupplierPaymentRecord
+                {
+                    ShipmentId = shipment.Id, PaymentDate = paymentDate.Value, CurrencyId = currency.Id,
+                    Value = value.Value, ValueUsd = value.Value / rate, PaymentDueId = paymentDueId
+                });
+                created++;
+            }
+            else
+            {
+                existing.PaymentDueId = paymentDueId;
+                existing.ValueUsd = value.Value / rate;
+                updated++;
+            }
         }
         await _db.SaveChangesAsync();
         return new SheetUploadResult("Supplier_Payment_Records", created, updated, errors);
