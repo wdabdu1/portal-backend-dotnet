@@ -40,6 +40,7 @@ public class ShippingPortalDbContext : IdentityDbContext<ApplicationUser>
     public DbSet<Tenor> Tenors => Set<Tenor>();
     public DbSet<SenderBank> SenderBanks => Set<SenderBank>();
     public DbSet<ReceiverBank> ReceiverBanks => Set<ReceiverBank>();
+    public DbSet<ReceiverBankAccount> ReceiverBankAccounts => Set<ReceiverBankAccount>();
     public DbSet<ShipmentDestination> ShipmentDestinations => Set<ShipmentDestination>();
     public DbSet<PublicHoliday> PublicHolidays => Set<PublicHoliday>();
     public DbSet<FxRate> FxRates => Set<FxRate>();
