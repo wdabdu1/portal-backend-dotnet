@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using ShippingPortal.Api.Data;
 using ShippingPortal.Api.Models.Identity;
 using ShippingPortal.Api.Models.Shipments;
+using ShippingPortal.Api.Models.Lookups;
 using ShippingPortal.Api.Services;
 
 namespace ShippingPortal.Api.Controllers;
@@ -136,6 +137,65 @@ public class PayBankDuesController : ControllerBase
 
             results.Add((row, banking));
         }
-        return results;
+                return results;
+    }
+
+    public record ConfirmLineRequest(int ShipmentId, decimal PaymentAmountAed);
+    public record ConfirmRequest(int ReceiverBankId, int SenderBankId, int AccountId, List<ConfirmLineRequest> Lines);
+
+    // Creates one Collection Record per selected due (so payment history
+    // updates immediately, same mechanism as an individual payment), then
+    // returns the printable Word letter for this exact batch.
+    [HttpPost("confirm")]
+    [Authorize(Roles = AppRoles.BankDuesEditors)]
+    public async Task<IActionResult> Confirm(ConfirmRequest req, [FromServices] BankSettlementLetterService letterService, [FromServices] BuAccessService buAccess)
+    {
+        if (req.Lines is null || req.Lines.Count == 0) return BadRequest(new { message = "At least one due must be selected." });
+
+        var receiverBank = await _db.ReceiverBanks.FirstOrDefaultAsync(b => b.Id == req.ReceiverBankId);
+        if (receiverBank is null) return BadRequest(new { message = "Receiver Bank not found." });
+
+        var account = await _db.ReceiverBankAccounts.FirstOrDefaultAsync(a => a.Id == req.AccountId && a.ReceiverBankId == req.ReceiverBankId);
+        if (account is null) return BadRequest(new { message = "Account not found for this Receiver Bank." });
+
+        var senderBank = await _db.SenderBanks.FirstOrDefaultAsync(b => b.Id == req.SenderBankId);
+        if (senderBank is null) return BadRequest(new { message = "Sender Bank not found." });
+
+        var aedCurrency = await _db.Currencies.FirstOrDefaultAsync(c => c.Code == "AED");
+        if (aedCurrency is null) return BadRequest(new { message = "AED currency not found in Settings." });
+
+        // Re-fetch the current, real outstanding rows for this exact
+        // Receiver+Sender pair — never trust the amounts the client sent,
+        // only which shipments were selected and how much to apply.
+        var currentRows = await GetOutstandingRowsAsync(req.ReceiverBankId, req.SenderBankId, buAccess);
+        var currentByShipment = currentRows.ToDictionary(r => r.Row.ShipmentId, r => r.Row);
+
+        var letterLines = new List<LetterLineItem>();
+        foreach (var line in req.Lines)
+        {
+            if (!currentByShipment.TryGetValue(line.ShipmentId, out var current))
+                return BadRequest(new { message = $"Shipment {line.ShipmentId} is not a valid outstanding due for this Receiver/Sender Bank pair." });
+            if (line.PaymentAmountAed <= 0 || line.PaymentAmountAed > current.RemainingAed + 0.01m)
+                return BadRequest(new { message = $"Invalid payment amount for {current.BlAwbNo} — must be > 0 and not exceed the remaining balance ({current.RemainingAed:N2})." });
+
+            _db.ShipmentCollectionRecords.Add(new ShipmentCollectionRecord
+            {
+                ShipmentId = line.ShipmentId,
+                PaymentDate = DateOnly.FromDateTime(DateTime.UtcNow),
+                CurrencyId = aedCurrency.Id,
+                Value = line.PaymentAmountAed
+            });
+
+            letterLines.Add(new LetterLineItem(
+                current.CollectionRefNo ?? "", current.Category, current.InvoiceNo ?? "",
+                current.ValueAed, current.PaidAed, current.RemainingAed, line.PaymentAmountAed));
+        }
+        await _db.SaveChangesAsync();
+
+        var totalAed = letterLines.Sum(l => l.PaymentRequest);
+        var bytes = letterService.Generate(receiverBank.Address ?? receiverBank.Name, account.AccountNo, account.AccountName, senderBank.Name, totalAed, letterLines);
+
+        var fileName = $"CTC_{receiverBank.Name}_Settlement_{DateTime.UtcNow:yyyyMMdd_HHmmss}.docx";
+        return File(bytes, "application/vnd.openxmlformats-officedocument.wordprocessingml.document", fileName);
     }
 }
