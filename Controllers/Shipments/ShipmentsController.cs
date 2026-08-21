@@ -144,7 +144,7 @@ public class ShipmentsController : ControllerBase
         var shippingLine = await _db.ShippingLines.FindAsync(req.ShippingLineId);
         var businessUnit = await _db.BusinessUnits.FindAsync(po.BusinessUnitId);
         return CreatedAtAction(nameof(GetAll), new ShipmentSummary(
-            shipment.Id, shipment.BlAwbNo, po.PoNumber, businessUnit?.Name ?? "", shippingLine?.Name ?? "", shipment.Status.ToString(), shipment.Eta, shipment.LineItems.Count, shipment.CreatedAt));
+            shipment.Id, shipment.BlAwbNo, po.PoNumber, businessUnit?.Name ?? "", shippingLine?.Name ?? "", shipment.Status.ToString(), shipment.Eta, shipment.LineItems.Count, shipment.CreatedAt, false));
     }
 
     [HttpPost("{id:int}/confirm")]
