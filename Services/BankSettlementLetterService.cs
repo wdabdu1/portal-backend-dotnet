@@ -12,7 +12,7 @@ public record LetterLineItem(string CollectionRefNo, string Category, string Inv
 // PDF) so the recipient can paste and adjust it before printing.
 public class BankSettlementLetterService
 {
-    public byte[] Generate(string receiverBankAddress, string accountNo, string accountName,
+    public byte[] Generate(string receiverBankAddress, string accountNo,
         string senderBankName, decimal totalAed, List<LetterLineItem> lines)
     {
         using var ms = new MemoryStream();
@@ -27,7 +27,7 @@ public class BankSettlementLetterService
 
             // Receiver Bank's address, one paragraph per line — preserves
             // however many lines it was entered with in Settings.
-            body.AppendChild(Para("To:"));
+            body.AppendChild(Para("To: General Manager"));
             foreach (var line in receiverBankAddress.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
                 body.AppendChild(Para(line));
             body.AppendChild(Para(""));
@@ -36,7 +36,7 @@ public class BankSettlementLetterService
             body.AppendChild(Para(""));
 
             body.AppendChild(Para(
-                $"Please find below the details of the amounts to be deducted from our account No. {accountNo} ({accountName}), " +
+                $"Please find below the details of the amounts to be deducted from our import account No. {accountNo}, " +
                 $"totaling AED {totalAed:N2}, in settlement of the collections listed below."));
             body.AppendChild(Para(""));
 
