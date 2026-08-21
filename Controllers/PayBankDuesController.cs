@@ -21,7 +21,7 @@ public record PayableDueRow(
 public record SenderBankOption(int Id, string Name);
 
 [ApiController]
-[Authorize(Roles = AppRoles.BankDuesViewers)]
+[Authorize(Roles = AppRoles.PayBankDuesUsers)]
 [Route("api/pay-bank-dues")]
 public class PayBankDuesController : ControllerBase
 {
@@ -147,7 +147,7 @@ public class PayBankDuesController : ControllerBase
     // updates immediately, same mechanism as an individual payment), then
     // returns the printable Word letter for this exact batch.
     [HttpPost("confirm")]
-    [Authorize(Roles = AppRoles.BankDuesEditors)]
+    [Authorize(Roles = AppRoles.PayBankDuesUsers)]
     public async Task<IActionResult> Confirm(ConfirmRequest req, [FromServices] BankSettlementLetterService letterService, [FromServices] BuAccessService buAccess)
     {
         if (req.Lines is null || req.Lines.Count == 0) return BadRequest(new { message = "At least one due must be selected." });
