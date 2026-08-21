@@ -75,7 +75,7 @@ public class PayBankDuesController : ControllerBase
     public async Task<ActionResult<IEnumerable<PayableDueRow>>> GetDues([FromQuery] int receiverBankId, [FromQuery] int senderBankId, [FromQuery] bool includeSettled, [FromServices] BuAccessService buAccess)
     {
         var rows = await GetOutstandingRowsAsync(receiverBankId, senderBankId, includeSettled, buAccess);
-        return Ok(rows.Select(r => r.Row).OrderBy(r => r.Row.DueDate).ToList());
+        return Ok(rows.OrderBy(r => r.Row.DueDate).Select(r => r.Row).ToList());
     }
 
     // The initial, unfiltered landing view — every bank's outstanding dues
@@ -85,7 +85,7 @@ public class PayBankDuesController : ControllerBase
     public async Task<ActionResult<IEnumerable<PayableDueRow>>> GetAll([FromQuery] bool includeSettled, [FromServices] BuAccessService buAccess)
     {
         var rows = await GetOutstandingRowsAsync(receiverBankId: null, senderBankId: null, includeSettled, buAccess);
-        return Ok(rows.Select(r => r.Row).OrderBy(r => r.Row.DueDate).ToList());
+        return Ok(rows.OrderBy(r => r.Row.DueDate).Select(r => r.Row).ToList());
     }
 
     private async Task<List<(PayableDueRow Row, ShipmentBanking Banking)>> GetOutstandingRowsAsync(int? receiverBankId, int? senderBankId, bool includeSettled, BuAccessService buAccess)
