@@ -27,4 +27,23 @@ public class ReceiverBanksControllerCustom : ControllerBase
         await _db.SaveChangesAsync();
         return Ok(bank);
     }
+
+    // Previously missing entirely — there was no way to edit an existing
+    // Receiver Bank at all, including adding its Address after the fact.
+    [HttpPut("{id:int}")]
+    [Authorize(Roles = AppRoles.Manager + "," + AppRoles.SuperUser)]
+    public async Task<ActionResult<ReceiverBank>> Update(int id, ReceiverBank req)
+    {
+        var bank = await _db.ReceiverBanks.FirstOrDefaultAsync(b => b.Id == id);
+        if (bank is null) return NotFound();
+
+        bank.Name = req.Name;
+        bank.BankChargeRate = req.BankChargeRate;
+        bank.ImChargeRate = req.ImChargeRate;
+        bank.TotalChargeRate = req.BankChargeRate + req.ImChargeRate;
+        bank.IsActive = req.IsActive;
+        bank.Address = req.Address;
+        await _db.SaveChangesAsync();
+        return Ok(bank);
+    }
 }
