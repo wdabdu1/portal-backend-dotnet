@@ -16,7 +16,7 @@ public class ReceiverBanksControllerCustom : ControllerBase
     public ReceiverBanksControllerCustom(ShippingPortalDbContext db) => _db = db;
 
     [HttpGet]
-    public async Task<ActionResult<IEnumerable<ReceiverBank>>> GetAll() => await _db.ReceiverBanks.ToListAsync();
+    public async Task<ActionResult<IEnumerable<ReceiverBank>>> GetAll() => await _db.ReceiverBanks.Include(b => b.Accounts).ToListAsync();
 
     [HttpPost]
     [Authorize(Roles = AppRoles.Manager + "," + AppRoles.SuperUser)]
