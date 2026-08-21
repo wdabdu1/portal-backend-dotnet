@@ -148,6 +148,27 @@ public class ReceiverBank
     public decimal ImChargeRate { get; set; }
     public decimal TotalChargeRate { get; set; }
     public bool IsActive { get; set; } = true;
+
+    // Multi-line — the bank's full name and postal address, exactly as it
+    // should appear on a printed settlement letter (each line preserved
+    // as its own paragraph). Stored with real newlines, not a single line.
+    [MaxLength(1000)] public string? Address { get; set; }
+
+    public List<ReceiverBankAccount> Accounts { get; set; } = new();
+}
+
+// A single Receiver Bank can hold several of our own accounts (e.g. one
+// per currency or purpose) — captured here so the settlement letter can
+// reference the correct Account No. + Account Name together, avoiding
+// any risk of picking the wrong one.
+public class ReceiverBankAccount
+{
+    public int Id { get; set; }
+    public int ReceiverBankId { get; set; }
+    public ReceiverBank? ReceiverBank { get; set; }
+    [Required, MaxLength(60)] public string AccountNo { get; set; } = "";
+    [Required, MaxLength(120)] public string AccountName { get; set; } = "";
+    public bool IsActive { get; set; } = true;
 }
 
 public class ShipmentDestination
