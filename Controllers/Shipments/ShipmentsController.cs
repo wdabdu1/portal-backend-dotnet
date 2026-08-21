@@ -17,7 +17,7 @@ public record CreateShipmentRequest(
     int ShippingLineId, string? VesselName, int Fcl20Count, int Fcl40Count, bool Soc, int? BlFreeDays,
     List<ShipmentLineItemRequest> LineItems);
 
-public record ShipmentSummary(int Id, string BlAwbNo, string PoNumber, string BusinessUnit, string ShippingLine, string Status, DateOnly? Eta, int LineItemCount, DateTime CreatedAt);
+public record ShipmentSummary(int Id, string BlAwbNo, string PoNumber, string BusinessUnit, string ShippingLine, string Status, DateOnly? Eta, int LineItemCount, DateTime CreatedAt, bool IsClearanceCompleted);
 
 [ApiController]
 [Authorize]
@@ -43,12 +43,32 @@ public class ShipmentsController : ControllerBase
             query = query.Where(s => allowed.Contains(s.PurchaseOrder!.BusinessUnitId));
         }
 
-        return await query
-            .OrderByDescending(s => s.CreatedAt)
-            .Select(s => new ShipmentSummary(
-                s.Id, s.BlAwbNo, s.PurchaseOrder!.PoNumber, s.PurchaseOrder.BusinessUnit!.Name, s.ShippingLine!.Name,
-                s.Status.ToString(), s.Eta, s.LineItems.Count, s.CreatedAt))
-            .ToListAsync();
+        var shipments = await query.OrderByDescending(s => s.CreatedAt).ToListAsync();
+        var shipmentIds = shipments.Select(s => s.Id).ToList();
+
+        // A shipment counts as "cleared" only once its route's own
+        // completion date is set — same definition Clearance itself uses.
+        var clearancesByShipment = await _db.Clearances.Where(c => shipmentIds.Contains(c.ShipmentId)).ToDictionaryAsync(c => c.ShipmentId);
+        var clearanceIds = clearancesByShipment.Values.Select(c => c.Id).ToList();
+        var route1Completions = await _db.ClearanceRoute1Details.Where(r => clearanceIds.Contains(r.ClearanceId)).ToDictionaryAsync(r => r.ClearanceId, r => r.ClearanceActualCompletedDate);
+        var route2Completions = await _db.ClearanceRoute2Details.Where(r => clearanceIds.Contains(r.ClearanceId)).ToDictionaryAsync(r => r.ClearanceId, r => r.ClearanceActualCompletedDate);
+        var route3Completions = await _db.ClearanceRoute3Details.Where(r => clearanceIds.Contains(r.ClearanceId)).ToDictionaryAsync(r => r.ClearanceId, r => r.ClearanceActualCompletedDate);
+
+        bool IsCompleted(int shipmentId)
+        {
+            if (!clearancesByShipment.TryGetValue(shipmentId, out var clearance)) return false;
+            return clearance.Route switch
+            {
+                Models.Clearance.ClearanceRouteType.Route1ClearAtPort => route1Completions.GetValueOrDefault(clearance.Id).HasValue,
+                Models.Clearance.ClearanceRouteType.Route2FzDeposit => route2Completions.GetValueOrDefault(clearance.Id).HasValue,
+                Models.Clearance.ClearanceRouteType.Route3ClearFromFz => route3Completions.GetValueOrDefault(clearance.Id).HasValue,
+                _ => false
+            };
+        }
+
+        return shipments.Select(s => new ShipmentSummary(
+            s.Id, s.BlAwbNo, s.PurchaseOrder!.PoNumber, s.PurchaseOrder.BusinessUnit!.Name, s.ShippingLine!.Name,
+            s.Status.ToString(), s.Eta, s.LineItems.Count, s.CreatedAt, IsCompleted(s.Id))).ToList();
     }
 
     [HttpPost]
