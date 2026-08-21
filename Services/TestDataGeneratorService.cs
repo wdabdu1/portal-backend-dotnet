@@ -150,8 +150,24 @@ public class TestDataGeneratorService
             CreatedAt = createdAt,
             UpdatedAt = createdAt
         };
-        _db.PurchaseOrders.Add(po);
+                _db.PurchaseOrders.Add(po);
         await _db.SaveChangesAsync();
+
+        // Offshore Partner chain — the exact sequence from the family's
+        // real-world mapping (e.g. Taif → Cencom), previously defined but
+        // never actually written to the database.
+        int seq = 1;
+        foreach (var partnerName in fam.OffshoreChain)
+        {
+            _db.PurchaseOrderOffshorePartners.Add(new PurchaseOrderOffshorePartner
+            {
+                PurchaseOrderId = po.Id,
+                BusinessPartnerId = lk.Partners[partnerName].Id,
+                SequenceOrder = seq++
+            });
+        }
+        await _db.SaveChangesAsync();
+
         return po;
     }
 
@@ -196,6 +212,7 @@ public class TestDataGeneratorService
             BlAwbDate = blAwbDate,
             Etd = blAwbDate.AddDays(2),
             Eta = eta,
+            SobActualDate = status == ShipmentStatus.Confirmed ? blAwbDate.AddDays(1) : null,
             Status = status,
             ShippingLineId = line?.Id ?? 1,
             Fcl20Count = 1 + _rng.Next(0, 2),
@@ -317,6 +334,32 @@ public class TestDataGeneratorService
             ApprovalDate = approved ? blAwbDate.AddDays(5) : null,
             OffshoreApprovedPiNumber = approved ? $"PI-APPR-{ship.BlAwbNo}" : null
         });
+        await _db.SaveChangesAsync();
+    }
+
+        // For a shipment far enough along that MOT is approved, the final
+    // offshore invoice (Last Offshore Details) naturally follows —
+    // populated per shipment line item, driving Transfer Pricing.
+    private async Task AddLastOffshoreDetailAsync(Shipment ship, Lookups lk, List<ShipmentLineItem> shipLines, decimal unitPriceMultiplier)
+    {
+        _db.LastOffshoreDetails.Add(new LastOffshoreDetail
+        {
+            ShipmentId = ship.Id,
+            InspectionNo = $"INSP-{ship.BlAwbNo}",
+            Grn = $"GRN-{ship.BlAwbNo}",
+            InvoiceNo = $"TEC-INV-{ship.BlAwbNo}",
+            CurrencyId = lk.Usd.Id
+        });
+
+        foreach (var sl in shipLines)
+        {
+            var poLine = await _db.PurchaseOrderLineItems.FirstAsync(l => l.Id == sl.PurchaseOrderLineItemId);
+            _db.LastOffshoreItemDetails.Add(new LastOffshoreItemDetail
+            {
+                ShipmentLineItemId = sl.Id,
+                UnitPrice = Math.Round(poLine.UnitPrice * unitPriceMultiplier, 2)
+            });
+        }
         await _db.SaveChangesAsync();
     }
 
@@ -578,14 +621,16 @@ public class TestDataGeneratorService
 
             var blDate = Today.AddDays(-(35 + i * 4));
             var ship = await CreateShipmentAsync(lk, po, NextBl("FE"), blDate, blDate.AddDays(28), ShipmentStatus.Confirmed, marineInsurance: i % 3 != 0);
-            await AddShipmentLineItemsAsync(ship, lines);
+            var shipLines = await AddShipmentLineItemsAsync(ship, lines);
             await AddDraftDocsAsync(ship, blDate);
             await AddSupplierFullSetAsync(ship, blDate);
             var totalValue = lines.Sum(l => l.Total);
             await AddBankingAsync(ship, lk, blDate, totalValue);
             await AddForwarderAsync(ship, lk, marineInsurance: i % 3 != 0);
             await AddAcdAsync(ship, blDate);
-            await AddMotAsync(ship, blDate, approved: i % 4 != 3); // 1 in 4 stuck on MOT
+            var motApproved = i % 4 != 3; // 1 in 4 stuck on MOT
+            await AddMotAsync(ship, blDate, approved: motApproved);
+            if (motApproved) await AddLastOffshoreDetailAsync(ship, lk, shipLines, 1.05m);
             await AddSupplierDueAsync(ship, lk, blDate, totalValue, paymentCycle[i % 3]);
             shipmentsCreated++;
             fullyExecutedShipments.Add(ship);
@@ -617,7 +662,7 @@ public class TestDataGeneratorService
 
             var blDate = Today.AddDays(-(8 + i));
             var ship = await CreateShipmentAsync(lk, po, NextBl("IT"), blDate, blDate.AddDays(25), ShipmentStatus.Confirmed, marineInsurance: i % 2 == 0);
-            await AddShipmentLineItemsAsync(ship, lines);
+            var shipLines = await AddShipmentLineItemsAsync(ship, lines);
             await AddDraftDocsAsync(ship, blDate);
             if (transitStages[i] != "draft-only") await AddSupplierFullSetAsync(ship, blDate);
             if (transitStages[i] == "banking") await AddBankingAsync(ship, lk, blDate, lines[0].Total);
@@ -625,7 +670,7 @@ public class TestDataGeneratorService
             // COC/SSMO: 1 in 3 required-but-not-done, 1 in 3 not needed, rest done
             if (i % 3 == 0) await AddMotAsync(ship, blDate, approved: false);
             else if (i % 3 == 1) { /* not required — skip entirely */ }
-            else await AddMotAsync(ship, blDate, approved: true);
+            else { await AddMotAsync(ship, blDate, approved: true); await AddLastOffshoreDetailAsync(ship, lk, shipLines, 1.05m); }
             shipmentsCreated++;
         }
 
@@ -666,13 +711,15 @@ public class TestDataGeneratorService
                 posCreated++;
                 var blDate = Today.AddDays(-(arrivedDaysAgo + 20));
                 ship = await CreateShipmentAsync(lk, po, NextBl("R1"), blDate, Today.AddDays(-arrivedDaysAgo), ShipmentStatus.Confirmed, marineInsurance: true);
-                await AddShipmentLineItemsAsync(ship, lines);
+                var shipLines = await AddShipmentLineItemsAsync(ship, lines);
                 await AddDraftDocsAsync(ship, blDate);
                 await AddSupplierFullSetAsync(ship, blDate);
                 await AddBankingAsync(ship, lk, blDate, lines[0].Total);
                 await AddForwarderAsync(ship, lk, marineInsurance: true);
                 await AddAcdAsync(ship, blDate);
-                await AddMotAsync(ship, blDate, approved: label != "stuck-ssmo");
+                var motApproved = label != "stuck-ssmo";
+                await AddMotAsync(ship, blDate, approved: motApproved);
+                if (motApproved) await AddLastOffshoreDetailAsync(ship, lk, shipLines, 1.05m);
                 await AddSupplierDueAsync(ship, lk, blDate, lines[0].Total, paymentCycle[i % 3]);
                 shipmentsCreated++;
             }
@@ -713,12 +760,13 @@ public class TestDataGeneratorService
             var arrivedDaysAgo = 10 + i * 2;
             var blDate = Today.AddDays(-(arrivedDaysAgo + 15));
             var ship = await CreateShipmentAsync(lk, po, NextBl("FZ"), blDate, Today.AddDays(-arrivedDaysAgo), ShipmentStatus.Confirmed, marineInsurance: true);
-            await AddShipmentLineItemsAsync(ship, lines);
+            var shipLines = await AddShipmentLineItemsAsync(ship, lines);
             await AddDraftDocsAsync(ship, blDate);
             await AddSupplierFullSetAsync(ship, blDate);
             await AddBankingAsync(ship, lk, blDate, lines[0].Total);
             await AddForwarderAsync(ship, lk, marineInsurance: true);
             await AddMotAsync(ship, blDate, approved: true);
+            await AddLastOffshoreDetailAsync(ship, lk, shipLines, 1.05m);
             await AddSupplierDueAsync(ship, lk, blDate, lines[0].Total, paymentCycle[i % 3]);
             shipmentsCreated++;
 
