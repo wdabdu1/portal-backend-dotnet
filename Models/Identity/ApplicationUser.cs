@@ -77,6 +77,10 @@ public static class AppRoles
     public const string BankDuesEditors = IpUser + "," + IpSupervisor + "," + SuperUser;
     public const string BankDuesViewers = IpUser + "," + IpSupervisor + "," + SuperUser + "," + Treasury + "," + CorpFinance + "," + Manager;
 
+    // Full read/write access to the Pay Bank Dues screen specifically —
+    // a deliberately different set from the general BankDuesEditors above.
+    public const string PayBankDuesUsers = IpUser + "," + IpSupervisor + "," + Treasury + "," + CorpFinance + "," + SuperUser;
+
     public const string LogisticsEditors = LogisticsOfficer + "," + SuperUser;
     public const string LogisticsViewers = LogisticsOfficer + "," + Manager + "," + SuperUser;
 }
