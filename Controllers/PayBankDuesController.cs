@@ -193,7 +193,7 @@ public class PayBankDuesController : ControllerBase
         await _db.SaveChangesAsync();
 
         var totalAed = letterLines.Sum(l => l.PaymentRequest);
-        var bytes = letterService.Generate(receiverBank.Address ?? receiverBank.Name, account.AccountNo, account.AccountName, senderBank.Name, totalAed, letterLines);
+        var bytes = letterService.Generate(receiverBank.Address ?? receiverBank.Name, account.AccountNo, senderBank.Name, totalAed, letterLines);
 
         var fileName = $"CTC_{receiverBank.Name}_Settlement_{DateTime.UtcNow:yyyyMMdd_HHmmss}.docx";
         return File(bytes, "application/vnd.openxmlformats-officedocument.wordprocessingml.document", fileName);
