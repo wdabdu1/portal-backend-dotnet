@@ -16,6 +16,8 @@ namespace ShippingPortal.Api.Controllers;
 // expose, plus the confirm/generate-letter action itself.
 public record PayableDueRow(
     int ShipmentId, string BlAwbNo, string Category, string? InvoiceNo, string? CollectionRefNo,
+    string ReceiverBankName, int ReceiverBankId, string? SenderBankName, int? SenderBankId,
+    DateOnly? DueDate, DateOnly? CbosDueDate,
     decimal ValueAed, decimal PaidAed, decimal RemainingAed);
 
 public record SenderBankOption(int Id, string Name);
@@ -60,7 +62,7 @@ public class PayBankDuesController : ControllerBase
     [HttpGet("sender-banks")]
     public async Task<ActionResult<IEnumerable<SenderBankOption>>> GetSenderBankOptions([FromQuery] int receiverBankId, [FromServices] BuAccessService buAccess)
     {
-        var rows = await GetOutstandingRowsAsync(receiverBankId, senderBankId: null, buAccess);
+        var rows = await GetOutstandingRowsAsync(receiverBankId, senderBankId: null, includeSettled: false, buAccess);
         return Ok(rows
             .Where(r => r.Banking.SenderBankId.HasValue)
             .Select(r => new SenderBankOption(r.Banking.SenderBankId!.Value, r.Banking.SenderBank!.Name))
@@ -70,21 +72,36 @@ public class PayBankDuesController : ControllerBase
     }
 
     [HttpGet("dues")]
-    public async Task<ActionResult<IEnumerable<PayableDueRow>>> GetDues([FromQuery] int receiverBankId, [FromQuery] int senderBankId, [FromServices] BuAccessService buAccess)
+    public async Task<ActionResult<IEnumerable<PayableDueRow>>> GetDues([FromQuery] int receiverBankId, [FromQuery] int senderBankId, [FromQuery] bool includeSettled, [FromServices] BuAccessService buAccess)
     {
-        var rows = await GetOutstandingRowsAsync(receiverBankId, senderBankId, buAccess);
-        return Ok(rows.Select(r => r.Row).OrderBy(r => r.BlAwbNo).ToList());
+        var rows = await GetOutstandingRowsAsync(receiverBankId, senderBankId, includeSettled, buAccess);
+        return Ok(rows.Select(r => r.Row).OrderBy(r => r.Row.DueDate).ToList());
     }
 
-    private async Task<List<(PayableDueRow Row, ShipmentBanking Banking)>> GetOutstandingRowsAsync(int receiverBankId, int? senderBankId, BuAccessService buAccess)
+    // The initial, unfiltered landing view — every bank's outstanding dues
+    // together, sortable by Due Date, so Treasury can see what's coming
+    // before deciding which Receiver+Sender pair to actually settle.
+    [HttpGet("all")]
+    public async Task<ActionResult<IEnumerable<PayableDueRow>>> GetAll([FromQuery] bool includeSettled, [FromServices] BuAccessService buAccess)
+    {
+        var rows = await GetOutstandingRowsAsync(receiverBankId: null, senderBankId: null, includeSettled, buAccess);
+        return Ok(rows.Select(r => r.Row).OrderBy(r => r.Row.DueDate).ToList());
+    }
+
+    private async Task<List<(PayableDueRow Row, ShipmentBanking Banking)>> GetOutstandingRowsAsync(int? receiverBankId, int? senderBankId, bool includeSettled, BuAccessService buAccess)
     {
         var query = _db.ShipmentBankings
-            .Where(b => b.ReceivingBankId == receiverBankId)
+            .Where(b => b.ReceivingBankId != null)
             .Include(b => b.Shipment!).ThenInclude(s => s.PurchaseOrder)
+            .Include(b => b.ReceivingBank)
             .Include(b => b.SenderBank)
+            .Include(b => b.Tenor)
+            .Include(b => b.AddCbosAllowance)
             .Include(b => b.CollectionCurrency)
             .AsQueryable();
 
+        if (receiverBankId.HasValue)
+            query = query.Where(b => b.ReceivingBankId == receiverBankId);
         if (senderBankId.HasValue)
             query = query.Where(b => b.SenderBankId == senderBankId);
 
@@ -128,16 +145,24 @@ public class PayBankDuesController : ControllerBase
                 foreach (var r in records) paidAed += await ConvertToAedAsync(r.Value, r.CurrencyId);
 
             var remainingAed = valueAed - paidAed;
-            if (remainingAed <= 0) continue;
+            if (remainingAed <= 0 && !includeSettled) continue;
+
+            DateOnly? dueDate = null;
+            if (banking.Tenor is not null && shipment.BlAwbDate.HasValue)
+                dueDate = shipment.BlAwbDate.Value.AddDays(banking.Tenor.Days);
+            DateOnly? cbosDueDate = null;
+            if (dueDate.HasValue && banking.AddCbosAllowance is not null)
+                cbosDueDate = dueDate.Value.AddDays(banking.AddCbosAllowance.Days);
 
             var row = new PayableDueRow(
                 shipment.Id, shipment.BlAwbNo, categoriesByShipment.GetValueOrDefault(shipment.Id, ""),
                 lastOffshoreInvoicesByShipment.GetValueOrDefault(shipment.Id), banking.CollectionRefNo,
-                valueAed, paidAed, remainingAed);
+                banking.ReceivingBank!.Name, banking.ReceivingBankId!.Value, banking.SenderBank?.Name, banking.SenderBankId,
+                dueDate, cbosDueDate, valueAed, paidAed, remainingAed);
 
             results.Add((row, banking));
         }
-                return results;
+        return results;
     }
 
     public record ConfirmLineRequest(int ShipmentId, decimal PaymentAmountAed);
