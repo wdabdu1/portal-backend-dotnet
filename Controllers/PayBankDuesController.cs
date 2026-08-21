@@ -192,7 +192,7 @@ public class PayBankDuesController : ControllerBase
         // Re-fetch the current, real outstanding rows for this exact
         // Receiver+Sender pair — never trust the amounts the client sent,
         // only which shipments were selected and how much to apply.
-        var currentRows = await GetOutstandingRowsAsync(req.ReceiverBankId, req.SenderBankId, buAccess);
+        var currentRows = await GetOutstandingRowsAsync(req.ReceiverBankId, req.SenderBankId, includeSettled: false, buAccess);
         var currentByShipment = currentRows.ToDictionary(r => r.Row.ShipmentId, r => r.Row);
 
         var letterLines = new List<LetterLineItem>();
