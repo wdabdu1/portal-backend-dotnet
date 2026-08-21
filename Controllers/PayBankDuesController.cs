@@ -17,7 +17,7 @@ namespace ShippingPortal.Api.Controllers;
 public record PayableDueRow(
     int ShipmentId, string BlAwbNo, string Category, string? InvoiceNo, string? CollectionRefNo,
     string ReceiverBankName, int ReceiverBankId, string? SenderBankName, int? SenderBankId,
-    DateOnly? DueDate, DateOnly? CbosDueDate,
+    DateOnly? DueDate, DateOnly? CbosDueDate, bool NecessaryGoodType,
     decimal ValueAed, decimal PaidAed, decimal RemainingAed);
 
 public record SenderBankOption(int Id, string Name);
@@ -158,7 +158,7 @@ public class PayBankDuesController : ControllerBase
                 shipment.Id, shipment.BlAwbNo, categoriesByShipment.GetValueOrDefault(shipment.Id, ""),
                 lastOffshoreInvoicesByShipment.GetValueOrDefault(shipment.Id), banking.CollectionRefNo,
                 banking.ReceivingBank!.Name, banking.ReceivingBankId!.Value, banking.SenderBank?.Name, banking.SenderBankId,
-                dueDate, cbosDueDate, valueAed, paidAed, remainingAed);
+                dueDate, cbosDueDate, banking.NecessaryGoodType, valueAed, paidAed, remainingAed);
 
             results.Add((row, banking));
         }
