@@ -37,7 +37,7 @@ public class BankSettlementLetterService
 
             body.AppendChild(Para(
                 $"Please find below the details of the amounts to be deducted from our import account No. {accountNo}, " +
-                $"totaling AED {totalAed:N2}, in settlement of the collections listed below."));
+                $"totalling AED {totalAed:N2}, in settlement of the collections listed below."));
             body.AppendChild(Para(""));
 
             body.AppendChild(BuildTable(lines));
