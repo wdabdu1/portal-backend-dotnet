@@ -5,6 +5,7 @@ using ShippingPortal.Api.Models.Orders;
 using ShippingPortal.Api.Models.Shipments;
 using ShippingPortal.Api.Models.Clearance;
 using ShippingPortal.Api.Models.Lookups;
+using ShippingPortal.Api.Models.Logistics;
 
 namespace ShippingPortal.Api.Services;
 
@@ -78,6 +79,30 @@ public class DataUploadService
 
         var recWs = wb.Worksheets.FirstOrDefault(w => w.Name == "Supplier_Payment_Records");
         if (recWs is not null) results.Add(await ProcessPaymentRecords(recWs));
+
+        var chainWs = wb.Worksheets.FirstOrDefault(w => w.Name == "PO_Offshore_Chain");
+        if (chainWs is not null) results.Add(await ProcessPoOffshoreChain(chainWs));
+
+        var clrGeneralWs = wb.Worksheets.FirstOrDefault(w => w.Name == "Clearance_General");
+        if (clrGeneralWs is not null) results.Add(await ProcessClearanceGeneral(clrGeneralWs));
+
+        var clrCostWs = wb.Worksheets.FirstOrDefault(w => w.Name == "Clearance_Cost_Estimate");
+        if (clrCostWs is not null) results.Add(await ProcessClearanceCostEstimate(clrCostWs));
+
+        var route1Ws = wb.Worksheets.FirstOrDefault(w => w.Name == "Clearance_Route1");
+        if (route1Ws is not null) results.Add(await ProcessClearanceRoute1(route1Ws));
+
+        var route2Ws = wb.Worksheets.FirstOrDefault(w => w.Name == "Clearance_Route2");
+        if (route2Ws is not null) results.Add(await ProcessClearanceRoute2(route2Ws));
+
+        var actualChargesWs = wb.Worksheets.FirstOrDefault(w => w.Name == "Clearance_Actual_Charges");
+        if (actualChargesWs is not null) results.Add(await ProcessClearanceActualCharges(actualChargesWs));
+
+        var truckingWs = wb.Worksheets.FirstOrDefault(w => w.Name == "Trucking");
+        if (truckingWs is not null) results.Add(await ProcessTrucking(truckingWs));
+
+        var fzStockWs = wb.Worksheets.FirstOrDefault(w => w.Name == "FZ_Stock_Opening_Balance");
+        if (fzStockWs is not null) results.Add(await ProcessFzStockOpeningBalance(fzStockWs));
 
         return new UploadSummary(results);
     }
@@ -560,5 +585,394 @@ public class DataUploadService
         }
         await _db.SaveChangesAsync();
         return new SheetUploadResult("Supplier_Payment_Records", created, updated, errors);
+    }
+
+    // ---------- PO Offshore Chain ----------
+    private async Task<SheetUploadResult> ProcessPoOffshoreChain(IXLWorksheet ws)
+    {
+        var errors = new List<string>(); int created = 0, updated = 0;
+        var lastRow = ws.LastRowUsed()?.RowNumber() ?? 5;
+        var partners = await _db.BusinessPartners.ToListAsync();
+
+        for (int row = 6; row <= lastRow; row++)
+        {
+            if (RowIsBlank(ws, row, 3)) continue;
+            var poNumber = S(ws, row, 1); var sequence = I(ws, row, 2); var partnerName = S(ws, row, 3);
+            if (poNumber is null || sequence is null || partnerName is null)
+            { errors.Add($"Row {row}: PoNumber, Sequence, and Offshore Partner Name are all required."); continue; }
+
+            var po = await _db.PurchaseOrders.FirstOrDefaultAsync(p => p.PoNumber == poNumber);
+            if (po is null) { errors.Add($"Row {row}: PO '{poNumber}' not found — upload Main first."); continue; }
+
+            var partner = partners.FirstOrDefault(p => p.Name == partnerName);
+            if (partner is null) { errors.Add($"Row {row}: Business Partner '{partnerName}' not found."); continue; }
+
+            var existing = await _db.PurchaseOrderOffshorePartners.FirstOrDefaultAsync(o => o.PurchaseOrderId == po.Id && o.SequenceOrder == sequence);
+            if (existing is null)
+            {
+                _db.PurchaseOrderOffshorePartners.Add(new PurchaseOrderOffshorePartner { PurchaseOrderId = po.Id, SequenceOrder = sequence.Value, BusinessPartnerId = partner.Id });
+                created++;
+            }
+            else
+            {
+                existing.BusinessPartnerId = partner.Id;
+                updated++;
+            }
+        }
+        await _db.SaveChangesAsync();
+        return new SheetUploadResult("PO_Offshore_Chain", created, updated, errors);
+    }
+
+    // Shared by every Clearance-related sheet below — finds the Shipment
+    // this row's B/L No. belongs to, or records a clear error and returns
+    // null so the caller can skip that row.
+    private async Task<Shipment?> FindShipmentForRow(int row, string? blAwbNo, List<string> errors)
+    {
+        if (blAwbNo is null) { errors.Add($"Row {row}: B/L NO is required."); return null; }
+        var ship = await _db.Shipments.FirstOrDefaultAsync(s => s.BlAwbNo == blAwbNo);
+        if (ship is null) errors.Add($"Row {row}: Shipment '{blAwbNo}' not found — upload Main first.");
+        return ship;
+    }
+
+    // ---------- Clearance — General (Clearance + Delivery Order + Cost Estimate header + Certificate Entry) ----------
+    private async Task<SheetUploadResult> ProcessClearanceGeneral(IXLWorksheet ws)
+    {
+        var errors = new List<string>(); int created = 0, updated = 0;
+        var lastRow = ws.LastRowUsed()?.RowNumber() ?? 5;
+
+        for (int row = 6; row <= lastRow; row++)
+        {
+            if (RowIsBlank(ws, row, 21)) continue;
+            var blAwbNo = S(ws, row, 1);
+            var ship = await FindShipmentForRow(row, blAwbNo, errors);
+            if (ship is null) continue;
+
+            var routeText = S(ws, row, 2);
+            if (routeText is null || !Enum.TryParse<ClearanceRouteType>(routeText, ignoreCase: true, out var route))
+            { errors.Add($"Row {row}: Route '{routeText}' not recognized — must be Route1ClearAtPort, Route2FzDeposit, or Route3ClearFromFz."); continue; }
+
+            var clearance = await _db.Clearances.FirstOrDefaultAsync(c => c.ShipmentId == ship.Id);
+            var isNewClearance = clearance is null;
+            clearance ??= new Clearance { ShipmentId = ship.Id };
+            clearance.Route = route;
+            clearance.CopyOfBlReceivedDate = Dt(ws, row, 3);
+            clearance.OriginalShipmentSetReceivedDate = Dt(ws, row, 4);
+            clearance.LcNo = S(ws, row, 5);
+            clearance.DeclarationNo = S(ws, row, 6);
+            clearance.ImFormNo = S(ws, row, 7);
+            clearance.ImFormDate = Dt(ws, row, 8);
+            clearance.Notes = S(ws, row, 9);
+            if (isNewClearance) { _db.Clearances.Add(clearance); await _db.SaveChangesAsync(); created++; } else updated++;
+
+            var deliveryOrder = await _db.ClearanceDeliveryOrders.FirstOrDefaultAsync(d => d.ClearanceId == clearance.Id) ?? new ClearanceDeliveryOrder { ClearanceId = clearance.Id };
+            if (deliveryOrder.Id == 0) _db.ClearanceDeliveryOrders.Add(deliveryOrder);
+            deliveryOrder.ActualArrivalDate = Dt(ws, row, 10);
+            deliveryOrder.ReceiveDoDate = Dt(ws, row, 11);
+            deliveryOrder.CopyOfDoCollectedDate = Dt(ws, row, 12);
+            deliveryOrder.DepositRequired = B(ws, row, 13) ?? false;
+            deliveryOrder.DoActualFeesSdg = D(ws, row, 14);
+            deliveryOrder.DoFeesSettledDate = Dt(ws, row, 15);
+            deliveryOrder.DoReceivedDate = Dt(ws, row, 16);
+
+            var costEstimate = await _db.ClearanceCostEstimates.FirstOrDefaultAsync(c => c.ClearanceId == clearance.Id) ?? new ClearanceCostEstimate { ClearanceId = clearance.Id };
+            if (costEstimate.Id == 0) _db.ClearanceCostEstimates.Add(costEstimate);
+            costEstimate.EstimateDate = Dt(ws, row, 17);
+            costEstimate.NotifyBuDate = Dt(ws, row, 18);
+            costEstimate.AmountSettledDate = Dt(ws, row, 19);
+
+            var certEntryDate = Dt(ws, row, 20);
+            var scudaNo = S(ws, row, 21);
+            if (certEntryDate.HasValue || scudaNo is not null)
+            {
+                var certEntry = await _db.ClearanceCertificateEntries.FirstOrDefaultAsync(c => c.ClearanceId == clearance.Id) ?? new ClearanceCertificateEntry { ClearanceId = clearance.Id };
+                if (certEntry.Id == 0) _db.ClearanceCertificateEntries.Add(certEntry);
+                certEntry.CertificateEntryDate = certEntryDate;
+                certEntry.ScudaDeclarationNo = scudaNo;
+            }
+
+            await _db.SaveChangesAsync();
+        }
+        return new SheetUploadResult("Clearance_General", created, updated, errors);
+    }
+
+    // ---------- Clearance — Cost Estimate line items ----------
+    private async Task<SheetUploadResult> ProcessClearanceCostEstimate(IXLWorksheet ws)
+    {
+        var errors = new List<string>(); int created = 0, updated = 0;
+        var lastRow = ws.LastRowUsed()?.RowNumber() ?? 5;
+        var chargeTypes = await _db.ClearanceChargeTypes.ToListAsync();
+
+        for (int row = 6; row <= lastRow; row++)
+        {
+            if (RowIsBlank(ws, row, 6)) continue;
+            var blAwbNo = S(ws, row, 1);
+            var ship = await FindShipmentForRow(row, blAwbNo, errors);
+            if (ship is null) continue;
+
+            var clearance = await _db.Clearances.FirstOrDefaultAsync(c => c.ShipmentId == ship.Id);
+            if (clearance is null) { errors.Add($"Row {row}: Shipment '{blAwbNo}' has no Clearance record yet — upload Clearance_General first."); continue; }
+
+            var chargeTypeName = S(ws, row, 2);
+            var chargeType = chargeTypes.FirstOrDefault(c => c.Name == chargeTypeName);
+            if (chargeType is null) { errors.Add($"Row {row}: Charge Type '{chargeTypeName}' not found."); continue; }
+
+            var value = D(ws, row, 3) ?? 0;
+            var isPaid = B(ws, row, 5) ?? false;
+
+            var existing = await _db.ClearanceEstimateLineItems.FirstOrDefaultAsync(e => e.ClearanceId == clearance.Id && e.ChargeTypeId == chargeType.Id);
+            if (existing is null)
+            {
+                _db.ClearanceEstimateLineItems.Add(new ClearanceEstimateLineItem
+                {
+                    ClearanceId = clearance.Id, ChargeTypeId = chargeType.Id, ValueSdg = value,
+                    DueDate = Dt(ws, row, 4), IsPaid = isPaid, PaidDate = Dt(ws, row, 6)
+                });
+                created++;
+            }
+            else
+            {
+                existing.ValueSdg = value; existing.DueDate = Dt(ws, row, 4); existing.IsPaid = isPaid; existing.PaidDate = Dt(ws, row, 6);
+                updated++;
+            }
+        }
+        await _db.SaveChangesAsync();
+        return new SheetUploadResult("Clearance_Cost_Estimate", created, updated, errors);
+    }
+
+    // ---------- Clearance — Route 1 (Clear at Port) ----------
+    private async Task<SheetUploadResult> ProcessClearanceRoute1(IXLWorksheet ws)
+    {
+        var errors = new List<string>(); int created = 0, updated = 0;
+        var lastRow = ws.LastRowUsed()?.RowNumber() ?? 5;
+
+        for (int row = 6; row <= lastRow; row++)
+        {
+            if (RowIsBlank(ws, row, 27)) continue;
+            var blAwbNo = S(ws, row, 1);
+            var ship = await FindShipmentForRow(row, blAwbNo, errors);
+            if (ship is null) continue;
+
+            var clearance = await _db.Clearances.FirstOrDefaultAsync(c => c.ShipmentId == ship.Id);
+            if (clearance is null) { errors.Add($"Row {row}: Shipment '{blAwbNo}' has no Clearance record yet — upload Clearance_General first."); continue; }
+
+            var r = await _db.ClearanceRoute1Details.FirstOrDefaultAsync(x => x.ClearanceId == clearance.Id);
+            var isNew = r is null;
+            r ??= new ClearanceRoute1Details { ClearanceId = clearance.Id };
+
+            r.MoveRequestDate = Dt(ws, row, 2); r.BillAmountSdg = D(ws, row, 3); r.BillSettlementDate = Dt(ws, row, 4);
+            r.SsmoFileRequestDate = Dt(ws, row, 5); r.SsmoInspectionAmountSdg = D(ws, row, 6); r.SsmoFeesSettlementDate = Dt(ws, row, 7);
+            r.CustExamStartDate = Dt(ws, row, 8); r.CustExamCompletedDate = Dt(ws, row, 9);
+            r.CustomsLabRequired = B(ws, row, 10) ?? false; r.CustomsLabFeesSdg = D(ws, row, 11);
+            r.LabFeesPaymentDate = Dt(ws, row, 12); r.LabResultIssuanceDate = Dt(ws, row, 13);
+            r.SsmoExamStartDate = Dt(ws, row, 14); r.SsmoCertIssuanceDate = Dt(ws, row, 15);
+            r.CustEvaluationDate = Dt(ws, row, 16); r.CustomsDutySdg = D(ws, row, 17);
+            r.CustomsSettlementDate = Dt(ws, row, 18); r.ReleaseExitPassDate = Dt(ws, row, 19);
+            r.SpcBillRequestDate = Dt(ws, row, 20); r.SpcBillValueSdg = D(ws, row, 21); r.SpcBillSettlementDate = Dt(ws, row, 22);
+            r.TruckPortEntryPermitDate = Dt(ws, row, 23); r.ContainersReturnedDate = Dt(ws, row, 24);
+            r.ShippingLineDepositReturnDate = Dt(ws, row, 25); r.DepositValue = D(ws, row, 26);
+            r.ClearanceActualCompletedDate = Dt(ws, row, 27);
+
+            if (isNew) { _db.ClearanceRoute1Details.Add(r); created++; } else updated++;
+        }
+        await _db.SaveChangesAsync();
+        return new SheetUploadResult("Clearance_Route1", created, updated, errors);
+    }
+
+    // ---------- Clearance — Route 2 (FZ Deposit) ----------
+    private async Task<SheetUploadResult> ProcessClearanceRoute2(IXLWorksheet ws)
+    {
+        var errors = new List<string>(); int created = 0, updated = 0;
+        var lastRow = ws.LastRowUsed()?.RowNumber() ?? 5;
+        var destinations = await _db.ShipmentDestinations.ToListAsync();
+
+        for (int row = 6; row <= lastRow; row++)
+        {
+            if (RowIsBlank(ws, row, 17)) continue;
+            var blAwbNo = S(ws, row, 1);
+            var ship = await FindShipmentForRow(row, blAwbNo, errors);
+            if (ship is null) continue;
+
+            var clearance = await _db.Clearances.FirstOrDefaultAsync(c => c.ShipmentId == ship.Id);
+            if (clearance is null) { errors.Add($"Row {row}: Shipment '{blAwbNo}' has no Clearance record yet — upload Clearance_General first."); continue; }
+
+            var destName = S(ws, row, 6);
+            int? destId = null;
+            if (destName is not null)
+            {
+                var dest = destinations.FirstOrDefault(d => d.Name == destName);
+                if (dest is null) { errors.Add($"Row {row}: Destination '{destName}' not found."); continue; }
+                destId = dest.Id;
+            }
+
+            var r = await _db.ClearanceRoute2Details.FirstOrDefaultAsync(x => x.ClearanceId == clearance.Id);
+            var isNew = r is null;
+            r ??= new ClearanceRoute2Details { ClearanceId = clearance.Id };
+
+            r.DepositRequestDate = Dt(ws, row, 2); r.RequestApprovalDate = Dt(ws, row, 3);
+            r.DepositRefNo = S(ws, row, 4); r.FzInvoiceNo = S(ws, row, 5); r.DestinationId = destId;
+            r.InspectionDate = Dt(ws, row, 7);
+            r.SpcBillRequestDate = Dt(ws, row, 8); r.SpcBillValueSdg = D(ws, row, 9); r.SpcBillSettlementDate = Dt(ws, row, 10);
+            r.PoliceSecurityAppointedDate = Dt(ws, row, 11);
+            r.TruckPortEntryPermitDate = Dt(ws, row, 12); r.ContainersReceivedAtFzDate = Dt(ws, row, 13);
+            r.ContainersReturnedDate = Dt(ws, row, 14); r.ShippingLineDepositReturnDate = Dt(ws, row, 15);
+            r.DepositValue = D(ws, row, 16); r.ClearanceActualCompletedDate = Dt(ws, row, 17);
+
+            if (isNew) { _db.ClearanceRoute2Details.Add(r); created++; } else updated++;
+        }
+        await _db.SaveChangesAsync();
+        return new SheetUploadResult("Clearance_Route2", created, updated, errors);
+    }
+
+    // ---------- Clearance — Actual Demurrage/Storage Charges ----------
+    private async Task<SheetUploadResult> ProcessClearanceActualCharges(IXLWorksheet ws)
+    {
+        var errors = new List<string>(); int created = 0, updated = 0;
+        var lastRow = ws.LastRowUsed()?.RowNumber() ?? 5;
+
+        for (int row = 6; row <= lastRow; row++)
+        {
+            if (RowIsBlank(ws, row, 9)) continue;
+            var blAwbNo = S(ws, row, 1);
+            var ship = await FindShipmentForRow(row, blAwbNo, errors);
+            if (ship is null) continue;
+
+            var clearance = await _db.Clearances.FirstOrDefaultAsync(c => c.ShipmentId == ship.Id);
+            if (clearance is null) { errors.Add($"Row {row}: Shipment '{blAwbNo}' has no Clearance record yet — upload Clearance_General first."); continue; }
+
+            var r = await _db.ClearanceActualCharges.FirstOrDefaultAsync(x => x.ClearanceId == clearance.Id);
+            var isNew = r is null;
+            r ??= new ClearanceActualCharges { ClearanceId = clearance.Id };
+
+            r.ForecastDemurrageSdg = D(ws, row, 2); r.ForecastStorageSdg = D(ws, row, 3);
+            var forecastCaptured = Dt(ws, row, 4);
+            r.ForecastCapturedAt = forecastCaptured.HasValue ? forecastCaptured.Value.ToDateTime(TimeOnly.MinValue) : null;
+            r.PlannedCompletionDate = Dt(ws, row, 5);
+            r.ActualDemurragePaidSdg = D(ws, row, 6); r.ActualStoragePaidSdg = D(ws, row, 7);
+            r.ShippingLineDepositReturnDate = Dt(ws, row, 8); r.AmountReturnedFromDeposit = D(ws, row, 9);
+
+            if (isNew) { _db.ClearanceActualCharges.Add(r); created++; } else updated++;
+        }
+        await _db.SaveChangesAsync();
+        return new SheetUploadResult("Clearance_Actual_Charges", created, updated, errors);
+    }
+
+    // ---------- Trucking — Warehouse Allocation & Delivery ----------
+    // Each row is treated as its own independent Truck Load → Drop → Item
+    // chain (no attempt to merge multi-drop trips across rows) — simpler
+    // and safer for a one-time migration than daily operational use.
+    private async Task<SheetUploadResult> ProcessTrucking(IXLWorksheet ws)
+    {
+        var errors = new List<string>(); int created = 0, updated = 0;
+        var lastRow = ws.LastRowUsed()?.RowNumber() ?? 5;
+        var trucks = await _db.Trucks.ToListAsync();
+        var drivers = await _db.Drivers.ToListAsync();
+        var warehouses = await _db.Warehouses.ToListAsync();
+
+        for (int row = 6; row <= lastRow; row++)
+        {
+            if (RowIsBlank(ws, row, 9)) continue;
+            var blAwbNo = S(ws, row, 1);
+            var modelName = S(ws, row, 2);
+            var ship = await FindShipmentForRow(row, blAwbNo, errors);
+            if (ship is null) continue;
+            if (modelName is null) { errors.Add($"Row {row}: MODEL/PRODUCT is required."); continue; }
+
+            var shipLine = await _db.ShipmentLineItems
+                .Include(sl => sl.PurchaseOrderLineItem!).ThenInclude(pl => pl.ModelProduct)
+                .FirstOrDefaultAsync(sl => sl.ShipmentId == ship.Id && sl.PurchaseOrderLineItem!.ModelProduct!.Name == modelName);
+            if (shipLine is null) { errors.Add($"Row {row}: No shipment line item found for Model '{modelName}' on '{blAwbNo}'."); continue; }
+
+            var warehouseName = S(ws, row, 4);
+            var warehouse = warehouses.FirstOrDefault(w => w.Name == warehouseName);
+            if (warehouse is null) { errors.Add($"Row {row}: Warehouse '{warehouseName}' not found."); continue; }
+
+            var plateNo = S(ws, row, 5);
+            var truck = trucks.FirstOrDefault(t => t.PlateNo == plateNo);
+            if (truck is null) { errors.Add($"Row {row}: Truck with Plate No. '{plateNo}' not found."); continue; }
+
+            var driverName = S(ws, row, 6);
+            var driver = driverName is not null ? drivers.FirstOrDefault(d => d.Name == driverName) : null;
+
+            var qty = D(ws, row, 3) ?? 0;
+            var loadDate = Dt(ws, row, 7) ?? DateOnly.FromDateTime(DateTime.UtcNow);
+
+            var allocation = new WarehouseAllocation
+            {
+                ShipmentLineItemId = shipLine.Id, WarehouseId = warehouse.Id, Qty = qty, AllocatedAt = DateTime.UtcNow
+            };
+            _db.WarehouseAllocations.Add(allocation);
+            await _db.SaveChangesAsync();
+
+            var load = new TruckLoad { TruckId = truck.Id, DriverId = driver?.Id, LoadDate = loadDate, Notes = "Migration import" };
+            _db.TruckLoads.Add(load);
+            await _db.SaveChangesAsync();
+
+            var drop = new TruckLoadDrop { TruckLoadId = load.Id, WarehouseId = warehouse.Id, ExpectedDeliveryDate = Dt(ws, row, 8), ActualDropOffDate = Dt(ws, row, 9) };
+            _db.TruckLoadDrops.Add(drop);
+            await _db.SaveChangesAsync();
+
+            _db.TruckLoadItems.Add(new TruckLoadItem { TruckLoadDropId = drop.Id, WarehouseAllocationId = allocation.Id, Qty = qty });
+            await _db.SaveChangesAsync();
+            created++;
+        }
+        return new SheetUploadResult("Trucking", created, updated, errors);
+    }
+
+    // ---------- FZ Stock — Opening Balance (already-withdrawn quantity) ----------
+    // Creates ONE synthetic, clearly-labeled "Opening Balance" Withdrawal
+    // record per shipment with a nonzero already-withdrawn quantity —
+    // full historical withdrawal events are deliberately not replicated.
+    private async Task<SheetUploadResult> ProcessFzStockOpeningBalance(IXLWorksheet ws)
+    {
+        var errors = new List<string>(); int created = 0, updated = 0;
+        var lastRow = ws.LastRowUsed()?.RowNumber() ?? 5;
+        const string OpeningBalanceRefNo = "Opening Balance — Migration";
+
+        for (int row = 6; row <= lastRow; row++)
+        {
+            if (RowIsBlank(ws, row, 3)) continue;
+            var blAwbNo = S(ws, row, 1);
+            var modelName = S(ws, row, 2);
+            var ship = await FindShipmentForRow(row, blAwbNo, errors);
+            if (ship is null) continue;
+            if (modelName is null) { errors.Add($"Row {row}: MODEL/PRODUCT is required."); continue; }
+
+            var qty = D(ws, row, 3) ?? 0;
+            if (qty <= 0) continue; // nothing withdrawn yet — full deposit stays available, nothing to record
+
+            var shipLine = await _db.ShipmentLineItems
+                .Include(sl => sl.PurchaseOrderLineItem!).ThenInclude(pl => pl.ModelProduct)
+                .FirstOrDefaultAsync(sl => sl.ShipmentId == ship.Id && sl.PurchaseOrderLineItem!.ModelProduct!.Name == modelName);
+            if (shipLine is null) { errors.Add($"Row {row}: No shipment line item found for Model '{modelName}' on '{blAwbNo}'."); continue; }
+
+            var withdrawal = await _db.Withdrawals.FirstOrDefaultAsync(w => w.DepositShipmentId == ship.Id && w.WithdrawalRequestRefNo == OpeningBalanceRefNo);
+            var isNew = withdrawal is null;
+            if (isNew)
+            {
+                withdrawal = new Withdrawal
+                {
+                    DepositShipmentId = ship.Id,
+                    WithdrawalRequestRefNo = OpeningBalanceRefNo,
+                    WithdrawalRequestDate = DateOnly.FromDateTime(DateTime.UtcNow),
+                    ClearanceActualCompletedDate = DateOnly.FromDateTime(DateTime.UtcNow)
+                };
+                _db.Withdrawals.Add(withdrawal);
+                await _db.SaveChangesAsync();
+            }
+
+            var existingLine = await _db.WithdrawalLineItems.FirstOrDefaultAsync(l => l.WithdrawalId == withdrawal!.Id && l.DepositShipmentLineItemId == shipLine.Id);
+            if (existingLine is null)
+            {
+                _db.WithdrawalLineItems.Add(new WithdrawalLineItem { WithdrawalId = withdrawal!.Id, DepositShipmentLineItemId = shipLine.Id, Qty = qty });
+                created++;
+            }
+            else
+            {
+                existingLine.Qty = qty;
+                updated++;
+            }
+        }
+        await _db.SaveChangesAsync();
+        return new SheetUploadResult("FZ_Stock_Opening_Balance", created, updated, errors);
     }
 }
