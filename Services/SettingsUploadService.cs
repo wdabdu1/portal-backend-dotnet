@@ -169,7 +169,7 @@ public class SettingsUploadService
             var match = existing.FirstOrDefault(s => s.EffectiveDate == date);
             if (match is null)
             {
-                var s = new Lookups.SpcRate { EuroToSdgRate = rate.Value, EffectiveDate = date.Value };
+                var s = new SpcRate { EuroToSdgRate = rate.Value, EffectiveDate = date.Value };
                 _db.SpcRates.Add(s); existing.Add(s); created++;
             }
             else { match.EuroToSdgRate = rate.Value; updated++; }
@@ -198,7 +198,7 @@ public class SettingsUploadService
             var match = existing.FirstOrDefault(a => a.ReceiverBankId == bank.Id && a.AccountNo == accountNo);
             if (match is null)
             {
-                var a = new Lookups.ReceiverBankAccount { ReceiverBankId = bank.Id, AccountNo = accountNo, AccountName = accountName, IsActive = active };
+                var a = new ReceiverBankAccount { ReceiverBankId = bank.Id, AccountNo = accountNo, AccountName = accountName, IsActive = active };
                 _db.ReceiverBankAccounts.Add(a); existing.Add(a); created++;
             }
             else { match.AccountName = accountName; match.IsActive = active; updated++; }
