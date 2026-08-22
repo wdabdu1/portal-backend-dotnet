@@ -212,6 +212,20 @@ public class SettingsExportService
         for (int i = 0; i < slaSettings.Count; i++)
             WriteRow(wsSla, 6 + i, slaSettings[i].Division, slaSettings[i].GroupItem, slaSettings[i].SequenceOrder, slaSettings[i].TargetDays, slaSettings[i].IsActive);
 
+        var spcRates = await _db.SpcRates.ToListAsync();
+        var wsSpc = NewSheet(wb, "SpcRates", "SPC Euro-to-SDG Rates",
+            "One row per effective date. EuroToSdgRate = how many SDG equal 1 Euro, used to convert SPC storage tier charges (in Euro) to SDG.",
+            new[] { "EuroToSdgRate", "EffectiveDate" }, new[] { "650", "2026-01-01" });
+        for (int i = 0; i < spcRates.Count; i++)
+            WriteRow(wsSpc, 6 + i, spcRates[i].EuroToSdgRate, spcRates[i].EffectiveDate);
+
+        var bankAccounts = await _db.ReceiverBankAccounts.Include(a => a.ReceiverBank).ToListAsync();
+        var wsBankAcc = NewSheet(wb, "ReceiverBankAccounts", "Receiver Bank Accounts",
+            "ReceiverBankName must match an existing Receiver Bank Name. A bank can have several accounts (e.g. one per currency).",
+            new[] { "ReceiverBankName", "AccountNo", "AccountName", "IsActive (TRUE/FALSE)" }, new[] { "UCB", "1000269", "CTC Group Ltd - USD", "TRUE" });
+        for (int i = 0; i < bankAccounts.Count; i++)
+            WriteRow(wsBankAcc, 6 + i, bankAccounts[i].ReceiverBank?.Name, bankAccounts[i].AccountNo, bankAccounts[i].AccountName, bankAccounts[i].IsActive);
+
         using var ms = new MemoryStream();
         wb.SaveAs(ms);
         return ms.ToArray();
