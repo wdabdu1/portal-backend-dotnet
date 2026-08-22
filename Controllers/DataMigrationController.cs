@@ -76,4 +76,18 @@ public class DataMigrationController : ControllerBase
         var summary = await service.GenerateAsync();
         return Ok(new { message = summary });
     }
+
+    // Permanently deletes one PO and everything owned by it — for
+    // correcting a mistaken or cancelled order. SuperUser-only, given
+    // this is irreversible and touches real operational data.
+    [HttpPost("delete-po")]
+    [Authorize(Roles = AppRoles.SuperUser)]
+    public async Task<IActionResult> DeletePo([FromBody] DeletePoRequest req, [FromServices] DeletePurchaseOrderService service)
+    {
+        var result = await service.DeleteAsync(req.PoNumber);
+        if (!result.Success) return BadRequest(new { message = result.Message });
+        return Ok(new { message = result.Message });
+    }
 }
+
+public record DeletePoRequest(string PoNumber);
