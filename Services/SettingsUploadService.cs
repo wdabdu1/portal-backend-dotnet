@@ -149,9 +149,10 @@ public class SettingsUploadService
                     activeProp.SetValue(existing, active);
                     updated++;
                 }
-                }
-        await _db.SaveChangesAsync();
-        return new SheetUploadResult("ClearanceSlaSettings", created, updated, errors);
+            }
+            await _db.SaveChangesAsync();
+            return new SheetUploadResult(sheetLabel, created, updated, errors);
+        };
     }
 
     private async Task<SheetUploadResult> UploadSpcRates(IXLWorksheet ws)
@@ -768,5 +769,58 @@ public class SettingsUploadService
         }
         await _db.SaveChangesAsync();
         return new SheetUploadResult("ClearanceSlaSettings", created, updated, errors);
+    }
+
+    private async Task<SheetUploadResult> UploadSpcRates(IXLWorksheet ws)
+    {
+        var errors = new List<string>(); int created = 0, updated = 0;
+        var lastRow = ws.LastRowUsed()?.RowNumber() ?? FirstDataRow - 1;
+        var existing = await _db.SpcRates.ToListAsync();
+
+        for (int row = FirstDataRow; row <= lastRow; row++)
+        {
+            if (RowIsBlank(ws, row, 2)) continue;
+            var rate = D(ws, row, 1); var date = Dt(ws, row, 2);
+            if (rate is null || date is null) { errors.Add($"Row {row}: EuroToSdgRate and EffectiveDate are both required."); continue; }
+
+            var match = existing.FirstOrDefault(s => s.EffectiveDate == date);
+            if (match is null)
+            {
+                var s = new SpcRate { EuroToSdgRate = rate.Value, EffectiveDate = date.Value };
+                _db.SpcRates.Add(s); existing.Add(s); created++;
+            }
+            else { match.EuroToSdgRate = rate.Value; updated++; }
+        }
+        await _db.SaveChangesAsync();
+        return new SheetUploadResult("SpcRates", created, updated, errors);
+    }
+
+    private async Task<SheetUploadResult> UploadReceiverBankAccounts(IXLWorksheet ws)
+    {
+        var errors = new List<string>(); int created = 0, updated = 0;
+        var lastRow = ws.LastRowUsed()?.RowNumber() ?? FirstDataRow - 1;
+        var banks = await _db.ReceiverBanks.ToListAsync();
+        var existing = await _db.ReceiverBankAccounts.ToListAsync();
+
+        for (int row = FirstDataRow; row <= lastRow; row++)
+        {
+            if (RowIsBlank(ws, row, 3)) continue;
+            var bankName = S(ws, row, 1); var accountNo = S(ws, row, 2); var accountName = S(ws, row, 3);
+            if (bankName is null || accountNo is null || accountName is null) { errors.Add($"Row {row}: Receiver Bank Name, Account No., and Account Name are all required."); continue; }
+
+            var bank = banks.FirstOrDefault(b => b.Name == bankName);
+            if (bank is null) { errors.Add($"Row {row}: Receiver Bank '{bankName}' not found."); continue; }
+            var active = B(ws, row, 4) ?? true;
+
+            var match = existing.FirstOrDefault(a => a.ReceiverBankId == bank.Id && a.AccountNo == accountNo);
+            if (match is null)
+            {
+                var a = new ReceiverBankAccount { ReceiverBankId = bank.Id, AccountNo = accountNo, AccountName = accountName, IsActive = active };
+                _db.ReceiverBankAccounts.Add(a); existing.Add(a); created++;
+            }
+            else { match.AccountName = accountName; match.IsActive = active; updated++; }
+        }
+        await _db.SaveChangesAsync();
+        return new SheetUploadResult("ReceiverBankAccounts", created, updated, errors);
     }
 }
