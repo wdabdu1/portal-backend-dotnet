@@ -198,7 +198,6 @@ public class SettingsUploadService
             return new SheetUploadResult(sheetLabel, created, updated, errors);
         };
     }
-      }
 // ---------- Specific handlers ----------
 
     private async Task<SheetUploadResult> UploadDivisions(IXLWorksheet ws)
