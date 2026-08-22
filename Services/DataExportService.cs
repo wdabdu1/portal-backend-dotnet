@@ -77,6 +77,14 @@ public class DataExportService
         BuildMainSheet(wb);
         BuildPaymentDueSheet(wb);
         BuildPaymentRecordsSheet(wb);
+        BuildPoOffshoreChainSheet(wb);
+        BuildClearanceGeneralSheet(wb);
+        BuildClearanceCostEstimateSheet(wb);
+        BuildClearanceRoute1Sheet(wb);
+        BuildClearanceRoute2Sheet(wb);
+        BuildClearanceActualChargesSheet(wb);
+        BuildTruckingSheet(wb);
+        BuildFzStockOpeningBalanceSheet(wb);
 
         using var ms = new MemoryStream();
         wb.SaveAs(ms);
@@ -348,6 +356,338 @@ public class DataExportService
             SetCell(ws, row, 3, r.Currency?.Code);
             SetCell(ws, row, 4, r.Value);
             SetCell(ws, row, 5, r.PaymentDue?.Label);
+            row++;
+        }
+        ws.Columns().AdjustToContents();
+    }
+
+    private void BuildPoOffshoreChainSheet(XLWorkbook wb)
+    {
+        var ws = wb.Worksheets.Add("PO_Offshore_Chain");
+        ws.Cell(1, 1).Value = "PO Offshore Partner Chain";
+        ws.Cell(1, 1).Style.Font.Bold = true; ws.Cell(1, 1).Style.Font.FontSize = 13; ws.Cell(1, 1).Style.Font.FontColor = Navy;
+        var headers = new[] { "PoNumber", "SEQUENCE", "OFFSHORE PARTNER NAME" };
+        for (int i = 0; i < headers.Length; i++)
+        {
+            var c = ws.Cell(4, i + 1);
+            c.Value = headers[i]; c.Style.Font.Bold = true; c.Style.Font.FontColor = XLColor.White; c.Style.Fill.BackgroundColor = Navy;
+        }
+        for (int i = 0; i < headers.Length; i++) ws.Cell(5, i + 1).Style.Fill.BackgroundColor = LegendFill;
+
+        var rows = _db.PurchaseOrderOffshorePartners
+            .Include(o => o.PurchaseOrder).Include(o => o.BusinessPartner)
+            .OrderBy(o => o.PurchaseOrder!.PoNumber).ThenBy(o => o.SequenceOrder).ToList();
+
+        int row = 6;
+        foreach (var r in rows)
+        {
+            SetCell(ws, row, 1, r.PurchaseOrder?.PoNumber);
+            SetCell(ws, row, 2, r.SequenceOrder);
+            SetCell(ws, row, 3, r.BusinessPartner?.Name);
+            row++;
+        }
+        ws.Columns().AdjustToContents();
+    }
+
+    private void BuildClearanceGeneralSheet(XLWorkbook wb)
+    {
+        var ws = wb.Worksheets.Add("Clearance_General");
+        ws.Cell(1, 1).Value = "Clearance — General Info";
+        ws.Cell(1, 1).Style.Font.Bold = true; ws.Cell(1, 1).Style.Font.FontSize = 13; ws.Cell(1, 1).Style.Font.FontColor = Navy;
+        var headers = new[] { "B/L NO", "ROUTE (Route1ClearAtPort / Route2FzDeposit / Route3ClearFromFz)",
+            "COPY OF BL RECEIVED DATE", "ORIGINAL SHIPMENT SET RECEIVED DATE", "LC NO.", "DECLARATION NO.",
+            "IM FORM NO.", "IM FORM DATE", "REMARKS",
+            "ACTUAL ARRIVAL DATE", "RECEIVE DO DATE", "COPY OF DO COLLECTED DATE", "DEPOSIT REQUIRED (TRUE/FALSE)",
+            "DO ACTUAL FEES SDG", "DO FEES SETTLED DATE", "DO RECEIVED DATE",
+            "COST ESTIMATE — ESTIMATE DATE", "COST ESTIMATE — NOTIFY BU DATE", "COST ESTIMATE — AMOUNT SETTLED DATE",
+            "CERTIFICATE ENTRY DATE", "SCUDA DECLARATION NO." };
+        for (int i = 0; i < headers.Length; i++)
+        {
+            var c = ws.Cell(4, i + 1);
+            c.Value = headers[i]; c.Style.Font.Bold = true; c.Style.Font.FontColor = XLColor.White; c.Style.Fill.BackgroundColor = Navy;
+        }
+        for (int i = 0; i < headers.Length; i++) ws.Cell(5, i + 1).Style.Fill.BackgroundColor = LegendFill;
+
+        var clearances = _db.Clearances.Include(c => c.Shipment).ToList();
+        var deliveryOrders = _db.ClearanceDeliveryOrders.ToDictionary(d => d.ClearanceId);
+        var costEstimates = _db.ClearanceCostEstimates.ToDictionary(c => c.ClearanceId);
+        var certEntries = _db.ClearanceCertificateEntries.ToDictionary(c => c.ClearanceId);
+
+        int row = 6;
+        foreach (var clr in clearances.OrderBy(c => c.Shipment?.BlAwbNo))
+        {
+            deliveryOrders.TryGetValue(clr.Id, out var d);
+            costEstimates.TryGetValue(clr.Id, out var ce);
+            certEntries.TryGetValue(clr.Id, out var cert);
+
+            int c2 = 1;
+            SetCell(ws, row, c2++, clr.Shipment?.BlAwbNo);
+            SetCell(ws, row, c2++, clr.Route.ToString());
+            SetCell(ws, row, c2++, clr.CopyOfBlReceivedDate);
+            SetCell(ws, row, c2++, clr.OriginalShipmentSetReceivedDate);
+            SetCell(ws, row, c2++, clr.LcNo);
+            SetCell(ws, row, c2++, clr.DeclarationNo);
+            SetCell(ws, row, c2++, clr.ImFormNo);
+            SetCell(ws, row, c2++, clr.ImFormDate);
+            SetCell(ws, row, c2++, clr.Notes);
+            SetCell(ws, row, c2++, d?.ActualArrivalDate);
+            SetCell(ws, row, c2++, d?.ReceiveDoDate);
+            SetCell(ws, row, c2++, d?.CopyOfDoCollectedDate);
+            SetCell(ws, row, c2++, d?.DepositRequired);
+            SetCell(ws, row, c2++, d?.DoActualFeesSdg);
+            SetCell(ws, row, c2++, d?.DoFeesSettledDate);
+            SetCell(ws, row, c2++, d?.DoReceivedDate);
+            SetCell(ws, row, c2++, ce?.EstimateDate);
+            SetCell(ws, row, c2++, ce?.NotifyBuDate);
+            SetCell(ws, row, c2++, ce?.AmountSettledDate);
+            SetCell(ws, row, c2++, cert?.CertificateEntryDate);
+            SetCell(ws, row, c2++, cert?.ScudaDeclarationNo);
+            row++;
+        }
+        ws.Columns().AdjustToContents();
+    }
+
+    private void BuildClearanceCostEstimateSheet(XLWorkbook wb)
+    {
+        var ws = wb.Worksheets.Add("Clearance_Cost_Estimate");
+        ws.Cell(1, 1).Value = "Clearance Cost Estimate — Line Items";
+        ws.Cell(1, 1).Style.Font.Bold = true; ws.Cell(1, 1).Style.Font.FontSize = 13; ws.Cell(1, 1).Style.Font.FontColor = Navy;
+        var headers = new[] { "B/L NO", "CHARGE TYPE", "VALUE SDG", "DUE DATE", "IS PAID (TRUE/FALSE)", "PAID DATE" };
+        for (int i = 0; i < headers.Length; i++)
+        {
+            var c = ws.Cell(4, i + 1);
+            c.Value = headers[i]; c.Style.Font.Bold = true; c.Style.Font.FontColor = XLColor.White; c.Style.Fill.BackgroundColor = Navy;
+        }
+        for (int i = 0; i < headers.Length; i++) ws.Cell(5, i + 1).Style.Fill.BackgroundColor = LegendFill;
+
+        var rows = _db.ClearanceEstimateLineItems
+            .Include(e => e.Clearance!).ThenInclude(c => c.Shipment)
+            .Include(e => e.ChargeType)
+            .OrderBy(e => e.Clearance!.Shipment!.BlAwbNo).ToList();
+
+        int row = 6;
+        foreach (var r in rows)
+        {
+            SetCell(ws, row, 1, r.Clearance?.Shipment?.BlAwbNo);
+            SetCell(ws, row, 2, r.ChargeType?.Name);
+            SetCell(ws, row, 3, r.ValueSdg);
+            SetCell(ws, row, 4, r.DueDate);
+            SetCell(ws, row, 5, r.IsPaid);
+            SetCell(ws, row, 6, r.PaidDate);
+            row++;
+        }
+        ws.Columns().AdjustToContents();
+    }
+
+    private void BuildClearanceRoute1Sheet(XLWorkbook wb)
+    {
+        var ws = wb.Worksheets.Add("Clearance_Route1");
+        ws.Cell(1, 1).Value = "Clearance — Route 1 (Clear at Port) Progress";
+        ws.Cell(1, 1).Style.Font.Bold = true; ws.Cell(1, 1).Style.Font.FontSize = 13; ws.Cell(1, 1).Style.Font.FontColor = Navy;
+        var headers = new[] { "B/L NO",
+            "MOVE REQUEST DATE", "BILL AMOUNT SDG", "BILL SETTLEMENT DATE",
+            "SSMO FILE REQUEST DATE", "SSMO INSPECTION AMOUNT SDG", "SSMO FEES SETTLEMENT DATE",
+            "CUST EXAM START DATE", "CUST EXAM COMPLETED DATE",
+            "CUSTOMS LAB REQUIRED (TRUE/FALSE)", "CUSTOMS LAB FEES SDG", "LAB FEES PAYMENT DATE", "LAB RESULT ISSUANCE DATE",
+            "SSMO EXAM START DATE", "SSMO CERT ISSUANCE DATE",
+            "CUST EVALUATION DATE", "CUSTOMS DUTY SDG", "CUSTOMS SETTLEMENT DATE", "RELEASE EXIT PASS DATE",
+            "SPC BILL REQUEST DATE", "SPC BILL VALUE SDG", "SPC BILL SETTLEMENT DATE",
+            "TRUCK PORT ENTRY PERMIT DATE", "CONTAINERS RETURNED DATE", "SHIPPING LINE DEPOSIT RETURN DATE",
+            "DEPOSIT VALUE", "CLEARANCE ACTUAL COMPLETED DATE" };
+        for (int i = 0; i < headers.Length; i++)
+        {
+            var c = ws.Cell(4, i + 1);
+            c.Value = headers[i]; c.Style.Font.Bold = true; c.Style.Font.FontColor = XLColor.White; c.Style.Fill.BackgroundColor = Navy;
+        }
+        for (int i = 0; i < headers.Length; i++) ws.Cell(5, i + 1).Style.Fill.BackgroundColor = LegendFill;
+
+        var rows = _db.ClearanceRoute1Details.Include(r => r.Clearance!).ThenInclude(c => c.Shipment)
+            .OrderBy(r => r.Clearance!.Shipment!.BlAwbNo).ToList();
+
+        int row = 6;
+        foreach (var r in rows)
+        {
+            int c2 = 1;
+            SetCell(ws, row, c2++, r.Clearance?.Shipment?.BlAwbNo);
+            SetCell(ws, row, c2++, r.MoveRequestDate); SetCell(ws, row, c2++, r.BillAmountSdg); SetCell(ws, row, c2++, r.BillSettlementDate);
+            SetCell(ws, row, c2++, r.SsmoFileRequestDate); SetCell(ws, row, c2++, r.SsmoInspectionAmountSdg); SetCell(ws, row, c2++, r.SsmoFeesSettlementDate);
+            SetCell(ws, row, c2++, r.CustExamStartDate); SetCell(ws, row, c2++, r.CustExamCompletedDate);
+            SetCell(ws, row, c2++, r.CustomsLabRequired); SetCell(ws, row, c2++, r.CustomsLabFeesSdg);
+            SetCell(ws, row, c2++, r.LabFeesPaymentDate); SetCell(ws, row, c2++, r.LabResultIssuanceDate);
+            SetCell(ws, row, c2++, r.SsmoExamStartDate); SetCell(ws, row, c2++, r.SsmoCertIssuanceDate);
+            SetCell(ws, row, c2++, r.CustEvaluationDate); SetCell(ws, row, c2++, r.CustomsDutySdg);
+            SetCell(ws, row, c2++, r.CustomsSettlementDate); SetCell(ws, row, c2++, r.ReleaseExitPassDate);
+            SetCell(ws, row, c2++, r.SpcBillRequestDate); SetCell(ws, row, c2++, r.SpcBillValueSdg); SetCell(ws, row, c2++, r.SpcBillSettlementDate);
+            SetCell(ws, row, c2++, r.TruckPortEntryPermitDate); SetCell(ws, row, c2++, r.ContainersReturnedDate);
+            SetCell(ws, row, c2++, r.ShippingLineDepositReturnDate); SetCell(ws, row, c2++, r.DepositValue);
+            SetCell(ws, row, c2++, r.ClearanceActualCompletedDate);
+            row++;
+        }
+        ws.Columns().AdjustToContents();
+    }
+
+    private void BuildClearanceRoute2Sheet(XLWorkbook wb)
+    {
+        var ws = wb.Worksheets.Add("Clearance_Route2");
+        ws.Cell(1, 1).Value = "Clearance — Route 2 (FZ Deposit) Progress";
+        ws.Cell(1, 1).Style.Font.Bold = true; ws.Cell(1, 1).Style.Font.FontSize = 13; ws.Cell(1, 1).Style.Font.FontColor = Navy;
+        var headers = new[] { "B/L NO",
+            "DEPOSIT REQUEST DATE", "REQUEST APPROVAL DATE", "DEPOSIT REF NO.", "FZ INVOICE NO.", "DESTINATION (FZ Name)",
+            "INSPECTION DATE",
+            "SPC BILL REQUEST DATE", "SPC BILL VALUE SDG", "SPC BILL SETTLEMENT DATE", "POLICE SECURITY APPOINTED DATE",
+            "TRUCK PORT ENTRY PERMIT DATE", "CONTAINERS RECEIVED AT FZ DATE", "CONTAINERS RETURNED DATE",
+            "SHIPPING LINE DEPOSIT RETURN DATE", "DEPOSIT VALUE", "CLEARANCE ACTUAL COMPLETED DATE" };
+        for (int i = 0; i < headers.Length; i++)
+        {
+            var c = ws.Cell(4, i + 1);
+            c.Value = headers[i]; c.Style.Font.Bold = true; c.Style.Font.FontColor = XLColor.White; c.Style.Fill.BackgroundColor = Navy;
+        }
+        for (int i = 0; i < headers.Length; i++) ws.Cell(5, i + 1).Style.Fill.BackgroundColor = LegendFill;
+
+        var rows = _db.ClearanceRoute2Details
+            .Include(r => r.Clearance!).ThenInclude(c => c.Shipment)
+            .Include(r => r.Destination)
+            .OrderBy(r => r.Clearance!.Shipment!.BlAwbNo).ToList();
+
+        int row = 6;
+        foreach (var r in rows)
+        {
+            int c2 = 1;
+            SetCell(ws, row, c2++, r.Clearance?.Shipment?.BlAwbNo);
+            SetCell(ws, row, c2++, r.DepositRequestDate); SetCell(ws, row, c2++, r.RequestApprovalDate);
+            SetCell(ws, row, c2++, r.DepositRefNo); SetCell(ws, row, c2++, r.FzInvoiceNo); SetCell(ws, row, c2++, r.Destination?.Name);
+            SetCell(ws, row, c2++, r.InspectionDate);
+            SetCell(ws, row, c2++, r.SpcBillRequestDate); SetCell(ws, row, c2++, r.SpcBillValueSdg); SetCell(ws, row, c2++, r.SpcBillSettlementDate);
+            SetCell(ws, row, c2++, r.PoliceSecurityAppointedDate);
+            SetCell(ws, row, c2++, r.TruckPortEntryPermitDate); SetCell(ws, row, c2++, r.ContainersReceivedAtFzDate);
+            SetCell(ws, row, c2++, r.ContainersReturnedDate); SetCell(ws, row, c2++, r.ShippingLineDepositReturnDate);
+            SetCell(ws, row, c2++, r.DepositValue); SetCell(ws, row, c2++, r.ClearanceActualCompletedDate);
+            row++;
+        }
+        ws.Columns().AdjustToContents();
+    }
+
+    private void BuildClearanceActualChargesSheet(XLWorkbook wb)
+    {
+        var ws = wb.Worksheets.Add("Clearance_Actual_Charges");
+        ws.Cell(1, 1).Value = "Clearance — Actual Demurrage/Storage Charges";
+        ws.Cell(1, 1).Style.Font.Bold = true; ws.Cell(1, 1).Style.Font.FontSize = 13; ws.Cell(1, 1).Style.Font.FontColor = Navy;
+        var headers = new[] { "B/L NO", "FORECAST DEMURRAGE SDG", "FORECAST STORAGE SDG", "FORECAST CAPTURED AT (date)",
+            "PLANNED COMPLETION DATE", "ACTUAL DEMURRAGE PAID SDG", "ACTUAL STORAGE PAID SDG",
+            "SHIPPING LINE DEPOSIT RETURN DATE", "AMOUNT RETURNED FROM DEPOSIT" };
+        for (int i = 0; i < headers.Length; i++)
+        {
+            var c = ws.Cell(4, i + 1);
+            c.Value = headers[i]; c.Style.Font.Bold = true; c.Style.Font.FontColor = XLColor.White; c.Style.Fill.BackgroundColor = Navy;
+        }
+        for (int i = 0; i < headers.Length; i++) ws.Cell(5, i + 1).Style.Fill.BackgroundColor = LegendFill;
+
+        var rows = _db.ClearanceActualCharges.Include(r => r.Clearance!).ThenInclude(c => c.Shipment)
+            .OrderBy(r => r.Clearance!.Shipment!.BlAwbNo).ToList();
+
+        int row = 6;
+        foreach (var r in rows)
+        {
+            int c2 = 1;
+            SetCell(ws, row, c2++, r.Clearance?.Shipment?.BlAwbNo);
+            SetCell(ws, row, c2++, r.ForecastDemurrageSdg); SetCell(ws, row, c2++, r.ForecastStorageSdg);
+            SetCell(ws, row, c2++, r.ForecastCapturedAt.HasValue ? DateOnly.FromDateTime(r.ForecastCapturedAt.Value) : (DateOnly?)null);
+            SetCell(ws, row, c2++, r.PlannedCompletionDate);
+            SetCell(ws, row, c2++, r.ActualDemurragePaidSdg); SetCell(ws, row, c2++, r.ActualStoragePaidSdg);
+            SetCell(ws, row, c2++, r.ShippingLineDepositReturnDate); SetCell(ws, row, c2++, r.AmountReturnedFromDeposit);
+            row++;
+        }
+        ws.Columns().AdjustToContents();
+    }
+
+    private void BuildTruckingSheet(XLWorkbook wb)
+    {
+        var ws = wb.Worksheets.Add("Trucking");
+        ws.Cell(1, 1).Value = "Trucking — Warehouse Allocation & Delivery";
+        ws.Cell(1, 1).Style.Font.Bold = true; ws.Cell(1, 1).Style.Font.FontSize = 13; ws.Cell(1, 1).Style.Font.FontColor = Navy;
+        var headers = new[] { "B/L NO", "MODEL/PRODUCT", "QTY ALLOCATED", "WAREHOUSE NAME", "TRUCK PLATE NO.", "DRIVER NAME (optional)",
+            "LOAD DATE", "EXPECTED DELIVERY DATE", "ACTUAL DROP OFF DATE" };
+        for (int i = 0; i < headers.Length; i++)
+        {
+            var c = ws.Cell(4, i + 1);
+            c.Value = headers[i]; c.Style.Font.Bold = true; c.Style.Font.FontColor = XLColor.White; c.Style.Fill.BackgroundColor = Navy;
+        }
+        for (int i = 0; i < headers.Length; i++) ws.Cell(5, i + 1).Style.Fill.BackgroundColor = LegendFill;
+
+        // TruckLoadItem is the leaf of the chain — walk back up through
+        // Drop → TruckLoad, and via WarehouseAllocation → ShipmentLineItem
+        // to get the B/L and Model needed to identify the row.
+        var items = _db.TruckLoadItems
+            .Include(i => i.TruckLoadDrop!).ThenInclude(d => d.TruckLoad!).ThenInclude(t => t.Truck)
+            .Include(i => i.TruckLoadDrop!).ThenInclude(d => d.TruckLoad!).ThenInclude(t => t.Driver)
+            .Include(i => i.TruckLoadDrop!).ThenInclude(d => d.Warehouse)
+            .Include(i => i.WarehouseAllocation!).ThenInclude(a => a.ShipmentLineItem!).ThenInclude(sl => sl.Shipment)
+            .Include(i => i.WarehouseAllocation!).ThenInclude(a => a.ShipmentLineItem!).ThenInclude(sl => sl.PurchaseOrderLineItem!).ThenInclude(pl => pl.ModelProduct)
+            .Where(i => i.WarehouseAllocation!.ShipmentLineItemId != null)
+            .ToList();
+
+        int row = 6;
+        foreach (var item in items)
+        {
+            var drop = item.TruckLoadDrop!;
+            var load = drop.TruckLoad!;
+            var shipLine = item.WarehouseAllocation!.ShipmentLineItem!;
+
+            int c2 = 1;
+            SetCell(ws, row, c2++, shipLine.Shipment?.BlAwbNo);
+            SetCell(ws, row, c2++, shipLine.PurchaseOrderLineItem?.ModelProduct?.Name);
+            SetCell(ws, row, c2++, item.Qty);
+            SetCell(ws, row, c2++, drop.Warehouse?.Name);
+            SetCell(ws, row, c2++, load.Truck?.PlateNo);
+            SetCell(ws, row, c2++, load.Driver?.Name);
+            SetCell(ws, row, c2++, load.LoadDate);
+            SetCell(ws, row, c2++, drop.ExpectedDeliveryDate);
+            SetCell(ws, row, c2++, drop.ActualDropOffDate);
+            row++;
+        }
+        ws.Columns().AdjustToContents();
+    }
+
+    private void BuildFzStockOpeningBalanceSheet(XLWorkbook wb)
+    {
+        var ws = wb.Worksheets.Add("FZ_Stock_Opening_Balance");
+        ws.Cell(1, 1).Value = "FZ Stock — Opening Balance (Already Withdrawn)";
+        ws.Cell(1, 1).Style.Font.Bold = true; ws.Cell(1, 1).Style.Font.FontSize = 13; ws.Cell(1, 1).Style.Font.FontColor = Navy;
+        var headers = new[] { "B/L NO", "MODEL/PRODUCT", "ALREADY WITHDRAWN QTY" };
+        for (int i = 0; i < headers.Length; i++)
+        {
+            var c = ws.Cell(4, i + 1);
+            c.Value = headers[i]; c.Style.Font.Bold = true; c.Style.Font.FontColor = XLColor.White; c.Style.Fill.BackgroundColor = Navy;
+        }
+        for (int i = 0; i < headers.Length; i++) ws.Cell(5, i + 1).Style.Fill.BackgroundColor = LegendFill;
+
+        // Summed per (Shipment, Model) across every real WithdrawalLineItem
+        // — whether it came from the original opening-balance record or a
+        // genuine portal-made withdrawal since — so re-uploading this
+        // export produces exactly one correct, combined total per item,
+        // never double-counting or overwriting a prior partial figure.
+        var lines = _db.WithdrawalLineItems
+            .Include(l => l.DepositShipmentLineItem!).ThenInclude(sl => sl.Shipment)
+            .Include(l => l.DepositShipmentLineItem!).ThenInclude(sl => sl.PurchaseOrderLineItem!).ThenInclude(pl => pl.ModelProduct)
+            .ToList();
+
+        var grouped = lines
+            .GroupBy(l => l.DepositShipmentLineItemId)
+            .Select(g => new
+            {
+                BlAwbNo = g.First().DepositShipmentLineItem?.Shipment?.BlAwbNo,
+                ModelName = g.First().DepositShipmentLineItem?.PurchaseOrderLineItem?.ModelProduct?.Name,
+                TotalQty = g.Sum(x => x.Qty)
+            })
+            .OrderBy(x => x.BlAwbNo)
+            .ToList();
+
+        int row = 6;
+        foreach (var g in grouped)
+        {
+            SetCell(ws, row, 1, g.BlAwbNo);
+            SetCell(ws, row, 2, g.ModelName);
+            SetCell(ws, row, 3, g.TotalQty);
             row++;
         }
         ws.Columns().AdjustToContents();
