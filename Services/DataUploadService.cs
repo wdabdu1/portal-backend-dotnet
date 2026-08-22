@@ -366,18 +366,20 @@ public class DataUploadService
 
             await UpsertShipmentSections(shipment.Id, ws, row, lk);
 
-            // --- Last Offshore Item Detail (per line item; col 58 = Approved MOT Unit Price USD) ---
+            // --- Last Offshore Item Detail (per line item; col 58 = Approved MOT Unit Price USD, col 61 = Description) ---
             var lastOffshoreUnitPrice = D(ws, row, 58);
-            if (lastOffshoreUnitPrice.HasValue)
+            var lastOffshoreDescription = S(ws, row, 61);
+            if (lastOffshoreUnitPrice.HasValue || lastOffshoreDescription is not null)
             {
                 var existingItemDetail = await _db.LastOffshoreItemDetails.FirstOrDefaultAsync(d => d.ShipmentLineItemId == existingShipLine.Id);
                 if (existingItemDetail is null)
                 {
-                    _db.LastOffshoreItemDetails.Add(new LastOffshoreItemDetail { ShipmentLineItemId = existingShipLine.Id, UnitPrice = lastOffshoreUnitPrice });
+                    _db.LastOffshoreItemDetails.Add(new LastOffshoreItemDetail { ShipmentLineItemId = existingShipLine.Id, UnitPrice = lastOffshoreUnitPrice, Description = lastOffshoreDescription });
                 }
                 else
                 {
                     existingItemDetail.UnitPrice = lastOffshoreUnitPrice;
+                    existingItemDetail.Description = lastOffshoreDescription;
                 }
             }
 
@@ -480,17 +482,23 @@ public class DataUploadService
             mot.ApprovalDate = Dt(ws, row, 54);
         }
 
-        // Last Offshore Details header (cols 55-57; 58-59 handled per-line-item by the caller)
+        // Last Offshore Details header (cols 55-57; 58 and 61 handled per-line-item by the caller; 62 = Currency)
         var offshoreInvoiceNo = S(ws, row, 55);
         var inspectionNo = S(ws, row, 56);
         var grn = S(ws, row, 57);
-        if (offshoreInvoiceNo is not null || inspectionNo is not null || grn is not null)
+        var offshoreCurrencyCode = S(ws, row, 62);
+        if (offshoreInvoiceNo is not null || inspectionNo is not null || grn is not null || offshoreCurrencyCode is not null)
         {
             var offshore = await _db.LastOffshoreDetails.FirstOrDefaultAsync(o => o.ShipmentId == shipmentId) ?? new LastOffshoreDetail { ShipmentId = shipmentId };
             if (offshore.Id == 0) _db.LastOffshoreDetails.Add(offshore);
             offshore.InvoiceNo = offshoreInvoiceNo;
             offshore.InspectionNo = inspectionNo;
             offshore.Grn = grn;
+            if (offshoreCurrencyCode is not null)
+            {
+                var currency = lk.Currencies.FirstOrDefault(c => c.Code == offshoreCurrencyCode);
+                if (currency is not null) offshore.CurrencyId = currency.Id;
+            }
         }
 
         await _db.SaveChangesAsync();
