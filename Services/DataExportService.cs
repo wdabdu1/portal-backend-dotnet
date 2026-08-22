@@ -57,8 +57,8 @@ public class DataExportService
         ("OFFSHORE","TECHUIP INVOICE NO."),("OFFSHORE","INSPECTION NO."),("OFFSHORE","GRN NO."),("OFFSHORE","APPROVED MOT UNIT PRICE USD"),
         ("OFFSHORE","APPROVED MOT TOTAL PRICE USD (auto-computed, reference only)"),
         ("CLR","REMARKS"),
+        ("OFFSHORE","LAST OFFSHORE ITEM DESCRIPTION"),("OFFSHORE","LAST OFFSHORE CURRENCY"),
     };
-
     private static void SetCell(IXLWorksheet ws, int row, int col, object? value)
     {
         string text = value switch
@@ -167,7 +167,7 @@ public class DataExportService
         var bankings = _db.ShipmentBankings.ToDictionary(b => b.ShipmentId);
         var acds = _db.ShipmentAcds.ToDictionary(a => a.ShipmentId);
         var mots = _db.ShipmentMots.ToDictionary(m => m.ShipmentId);
-        var lastOffshores = _db.LastOffshoreDetails.ToDictionary(o => o.ShipmentId);
+        var lastOffshores = _db.LastOffshoreDetails.Include(o => o.Currency).ToDictionary(o => o.ShipmentId);
         var lastOffshoreItems = _db.LastOffshoreItemDetails.ToDictionary(i => i.ShipmentLineItemId);
         var clearances = _db.Clearances.ToDictionary(c => c.ShipmentId);
 
@@ -288,6 +288,8 @@ public class DataExportService
         SetCell(ws, row, c++, sl is not null && offshoreItem is not null && offshoreItem.UnitPrice.HasValue ? offshoreItem.UnitPrice.Value * sl.QtyInBl : (decimal?)null);
 
         SetCell(ws, row, c++, clearance?.Notes);
+        SetCell(ws, row, c++, offshoreItem?.Description);
+        SetCell(ws, row, c++, offshore?.Currency?.Code);
     }
 
     private void BuildPaymentDueSheet(XLWorkbook wb)
