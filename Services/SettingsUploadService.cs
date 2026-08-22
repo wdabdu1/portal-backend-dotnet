@@ -149,7 +149,7 @@ public class SettingsUploadService
                     activeProp.SetValue(existing, active);
                     updated++;
                 }
-        }
+                }
         await _db.SaveChangesAsync();
         return new SheetUploadResult("ClearanceSlaSettings", created, updated, errors);
     }
