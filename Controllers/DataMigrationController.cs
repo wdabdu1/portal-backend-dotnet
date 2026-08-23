@@ -54,8 +54,9 @@ public class DataMigrationController : ControllerBase
     {
         if (file is null || file.Length == 0) return BadRequest(new { message = "No file uploaded." });
 
+        var uploaderUserId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? "";
         using var stream = file.OpenReadStream();
-        var summary = await service.ProcessAsync(stream);
+        var summary = await service.ProcessAsync(stream, uploaderUserId);
         return Ok(summary);
     }
 
