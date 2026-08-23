@@ -1005,6 +1005,30 @@ public class DataUploadService
             var qty = D(ws, row, 3) ?? 0;
             var loadDate = Dt(ws, row, 7) ?? DateOnly.FromDateTime(DateTime.UtcNow);
 
+            // One allocation per shipment line item — re-uploading the same
+            // export updates the existing chain in place instead of adding
+            // a second, duplicate Truck Load every time.
+            var existingAllocation = await _db.WarehouseAllocations.FirstOrDefaultAsync(a => a.ShipmentLineItemId == shipLine.Id);
+            if (existingAllocation is not null)
+            {
+                var existingItem = await _db.TruckLoadItems.FirstOrDefaultAsync(i => i.WarehouseAllocationId == existingAllocation.Id);
+                if (existingItem is not null)
+                {
+                    var existingDrop = await _db.TruckLoadDrops.FirstOrDefaultAsync(d => d.Id == existingItem.TruckLoadDropId);
+                    var existingLoad = existingDrop is not null ? await _db.TruckLoads.FirstOrDefaultAsync(l => l.Id == existingDrop.TruckLoadId) : null;
+
+                    existingAllocation.WarehouseId = warehouse.Id;
+                    existingAllocation.Qty = qty;
+                    if (existingDrop is not null) { existingDrop.WarehouseId = warehouse.Id; existingDrop.ExpectedDeliveryDate = Dt(ws, row, 8); existingDrop.ActualDropOffDate = Dt(ws, row, 9); }
+                    if (existingLoad is not null) { existingLoad.TruckId = truck.Id; existingLoad.DriverId = driver?.Id; existingLoad.LoadDate = loadDate; }
+                    if (existingItem is not null) existingItem.Qty = qty;
+
+                    await _db.SaveChangesAsync();
+                    updated++;
+                    continue;
+                }
+            }
+
             var allocation = new WarehouseAllocation
             {
                 ShipmentLineItemId = shipLine.Id, WarehouseId = warehouse.Id, Qty = qty, AllocatedAt = DateTime.UtcNow
