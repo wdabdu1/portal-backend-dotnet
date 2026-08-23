@@ -393,6 +393,7 @@ public class DataUploadService
                 await _db.SaveChangesAsync();
                 shipmentLinesCreated++;
             }
+            existingShipLine.HsCode = S(ws, row, 83);
 
             await UpsertShipmentSections(shipment.Id, ws, row, lk);
 
