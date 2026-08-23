@@ -65,6 +65,7 @@ public class DataExportService
         ("BANK","TENOR DAYS"),("BANK","ADD CBOS ALLOWANCE DAYS"),("BANK","RECEIVER BANK CHARGES"),
         ("SSMO","COC REQUIRED (TRUE/FALSE)"),("SSMO","COC AVAILABLE (TRUE/FALSE)"),("SSMO","APPLICATION DATE"),
         ("SSMO","COST"),("SSMO","COST SETTLED DATE"),("SSMO","REF NUMBER"),("SSMO","APPROVAL DATE"),
+        ("SHIPLINE","HS CODE"),
     };
     private static void SetCell(IXLWorksheet ws, int row, int col, object? value)
     {
@@ -330,6 +331,7 @@ public class DataExportService
         SetCell(ws, row, c++, ssmo?.CostSettledDate);
         SetCell(ws, row, c++, ssmo?.RefNumber);
         SetCell(ws, row, c++, ssmo?.ApprovalDate);
+        SetCell(ws, row, c++, sl?.HsCode);
     }
 
     private void BuildPaymentDueSheet(XLWorkbook wb)
