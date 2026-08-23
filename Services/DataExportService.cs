@@ -92,6 +92,8 @@ public class DataExportService
         BuildClearanceActualChargesSheet(wb);
         BuildTruckingSheet(wb);
         BuildFzStockOpeningBalanceSheet(wb);
+        BuildTpConfirmationsSheet(wb);
+        BuildBankCollectionRecordsSheet(wb);
 
         using var ms = new MemoryStream();
         wb.SaveAs(ms);
@@ -722,6 +724,69 @@ public class DataExportService
             SetCell(ws, row, 1, g.BlAwbNo);
             SetCell(ws, row, 2, g.ModelName);
             SetCell(ws, row, 3, g.TotalQty);
+            row++;
+        }
+        ws.Columns().AdjustToContents();
+    }
+
+    private void BuildTpConfirmationsSheet(XLWorkbook wb)
+    {
+        var ws = wb.Worksheets.Add("TP_Confirmations");
+        ws.Cell(1, 1).Value = "Transfer Pricing Confirmations";
+        ws.Cell(1, 1).Style.Font.Bold = true; ws.Cell(1, 1).Style.Font.FontSize = 13; ws.Cell(1, 1).Style.Font.FontColor = Navy;
+        var headers = new[] { "B/L NO", "MODEL/PRODUCT", "SEQUENCE", "MARKUP PERCENT", "CURRENCY" };
+        for (int i = 0; i < headers.Length; i++)
+        {
+            var c = ws.Cell(4, i + 1);
+            c.Value = headers[i]; c.Style.Font.Bold = true; c.Style.Font.FontColor = XLColor.White; c.Style.Fill.BackgroundColor = Navy;
+        }
+        for (int i = 0; i < headers.Length; i++) ws.Cell(5, i + 1).Style.Fill.BackgroundColor = LegendFill;
+
+        var entries = _db.TransferPricingEntries
+            .Include(t => t.ShipmentLineItem!).ThenInclude(sl => sl.Shipment)
+            .Include(t => t.ShipmentLineItem!).ThenInclude(sl => sl.PurchaseOrderLineItem!).ThenInclude(pl => pl.ModelProduct)
+            .Include(t => t.PurchaseOrderOffshorePartner)
+            .Include(t => t.Currency)
+            .OrderBy(t => t.ShipmentLineItem!.Shipment!.BlAwbNo).ThenBy(t => t.PurchaseOrderOffshorePartner!.SequenceOrder)
+            .ToList();
+
+        int row = 6;
+        foreach (var e in entries)
+        {
+            SetCell(ws, row, 1, e.ShipmentLineItem?.Shipment?.BlAwbNo);
+            SetCell(ws, row, 2, e.ShipmentLineItem?.PurchaseOrderLineItem?.ModelProduct?.Name);
+            SetCell(ws, row, 3, e.PurchaseOrderOffshorePartner?.SequenceOrder);
+            SetCell(ws, row, 4, e.MarkupPercent);
+            SetCell(ws, row, 5, e.Currency?.Code);
+            row++;
+        }
+        ws.Columns().AdjustToContents();
+    }
+
+    private void BuildBankCollectionRecordsSheet(XLWorkbook wb)
+    {
+        var ws = wb.Worksheets.Add("Bank_Collection_Records");
+        ws.Cell(1, 1).Value = "Bank Collection Records (Actual)";
+        ws.Cell(1, 1).Style.Font.Bold = true; ws.Cell(1, 1).Style.Font.FontSize = 13; ws.Cell(1, 1).Style.Font.FontColor = Navy;
+        var headers = new[] { "B/L NO", "PAYMENT DATE", "CURRENCY", "VALUE" };
+        for (int i = 0; i < headers.Length; i++)
+        {
+            var c = ws.Cell(4, i + 1);
+            c.Value = headers[i]; c.Style.Font.Bold = true; c.Style.Font.FontColor = XLColor.White; c.Style.Fill.BackgroundColor = Navy;
+        }
+        for (int i = 0; i < headers.Length; i++) ws.Cell(5, i + 1).Style.Fill.BackgroundColor = LegendFill;
+
+        var records = _db.ShipmentCollectionRecords
+            .Include(r => r.Shipment).Include(r => r.Currency)
+            .OrderBy(r => r.Shipment!.BlAwbNo).ThenBy(r => r.PaymentDate).ToList();
+
+        int row = 6;
+        foreach (var r in records)
+        {
+            SetCell(ws, row, 1, r.Shipment?.BlAwbNo);
+            SetCell(ws, row, 2, r.PaymentDate);
+            SetCell(ws, row, 3, r.Currency?.Code);
+            SetCell(ws, row, 4, r.Value);
             row++;
         }
         ws.Columns().AdjustToContents();
