@@ -1,6 +1,7 @@
 using ClosedXML.Excel;
 using Microsoft.EntityFrameworkCore;
 using ShippingPortal.Api.Data;
+using ShippingPortal.Api.Models;
 using ShippingPortal.Api.Models.Orders;
 using ShippingPortal.Api.Models.Shipments;
 using ShippingPortal.Api.Models.Clearance;
