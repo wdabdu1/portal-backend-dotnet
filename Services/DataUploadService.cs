@@ -1025,7 +1025,7 @@ public class DataUploadService
                     existingAllocation.Qty = qty;
                     if (existingDrop is not null) { existingDrop.WarehouseId = warehouse.Id; existingDrop.ExpectedDeliveryDate = Dt(ws, row, 8); existingDrop.ActualDropOffDate = Dt(ws, row, 9); }
                     if (existingLoad is not null) { existingLoad.TruckId = truck.Id; existingLoad.DriverId = driver?.Id; existingLoad.LoadDate = loadDate; }
-                    if (existingItem is not null) existingItem.Qty = qty;
+                    if (existingItem is not null) { existingItem.Qty = qty; existingItem.InHousePrice = D(ws, row, 10); existingItem.ParallelMarketPrice = D(ws, row, 11); }
 
                     await _db.SaveChangesAsync();
                     updated++;
@@ -1048,7 +1048,7 @@ public class DataUploadService
             _db.TruckLoadDrops.Add(drop);
             await _db.SaveChangesAsync();
 
-            _db.TruckLoadItems.Add(new TruckLoadItem { TruckLoadDropId = drop.Id, WarehouseAllocationId = allocation.Id, Qty = qty });
+            _db.TruckLoadItems.Add(new TruckLoadItem { TruckLoadDropId = drop.Id, WarehouseAllocationId = allocation.Id, Qty = qty, InHousePrice = D(ws, row, 10), ParallelMarketPrice = D(ws, row, 11) });
             await _db.SaveChangesAsync();
             created++;
         }
@@ -1321,6 +1321,7 @@ public class DataUploadService
             w.LabFeesPaymentDate = Dt(ws, row, 21); w.LabResultIssuanceDate = Dt(ws, row, 22);
             w.SsmoExamStartDate = Dt(ws, row, 23); w.SsmoCertIssuanceDate = Dt(ws, row, 24);
             w.CustEvaluationDate = Dt(ws, row, 25); w.CustomsDutySdg = D(ws, row, 26); w.CustomsSettlementDate = Dt(ws, row, 27);
+            w.ReleaseExitPassDate = Dt(ws, row, 28); w.TruckPortEntryPermitDate = Dt(ws, row, 29); w.ClearanceActualCompletedDate = Dt(ws, row, 30);
 
             if (isNew) { _db.Withdrawals.Add(w); created++; } else updated++;
         }
