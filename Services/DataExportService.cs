@@ -651,7 +651,7 @@ public class DataExportService
         ws.Cell(1, 1).Value = "Trucking — Warehouse Allocation & Delivery";
         ws.Cell(1, 1).Style.Font.Bold = true; ws.Cell(1, 1).Style.Font.FontSize = 13; ws.Cell(1, 1).Style.Font.FontColor = Navy;
         var headers = new[] { "B/L NO", "MODEL/PRODUCT", "QTY ALLOCATED", "WAREHOUSE NAME", "TRUCK PLATE NO.", "DRIVER NAME (optional)",
-            "LOAD DATE", "EXPECTED DELIVERY DATE", "ACTUAL DROP OFF DATE" };
+            "LOAD DATE", "EXPECTED DELIVERY DATE", "ACTUAL DROP OFF DATE", "IN-HOUSE PRICE", "PARALLEL MARKET PRICE" };
         for (int i = 0; i < headers.Length; i++)
         {
             var c = ws.Cell(4, i + 1);
@@ -688,6 +688,8 @@ public class DataExportService
             SetCell(ws, row, c2++, load.LoadDate);
             SetCell(ws, row, c2++, drop.ExpectedDeliveryDate);
             SetCell(ws, row, c2++, drop.ActualDropOffDate);
+            SetCell(ws, row, c2++, item.InHousePrice);
+            SetCell(ws, row, c2++, item.ParallelMarketPrice);
             row++;
         }
         ws.Columns().AdjustToContents();
@@ -890,7 +892,8 @@ public class DataExportService
             "CUST EXAM START DATE", "CUST EXAM COMPLETED DATE",
             "CUSTOMS LAB REQUIRED (TRUE/FALSE)", "CUSTOMS LAB FEES SDG", "LAB FEES PAYMENT DATE", "LAB RESULT ISSUANCE DATE",
             "SSMO EXAM START DATE", "SSMO CERT ISSUANCE DATE",
-            "CUST EVALUATION DATE", "CUSTOMS DUTY SDG", "CUSTOMS SETTLEMENT DATE" };
+            "CUST EVALUATION DATE", "CUSTOMS DUTY SDG", "CUSTOMS SETTLEMENT DATE",
+            "RELEASE EXIT PASS DATE", "TRUCK PORT ENTRY PERMIT DATE", "CLEARANCE ACTUAL COMPLETED DATE" };
         for (int i = 0; i < headers.Length; i++)
         {
             var c = ws.Cell(4, i + 1);
@@ -923,6 +926,7 @@ public class DataExportService
             SetCell(ws, row, c2++, w.LabFeesPaymentDate); SetCell(ws, row, c2++, w.LabResultIssuanceDate);
             SetCell(ws, row, c2++, w.SsmoExamStartDate); SetCell(ws, row, c2++, w.SsmoCertIssuanceDate);
             SetCell(ws, row, c2++, w.CustEvaluationDate); SetCell(ws, row, c2++, w.CustomsDutySdg); SetCell(ws, row, c2++, w.CustomsSettlementDate);
+            SetCell(ws, row, c2++, w.ReleaseExitPassDate); SetCell(ws, row, c2++, w.TruckPortEntryPermitDate); SetCell(ws, row, c2++, w.ClearanceActualCompletedDate);
             row++;
         }
         ws.Columns().AdjustToContents();
