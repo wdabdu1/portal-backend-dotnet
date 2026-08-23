@@ -67,7 +67,7 @@ public class DataUploadService
         return true;
     }
 
-    public async Task<UploadSummary> ProcessAsync(Stream fileStream)
+    public async Task<UploadSummary> ProcessAsync(Stream fileStream, string uploaderUserId)
     {
         using var wb = new XLWorkbook(fileStream);
         var results = new List<SheetUploadResult>();
@@ -128,6 +128,9 @@ public class DataUploadService
 
         var wLineWs = wb.Worksheets.FirstOrDefault(w => w.Name == "Withdrawal_Line_Items");
         if (wLineWs is not null) results.Add(await ProcessWithdrawalLineItems(wLineWs));
+
+        var locksWs = wb.Worksheets.FirstOrDefault(w => w.Name == "Section_Locks");
+        if (locksWs is not null) results.Add(await ProcessSectionLocks(locksWs, uploaderUserId));
 
         return new UploadSummary(results);
     }
@@ -1416,6 +1419,45 @@ public class DataUploadService
             else { existing.Qty = qty.Value; updated++; }
         }
         await _db.SaveChangesAsync();
+        await _db.SaveChangesAsync();
         return new SheetUploadResult("Withdrawal_Line_Items", created, updated, errors);
+    }
+
+    // ---------- Section Locks ----------
+    private async Task<SheetUploadResult> ProcessSectionLocks(IXLWorksheet ws, string uploaderUserId)
+    {
+        var errors = new List<string>(); int created = 0, updated = 0;
+        var lastRow = ws.LastRowUsed()?.RowNumber() ?? PaymentFirstDataRow - 1;
+
+        for (int row = PaymentFirstDataRow; row <= lastRow; row++)
+        {
+            if (RowIsBlank(ws, row, 3)) continue;
+            var entityType = S(ws, row, 1); var blAwbNo = S(ws, row, 2); var sectionKey = S(ws, row, 3);
+            if (entityType is null || blAwbNo is null || sectionKey is null) { errors.Add($"Row {row}: ENTITY TYPE, B/L NO, and SECTION KEY are all required."); continue; }
+            if (entityType != "Shipment" && entityType != "Clearance") { errors.Add($"Row {row}: ENTITY TYPE must be 'Shipment' or 'Clearance'."); continue; }
+
+            var ship = await _db.Shipments.FirstOrDefaultAsync(s => s.BlAwbNo == blAwbNo);
+            if (ship is null) { errors.Add($"Row {row}: Shipment '{blAwbNo}' not found — upload Main first."); continue; }
+
+            int entityId;
+            if (entityType == "Shipment") entityId = ship.Id;
+            else
+            {
+                var clearance = await _db.Clearances.FirstOrDefaultAsync(c => c.ShipmentId == ship.Id);
+                if (clearance is null) { errors.Add($"Row {row}: Shipment '{blAwbNo}' has no Clearance record yet."); continue; }
+                entityId = clearance.Id;
+            }
+
+            var existing = await _db.SectionLocks.FirstOrDefaultAsync(l => l.EntityType == entityType && l.EntityId == entityId && l.SectionKey == sectionKey);
+            if (existing is null)
+            {
+                var confirmedAt = Dt(ws, row, 4)?.ToDateTime(TimeOnly.MinValue) ?? DateTime.UtcNow;
+                _db.SectionLocks.Add(new SectionLock { EntityType = entityType, EntityId = entityId, SectionKey = sectionKey, ConfirmedByUserId = uploaderUserId, ConfirmedAt = confirmedAt });
+                created++;
+            }
+            else updated++; // already locked — leave the original confirmer/date untouched
+        }
+        await _db.SaveChangesAsync();
+        return new SheetUploadResult("Section_Locks", created, updated, errors);
     }
 }
