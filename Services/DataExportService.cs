@@ -94,6 +94,12 @@ public class DataExportService
         BuildFzStockOpeningBalanceSheet(wb);
         BuildTpConfirmationsSheet(wb);
         BuildBankCollectionRecordsSheet(wb);
+        BuildClearanceRoute3Sheet(wb);
+        BuildClearanceRoute3WithdrawalsSheet(wb);
+        BuildWithdrawalsSheet(wb);
+        BuildWithdrawalCostEstimateSheet(wb);
+        BuildWithdrawalEstimateLineItemsSheet(wb);
+        BuildWithdrawalLineItemsSheet(wb);
 
         using var ms = new MemoryStream();
         wb.SaveAs(ms);
@@ -787,6 +793,218 @@ public class DataExportService
             SetCell(ws, row, 2, r.PaymentDate);
             SetCell(ws, row, 3, r.Currency?.Code);
             SetCell(ws, row, 4, r.Value);
+            row++;
+        }
+        ws.Columns().AdjustToContents();
+    }
+
+    private void BuildClearanceRoute3Sheet(XLWorkbook wb)
+    {
+        var ws = wb.Worksheets.Add("Clearance_Route3");
+        ws.Cell(1, 1).Value = "Clearance — Route 3 (Clear from FZ / Withdrawal) Progress";
+        ws.Cell(1, 1).Style.Font.Bold = true; ws.Cell(1, 1).Style.Font.FontSize = 13; ws.Cell(1, 1).Style.Font.FontColor = Navy;
+        var headers = new[] { "B/L NO (Withdrawal Shipment)", "DEPOSIT B/L NO",
+            "CERTIFICATE ENTRY DATE", "SCUDA DECLARATION NO.",
+            "SSMO FILE REQUEST DATE", "SSMO INSPECTION AMOUNT SDG", "SSMO FEES SETTLEMENT DATE",
+            "CUST EXAM START DATE", "CUST EXAM COMPLETED DATE",
+            "CUSTOMS LAB REQUIRED (TRUE/FALSE)", "CUSTOMS LAB FEES SDG", "LAB FEES PAYMENT DATE", "LAB RESULT ISSUANCE DATE",
+            "SSMO EXAM START DATE", "SSMO CERT ISSUANCE DATE",
+            "CUST EVALUATION DATE", "CUSTOMS DUTY SDG", "CUSTOMS SETTLEMENT DATE", "RELEASE EXIT PASS DATE",
+            "TRUCK PORT ENTRY PERMIT DATE", "CLEARANCE ACTUAL COMPLETED DATE" };
+        for (int i = 0; i < headers.Length; i++)
+        {
+            var c = ws.Cell(4, i + 1);
+            c.Value = headers[i]; c.Style.Font.Bold = true; c.Style.Font.FontColor = XLColor.White; c.Style.Fill.BackgroundColor = Navy;
+        }
+        for (int i = 0; i < headers.Length; i++) ws.Cell(5, i + 1).Style.Fill.BackgroundColor = LegendFill;
+
+        var rows = _db.ClearanceRoute3Details
+            .Include(r => r.Clearance!).ThenInclude(c => c.Shipment)
+            .Include(r => r.DepositShipment)
+            .OrderBy(r => r.Clearance!.Shipment!.BlAwbNo).ToList();
+
+        int row = 6;
+        foreach (var r in rows)
+        {
+            int c2 = 1;
+            SetCell(ws, row, c2++, r.Clearance?.Shipment?.BlAwbNo);
+            SetCell(ws, row, c2++, r.DepositShipment?.BlAwbNo);
+            SetCell(ws, row, c2++, r.CertificateEntryDate); SetCell(ws, row, c2++, r.ScudaDeclarationNo);
+            SetCell(ws, row, c2++, r.SsmoFileRequestDate); SetCell(ws, row, c2++, r.SsmoInspectionAmountSdg); SetCell(ws, row, c2++, r.SsmoFeesSettlementDate);
+            SetCell(ws, row, c2++, r.CustExamStartDate); SetCell(ws, row, c2++, r.CustExamCompletedDate);
+            SetCell(ws, row, c2++, r.CustomsLabRequired); SetCell(ws, row, c2++, r.CustomsLabFeesSdg);
+            SetCell(ws, row, c2++, r.LabFeesPaymentDate); SetCell(ws, row, c2++, r.LabResultIssuanceDate);
+            SetCell(ws, row, c2++, r.SsmoExamStartDate); SetCell(ws, row, c2++, r.SsmoCertIssuanceDate);
+            SetCell(ws, row, c2++, r.CustEvaluationDate); SetCell(ws, row, c2++, r.CustomsDutySdg);
+            SetCell(ws, row, c2++, r.CustomsSettlementDate); SetCell(ws, row, c2++, r.ReleaseExitPassDate);
+            SetCell(ws, row, c2++, r.TruckPortEntryPermitDate); SetCell(ws, row, c2++, r.ClearanceActualCompletedDate);
+            row++;
+        }
+        ws.Columns().AdjustToContents();
+    }
+
+    private void BuildClearanceRoute3WithdrawalsSheet(XLWorkbook wb)
+    {
+        var ws = wb.Worksheets.Add("Clearance_Route3_Withdrawals");
+        ws.Cell(1, 1).Value = "Clearance Route 3 — Withdrawal Line Items";
+        ws.Cell(1, 1).Style.Font.Bold = true; ws.Cell(1, 1).Style.Font.FontSize = 13; ws.Cell(1, 1).Style.Font.FontColor = Navy;
+        var headers = new[] { "B/L NO (Withdrawal Shipment)", "DEPOSIT MODEL/PRODUCT", "QTY" };
+        for (int i = 0; i < headers.Length; i++)
+        {
+            var c = ws.Cell(4, i + 1);
+            c.Value = headers[i]; c.Style.Font.Bold = true; c.Style.Font.FontColor = XLColor.White; c.Style.Fill.BackgroundColor = Navy;
+        }
+        for (int i = 0; i < headers.Length; i++) ws.Cell(5, i + 1).Style.Fill.BackgroundColor = LegendFill;
+
+        var rows = _db.ClearanceRoute3Withdrawals
+            .Include(w => w.ClearanceRoute3Details!).ThenInclude(r => r.Clearance!).ThenInclude(c => c.Shipment)
+            .Include(w => w.DepositShipmentLineItem!).ThenInclude(sl => sl.PurchaseOrderLineItem!).ThenInclude(pl => pl.ModelProduct)
+            .OrderBy(w => w.ClearanceRoute3Details!.Clearance!.Shipment!.BlAwbNo)
+            .ToList();
+
+        int row = 6;
+        foreach (var w in rows)
+        {
+            SetCell(ws, row, 1, w.ClearanceRoute3Details?.Clearance?.Shipment?.BlAwbNo);
+            SetCell(ws, row, 2, w.DepositShipmentLineItem?.PurchaseOrderLineItem?.ModelProduct?.Name);
+            SetCell(ws, row, 3, w.Qty);
+            row++;
+        }
+        ws.Columns().AdjustToContents();
+    }
+
+    private void BuildWithdrawalsSheet(XLWorkbook wb)
+    {
+        var ws = wb.Worksheets.Add("Withdrawals");
+        ws.Cell(1, 1).Value = "Withdrawals — Standalone Workflow";
+        ws.Cell(1, 1).Style.Font.Bold = true; ws.Cell(1, 1).Style.Font.FontSize = 13; ws.Cell(1, 1).Style.Font.FontColor = Navy;
+        var headers = new[] { "DEPOSIT B/L NO", "WITHDRAWAL REQUEST REF NO.", "WITHDRAWAL REQUEST DATE",
+            "CERTIFICATE ENTRY DATE", "SCUDA DECLARATION NO.",
+            "SSMO COC REQUIRED (TRUE/FALSE)", "SSMO COC AVAILABLE (TRUE/FALSE)", "SSMO APPLICATION DATE",
+            "SSMO COST", "SSMO COST SETTLED DATE", "SSMO REF NUMBER", "SSMO APPROVAL DATE",
+            "MOT APPROVAL DATE",
+            "SSMO FILE REQUEST DATE", "SSMO INSPECTION AMOUNT SDG", "SSMO FEES SETTLEMENT DATE",
+            "CUST EXAM START DATE", "CUST EXAM COMPLETED DATE",
+            "CUSTOMS LAB REQUIRED (TRUE/FALSE)", "CUSTOMS LAB FEES SDG", "LAB FEES PAYMENT DATE", "LAB RESULT ISSUANCE DATE",
+            "SSMO EXAM START DATE", "SSMO CERT ISSUANCE DATE",
+            "CUST EVALUATION DATE", "CUSTOMS DUTY SDG", "CUSTOMS SETTLEMENT DATE" };
+        for (int i = 0; i < headers.Length; i++)
+        {
+            var c = ws.Cell(4, i + 1);
+            c.Value = headers[i]; c.Style.Font.Bold = true; c.Style.Font.FontColor = XLColor.White; c.Style.Fill.BackgroundColor = Navy;
+        }
+        for (int i = 0; i < headers.Length; i++) ws.Cell(5, i + 1).Style.Fill.BackgroundColor = LegendFill;
+
+        var rows = _db.Withdrawals.Include(w => w.DepositShipment).OrderBy(w => w.DepositShipment!.BlAwbNo).ThenBy(w => w.WithdrawalRequestRefNo).ToList();
+
+        int row = 6;
+        foreach (var w in rows)
+        {
+            int c2 = 1;
+            SetCell(ws, row, c2++, w.DepositShipment?.BlAwbNo);
+            SetCell(ws, row, c2++, w.WithdrawalRequestRefNo);
+            SetCell(ws, row, c2++, w.WithdrawalRequestDate);
+            SetCell(ws, row, c2++, w.CertificateEntryDate); SetCell(ws, row, c2++, w.ScudaDeclarationNo);
+            SetCell(ws, row, c2++, w.SsmoCocRequired); SetCell(ws, row, c2++, w.SsmoCocAvailable);
+            SetCell(ws, row, c2++, w.SsmoApplicationDate); SetCell(ws, row, c2++, w.SsmoCost);
+            SetCell(ws, row, c2++, w.SsmoCostSettledDate); SetCell(ws, row, c2++, w.SsmoRefNumber); SetCell(ws, row, c2++, w.SsmoApprovalDate);
+            SetCell(ws, row, c2++, w.MotApprovalDate);
+            SetCell(ws, row, c2++, w.SsmoFileRequestDate); SetCell(ws, row, c2++, w.SsmoInspectionAmountSdg); SetCell(ws, row, c2++, w.SsmoFeesSettlementDate);
+            SetCell(ws, row, c2++, w.CustExamStartDate); SetCell(ws, row, c2++, w.CustExamCompletedDate);
+            SetCell(ws, row, c2++, w.CustomsLabRequired); SetCell(ws, row, c2++, w.CustomsLabFeesSdg);
+            SetCell(ws, row, c2++, w.LabFeesPaymentDate); SetCell(ws, row, c2++, w.LabResultIssuanceDate);
+            SetCell(ws, row, c2++, w.SsmoExamStartDate); SetCell(ws, row, c2++, w.SsmoCertIssuanceDate);
+            SetCell(ws, row, c2++, w.CustEvaluationDate); SetCell(ws, row, c2++, w.CustomsDutySdg); SetCell(ws, row, c2++, w.CustomsSettlementDate);
+            row++;
+        }
+        ws.Columns().AdjustToContents();
+    }
+
+    private void BuildWithdrawalCostEstimateSheet(XLWorkbook wb)
+    {
+        var ws = wb.Worksheets.Add("Withdrawal_Cost_Estimate");
+        ws.Cell(1, 1).Value = "Withdrawal Cost Estimate — Header";
+        ws.Cell(1, 1).Style.Font.Bold = true; ws.Cell(1, 1).Style.Font.FontSize = 13; ws.Cell(1, 1).Style.Font.FontColor = Navy;
+        var headers = new[] { "DEPOSIT B/L NO", "WITHDRAWAL REQUEST REF NO.", "ESTIMATE DATE", "NOTIFY BU DATE", "AMOUNT SETTLED DATE" };
+        for (int i = 0; i < headers.Length; i++)
+        {
+            var c = ws.Cell(4, i + 1);
+            c.Value = headers[i]; c.Style.Font.Bold = true; c.Style.Font.FontColor = XLColor.White; c.Style.Fill.BackgroundColor = Navy;
+        }
+        for (int i = 0; i < headers.Length; i++) ws.Cell(5, i + 1).Style.Fill.BackgroundColor = LegendFill;
+
+        var rows = _db.WithdrawalCostEstimates.Include(e => e.Withdrawal!).ThenInclude(w => w.DepositShipment)
+            .OrderBy(e => e.Withdrawal!.DepositShipment!.BlAwbNo).ToList();
+
+        int row = 6;
+        foreach (var e in rows)
+        {
+            SetCell(ws, row, 1, e.Withdrawal?.DepositShipment?.BlAwbNo);
+            SetCell(ws, row, 2, e.Withdrawal?.WithdrawalRequestRefNo);
+            SetCell(ws, row, 3, e.EstimateDate);
+            SetCell(ws, row, 4, e.NotifyBuDate);
+            SetCell(ws, row, 5, e.AmountSettledDate);
+            row++;
+        }
+        ws.Columns().AdjustToContents();
+    }
+
+    private void BuildWithdrawalEstimateLineItemsSheet(XLWorkbook wb)
+    {
+        var ws = wb.Worksheets.Add("Withdrawal_Estimate_Line_Items");
+        ws.Cell(1, 1).Value = "Withdrawal Cost Estimate — Line Items";
+        ws.Cell(1, 1).Style.Font.Bold = true; ws.Cell(1, 1).Style.Font.FontSize = 13; ws.Cell(1, 1).Style.Font.FontColor = Navy;
+        var headers = new[] { "DEPOSIT B/L NO", "WITHDRAWAL REQUEST REF NO.", "CHARGE TYPE", "VALUE SDG", "DUE DATE" };
+        for (int i = 0; i < headers.Length; i++)
+        {
+            var c = ws.Cell(4, i + 1);
+            c.Value = headers[i]; c.Style.Font.Bold = true; c.Style.Font.FontColor = XLColor.White; c.Style.Fill.BackgroundColor = Navy;
+        }
+        for (int i = 0; i < headers.Length; i++) ws.Cell(5, i + 1).Style.Fill.BackgroundColor = LegendFill;
+
+        var rows = _db.WithdrawalEstimateLineItems
+            .Include(e => e.Withdrawal!).ThenInclude(w => w.DepositShipment)
+            .Include(e => e.ChargeType)
+            .OrderBy(e => e.Withdrawal!.DepositShipment!.BlAwbNo).ToList();
+
+        int row = 6;
+        foreach (var e in rows)
+        {
+            SetCell(ws, row, 1, e.Withdrawal?.DepositShipment?.BlAwbNo);
+            SetCell(ws, row, 2, e.Withdrawal?.WithdrawalRequestRefNo);
+            SetCell(ws, row, 3, e.ChargeType?.Name);
+            SetCell(ws, row, 4, e.ValueSdg);
+            SetCell(ws, row, 5, e.DueDate);
+            row++;
+        }
+        ws.Columns().AdjustToContents();
+    }
+
+    private void BuildWithdrawalLineItemsSheet(XLWorkbook wb)
+    {
+        var ws = wb.Worksheets.Add("Withdrawal_Line_Items");
+        ws.Cell(1, 1).Value = "Withdrawal — Which Deposited Items, How Much";
+        ws.Cell(1, 1).Style.Font.Bold = true; ws.Cell(1, 1).Style.Font.FontSize = 13; ws.Cell(1, 1).Style.Font.FontColor = Navy;
+        var headers = new[] { "DEPOSIT B/L NO", "WITHDRAWAL REQUEST REF NO.", "MODEL/PRODUCT", "QTY" };
+        for (int i = 0; i < headers.Length; i++)
+        {
+            var c = ws.Cell(4, i + 1);
+            c.Value = headers[i]; c.Style.Font.Bold = true; c.Style.Font.FontColor = XLColor.White; c.Style.Fill.BackgroundColor = Navy;
+        }
+        for (int i = 0; i < headers.Length; i++) ws.Cell(5, i + 1).Style.Fill.BackgroundColor = LegendFill;
+
+        var rows = _db.WithdrawalLineItems
+            .Include(l => l.Withdrawal!).ThenInclude(w => w.DepositShipment)
+            .Include(l => l.DepositShipmentLineItem!).ThenInclude(sl => sl.PurchaseOrderLineItem!).ThenInclude(pl => pl.ModelProduct)
+            .OrderBy(l => l.Withdrawal!.DepositShipment!.BlAwbNo).ToList();
+
+        int row = 6;
+        foreach (var l in rows)
+        {
+            SetCell(ws, row, 1, l.Withdrawal?.DepositShipment?.BlAwbNo);
+            SetCell(ws, row, 2, l.Withdrawal?.WithdrawalRequestRefNo);
+            SetCell(ws, row, 3, l.DepositShipmentLineItem?.PurchaseOrderLineItem?.ModelProduct?.Name);
+            SetCell(ws, row, 4, l.Qty);
             row++;
         }
         ws.Columns().AdjustToContents();
