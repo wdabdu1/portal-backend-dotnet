@@ -101,6 +101,7 @@ public class DataExportService
         BuildWithdrawalCostEstimateSheet(wb);
         BuildWithdrawalEstimateLineItemsSheet(wb);
         BuildWithdrawalLineItemsSheet(wb);
+        BuildSectionLocksSheet(wb);
 
         using var ms = new MemoryStream();
         wb.SaveAs(ms);
@@ -1012,6 +1013,40 @@ public class DataExportService
             SetCell(ws, row, 2, l.Withdrawal?.WithdrawalRequestRefNo);
             SetCell(ws, row, 3, l.DepositShipmentLineItem?.PurchaseOrderLineItem?.ModelProduct?.Name);
             SetCell(ws, row, 4, l.Qty);
+            row++;
+        }
+        ws.Columns().AdjustToContents();
+    }
+
+    private void BuildSectionLocksSheet(XLWorkbook wb)
+    {
+        var ws = wb.Worksheets.Add("Section_Locks");
+        ws.Cell(1, 1).Value = "Section Locks (Confirmed/Locked Sections)";
+        ws.Cell(1, 1).Style.Font.Bold = true; ws.Cell(1, 1).Style.Font.FontSize = 13; ws.Cell(1, 1).Style.Font.FontColor = Navy;
+        var headers = new[] { "ENTITY TYPE (Shipment/Clearance)", "B/L NO", "SECTION KEY", "CONFIRMED AT" };
+        for (int i = 0; i < headers.Length; i++)
+        {
+            var c = ws.Cell(4, i + 1);
+            c.Value = headers[i]; c.Style.Font.Bold = true; c.Style.Font.FontColor = XLColor.White; c.Style.Fill.BackgroundColor = Navy;
+        }
+        for (int i = 0; i < headers.Length; i++) ws.Cell(5, i + 1).Style.Fill.BackgroundColor = LegendFill;
+
+        var shipmentLocks = _db.SectionLocks.Where(l => l.EntityType == "Shipment")
+            .Join(_db.Shipments, l => l.EntityId, s => s.Id, (l, s) => new { l.EntityType, BlAwbNo = s.BlAwbNo, l.SectionKey, l.ConfirmedAt })
+            .ToList();
+        var clearanceLocks = _db.SectionLocks.Where(l => l.EntityType == "Clearance")
+            .Join(_db.Clearances, l => l.EntityId, c => c.Id, (l, c) => new { l, c })
+            .Join(_db.Shipments, x => x.c.ShipmentId, s => s.Id, (x, s) => new { x.l.EntityType, BlAwbNo = s.BlAwbNo, x.l.SectionKey, x.l.ConfirmedAt })
+            .ToList();
+        var rows = shipmentLocks.Concat(clearanceLocks).OrderBy(r => r.BlAwbNo).ThenBy(r => r.SectionKey).ToList();
+
+        int row = 6;
+        foreach (var r in rows)
+        {
+            SetCell(ws, row, 1, r.EntityType);
+            SetCell(ws, row, 2, r.BlAwbNo);
+            SetCell(ws, row, 3, r.SectionKey);
+            SetCell(ws, row, 4, DateOnly.FromDateTime(r.ConfirmedAt));
             row++;
         }
         ws.Columns().AdjustToContents();
