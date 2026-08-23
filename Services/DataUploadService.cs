@@ -124,8 +124,10 @@ public class DataUploadService
         public List<ShippingLine> ShippingLines = new();
         public List<Forwarder> Forwarders = new();
         public List<Courier> Couriers = new();
+        public List<SenderBank> SenderBanks = new();
+        public List<ReceiverBank> ReceiverBanks = new();
+        public List<Tenor> Tenors = new();
     }
-
     private async Task<LookupCache> LoadLookups() => new LookupCache
     {
         Partners = await _db.BusinessPartners.ToListAsync(),
@@ -141,7 +143,10 @@ public class DataUploadService
         Currencies = await _db.Currencies.ToListAsync(),
         ShippingLines = await _db.ShippingLines.ToListAsync(),
         Forwarders = await _db.Forwarders.ToListAsync(),
-        Couriers = await _db.Couriers.ToListAsync()
+        Couriers = await _db.Couriers.ToListAsync(),
+        SenderBanks = await _db.SenderBanks.ToListAsync(),
+        ReceiverBanks = await _db.ReceiverBanks.ToListAsync(),
+        Tenors = await _db.Tenors.ToListAsync()
     };
 
     private async Task<SheetUploadResult> ProcessMain(IXLWorksheet ws)
@@ -454,13 +459,82 @@ public class DataUploadService
             fullSet.FsReceivedDate = Dt(ws, row, 50);
         }
 
-        // Banking (col 51 — dispatch tracking number only, per this sheet's reduced scope)
+        // Banking (col 51 = dispatch tracking number; cols 64-75 = full fields, appended at the end of the sheet)
         var bankTrackingNo = S(ws, row, 51);
-        if (bankTrackingNo is not null)
+        var senderBankName = S(ws, row, 64);
+        var osDocDispatchDate = Dt(ws, row, 65);
+        var osDocDispatchedViaName = S(ws, row, 66);
+        var senderBankCharges = D(ws, row, 67);
+        var receivingBankName = S(ws, row, 68);
+        var necessaryGoodType = B(ws, row, 69);
+        var collectionRefNo = S(ws, row, 70);
+        var collectionValue = D(ws, row, 71);
+        var collectionCurrencyCode = S(ws, row, 72);
+        var tenorDays = I(ws, row, 73);
+        var addCbosAllowanceDays = I(ws, row, 74);
+        var receiverBankCharges = D(ws, row, 75);
+        if (bankTrackingNo is not null || senderBankName is not null || receivingBankName is not null || collectionRefNo is not null || collectionValue is not null)
         {
             var banking = await _db.ShipmentBankings.FirstOrDefaultAsync(b => b.ShipmentId == shipmentId) ?? new ShipmentBanking { ShipmentId = shipmentId };
             if (banking.Id == 0) _db.ShipmentBankings.Add(banking);
             banking.OsDocTrackingNumber = bankTrackingNo;
+            banking.OsDocDispatchDate = osDocDispatchDate;
+            banking.SenderBankCharges = senderBankCharges;
+            banking.NecessaryGoodType = necessaryGoodType ?? banking.NecessaryGoodType;
+            banking.CollectionRefNo = collectionRefNo;
+            banking.CollectionValue = collectionValue;
+            banking.ReceiverBankCharges = receiverBankCharges;
+            if (senderBankName is not null)
+            {
+                var sb = lk.SenderBanks.FirstOrDefault(x => x.Name == senderBankName);
+                if (sb is not null) banking.SenderBankId = sb.Id;
+            }
+            if (osDocDispatchedViaName is not null)
+            {
+                var courier = lk.Couriers.FirstOrDefault(x => x.Name == osDocDispatchedViaName);
+                if (courier is not null) banking.OsDocDispatchedViaId = courier.Id;
+            }
+            if (receivingBankName is not null)
+            {
+                var rb = lk.ReceiverBanks.FirstOrDefault(x => x.Name == receivingBankName);
+                if (rb is not null) banking.ReceivingBankId = rb.Id;
+            }
+            if (collectionCurrencyCode is not null)
+            {
+                var cur = lk.Currencies.FirstOrDefault(x => x.Code == collectionCurrencyCode);
+                if (cur is not null) banking.CollectionCurrencyId = cur.Id;
+            }
+            if (tenorDays is not null)
+            {
+                var tenor = lk.Tenors.FirstOrDefault(x => x.Days == tenorDays);
+                if (tenor is not null) banking.TenorId = tenor.Id;
+            }
+            if (addCbosAllowanceDays is not null)
+            {
+                var allowance = lk.Tenors.FirstOrDefault(x => x.Days == addCbosAllowanceDays);
+                if (allowance is not null) banking.AddCbosAllowanceId = allowance.Id;
+            }
+        }
+
+        // SSMO (cols 76-82)
+        var cocRequired = B(ws, row, 76);
+        var cocAvailable = B(ws, row, 77);
+        var ssmoApplicationDate = Dt(ws, row, 78);
+        var ssmoCost = D(ws, row, 79);
+        var ssmoCostSettledDate = Dt(ws, row, 80);
+        var ssmoRefNumber = S(ws, row, 81);
+        var ssmoApprovalDate = Dt(ws, row, 82);
+        if (cocRequired is not null || cocAvailable is not null || ssmoApplicationDate is not null || ssmoRefNumber is not null)
+        {
+            var ssmo = await _db.ShipmentSsmos.FirstOrDefaultAsync(s => s.ShipmentId == shipmentId) ?? new ShipmentSsmo { ShipmentId = shipmentId };
+            if (ssmo.Id == 0) _db.ShipmentSsmos.Add(ssmo);
+            ssmo.CocRequired = cocRequired;
+            ssmo.CocAvailable = cocAvailable;
+            ssmo.ApplicationDate = ssmoApplicationDate;
+            ssmo.Cost = ssmoCost;
+            ssmo.CostSettledDate = ssmoCostSettledDate;
+            ssmo.RefNumber = ssmoRefNumber;
+            ssmo.ApprovalDate = ssmoApprovalDate;
         }
 
         // ACD (col 52)
@@ -482,18 +556,20 @@ public class DataUploadService
             mot.ApprovalDate = Dt(ws, row, 54);
         }
 
-        // Last Offshore Details header (cols 55-57; 58 and 61 handled per-line-item by the caller; 62 = Currency)
+        // Last Offshore Details header (cols 55-57; 58 and 61 handled per-line-item by the caller; 62 = Currency; 63 = Remarks)
         var offshoreInvoiceNo = S(ws, row, 55);
         var inspectionNo = S(ws, row, 56);
         var grn = S(ws, row, 57);
         var offshoreCurrencyCode = S(ws, row, 62);
-        if (offshoreInvoiceNo is not null || inspectionNo is not null || grn is not null || offshoreCurrencyCode is not null)
+        var offshoreRemarks = S(ws, row, 63);
+        if (offshoreInvoiceNo is not null || inspectionNo is not null || grn is not null || offshoreCurrencyCode is not null || offshoreRemarks is not null)
         {
             var offshore = await _db.LastOffshoreDetails.FirstOrDefaultAsync(o => o.ShipmentId == shipmentId) ?? new LastOffshoreDetail { ShipmentId = shipmentId };
             if (offshore.Id == 0) _db.LastOffshoreDetails.Add(offshore);
             offshore.InvoiceNo = offshoreInvoiceNo;
             offshore.InspectionNo = inspectionNo;
             offshore.Grn = grn;
+            offshore.Remarks = offshoreRemarks;
             if (offshoreCurrencyCode is not null)
             {
                 var currency = lk.Currencies.FirstOrDefault(c => c.Code == offshoreCurrencyCode);
