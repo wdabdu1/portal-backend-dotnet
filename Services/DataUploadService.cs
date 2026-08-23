@@ -111,6 +111,24 @@ public class DataUploadService
         var bankCollWs = wb.Worksheets.FirstOrDefault(w => w.Name == "Bank_Collection_Records");
         if (bankCollWs is not null) results.Add(await ProcessBankCollectionRecords(bankCollWs));
 
+        var route3Ws = wb.Worksheets.FirstOrDefault(w => w.Name == "Clearance_Route3");
+        if (route3Ws is not null) results.Add(await ProcessClearanceRoute3(route3Ws));
+
+        var route3WWs = wb.Worksheets.FirstOrDefault(w => w.Name == "Clearance_Route3_Withdrawals");
+        if (route3WWs is not null) results.Add(await ProcessClearanceRoute3Withdrawals(route3WWs));
+
+        var withdrawalsWs = wb.Worksheets.FirstOrDefault(w => w.Name == "Withdrawals");
+        if (withdrawalsWs is not null) results.Add(await ProcessWithdrawals(withdrawalsWs));
+
+        var wCostWs = wb.Worksheets.FirstOrDefault(w => w.Name == "Withdrawal_Cost_Estimate");
+        if (wCostWs is not null) results.Add(await ProcessWithdrawalCostEstimate(wCostWs));
+
+        var wEstLineWs = wb.Worksheets.FirstOrDefault(w => w.Name == "Withdrawal_Estimate_Line_Items");
+        if (wEstLineWs is not null) results.Add(await ProcessWithdrawalEstimateLineItems(wEstLineWs));
+
+        var wLineWs = wb.Worksheets.FirstOrDefault(w => w.Name == "Withdrawal_Line_Items");
+        if (wLineWs is not null) results.Add(await ProcessWithdrawalLineItems(wLineWs));
+
         return new UploadSummary(results);
     }
 
@@ -1153,6 +1171,226 @@ public class DataUploadService
             else updated++;
         }
         await _db.SaveChangesAsync();
+        await _db.SaveChangesAsync();
         return new SheetUploadResult("Bank_Collection_Records", created, updated, errors);
+    }
+
+    // ---------- Clearance — Route 3 (Clear from FZ / Withdrawal) ----------
+    private async Task<SheetUploadResult> ProcessClearanceRoute3(IXLWorksheet ws)
+    {
+        var errors = new List<string>(); int created = 0, updated = 0;
+        var lastRow = ws.LastRowUsed()?.RowNumber() ?? PaymentFirstDataRow - 1;
+
+        for (int row = PaymentFirstDataRow; row <= lastRow; row++)
+        {
+            if (RowIsBlank(ws, row, 23)) continue;
+            var blAwbNo = S(ws, row, 1);
+            var ship = await FindShipmentForRow(row, blAwbNo, errors);
+            if (ship is null) continue;
+
+            var clearance = await _db.Clearances.FirstOrDefaultAsync(c => c.ShipmentId == ship.Id);
+            if (clearance is null) { errors.Add($"Row {row}: Shipment '{blAwbNo}' has no Clearance record yet — upload Clearance_General first (Route should be Route3ClearFromFz)."); continue; }
+
+            int? depositShipmentId = null;
+            var depositBlAwbNo = S(ws, row, 2);
+            if (depositBlAwbNo is not null)
+            {
+                var depositShip = await _db.Shipments.FirstOrDefaultAsync(s => s.BlAwbNo == depositBlAwbNo);
+                if (depositShip is null) { errors.Add($"Row {row}: Deposit Shipment '{depositBlAwbNo}' not found."); continue; }
+                depositShipmentId = depositShip.Id;
+            }
+
+            var r = await _db.ClearanceRoute3Details.FirstOrDefaultAsync(x => x.ClearanceId == clearance.Id);
+            var isNew = r is null;
+            r ??= new ClearanceRoute3Details { ClearanceId = clearance.Id };
+
+            r.DepositShipmentId = depositShipmentId;
+            r.CertificateEntryDate = Dt(ws, row, 3); r.ScudaDeclarationNo = S(ws, row, 4);
+            r.SsmoFileRequestDate = Dt(ws, row, 5); r.SsmoInspectionAmountSdg = D(ws, row, 6); r.SsmoFeesSettlementDate = Dt(ws, row, 7);
+            r.CustExamStartDate = Dt(ws, row, 8); r.CustExamCompletedDate = Dt(ws, row, 9);
+            r.CustomsLabRequired = B(ws, row, 10) ?? false; r.CustomsLabFeesSdg = D(ws, row, 11);
+            r.LabFeesPaymentDate = Dt(ws, row, 12); r.LabResultIssuanceDate = Dt(ws, row, 13);
+            r.SsmoExamStartDate = Dt(ws, row, 14); r.SsmoCertIssuanceDate = Dt(ws, row, 15);
+            r.CustEvaluationDate = Dt(ws, row, 16); r.CustomsDutySdg = D(ws, row, 17);
+            r.CustomsSettlementDate = Dt(ws, row, 18); r.ReleaseExitPassDate = Dt(ws, row, 19);
+            r.TruckPortEntryPermitDate = Dt(ws, row, 20); r.ClearanceActualCompletedDate = Dt(ws, row, 21);
+
+            if (isNew) { _db.ClearanceRoute3Details.Add(r); created++; } else updated++;
+        }
+        await _db.SaveChangesAsync();
+        return new SheetUploadResult("Clearance_Route3", created, updated, errors);
+    }
+
+    // ---------- Clearance — Route 3 Withdrawal Line Items ----------
+    private async Task<SheetUploadResult> ProcessClearanceRoute3Withdrawals(IXLWorksheet ws)
+    {
+        var errors = new List<string>(); int created = 0, updated = 0;
+        var lastRow = ws.LastRowUsed()?.RowNumber() ?? PaymentFirstDataRow - 1;
+
+        for (int row = PaymentFirstDataRow; row <= lastRow; row++)
+        {
+            if (RowIsBlank(ws, row, 3)) continue;
+            var blAwbNo = S(ws, row, 1);
+            var ship = await FindShipmentForRow(row, blAwbNo, errors);
+            if (ship is null) continue;
+
+            var clearance = await _db.Clearances.FirstOrDefaultAsync(c => c.ShipmentId == ship.Id);
+            if (clearance is null) { errors.Add($"Row {row}: Shipment '{blAwbNo}' has no Clearance record yet."); continue; }
+            var route3 = await _db.ClearanceRoute3Details.FirstOrDefaultAsync(x => x.ClearanceId == clearance.Id);
+            if (route3 is null || route3.DepositShipmentId is null) { errors.Add($"Row {row}: Shipment '{blAwbNo}' has no Route 3 record with a Deposit Shipment set yet — upload Clearance_Route3 first."); continue; }
+
+            var modelName = S(ws, row, 2);
+            var qty = D(ws, row, 3);
+            if (modelName is null || qty is null) { errors.Add($"Row {row}: DEPOSIT MODEL/PRODUCT and QTY are both required."); continue; }
+
+            var depositLine = await _db.ShipmentLineItems
+                .Include(sl => sl.PurchaseOrderLineItem!).ThenInclude(pl => pl.ModelProduct)
+                .FirstOrDefaultAsync(sl => sl.ShipmentId == route3.DepositShipmentId && sl.PurchaseOrderLineItem!.ModelProduct!.Name == modelName);
+            if (depositLine is null) { errors.Add($"Row {row}: No line item found for Model '{modelName}' on the deposit shipment."); continue; }
+
+            var existing = await _db.ClearanceRoute3Withdrawals.FirstOrDefaultAsync(w => w.ClearanceRoute3DetailsId == route3.Id && w.DepositShipmentLineItemId == depositLine.Id);
+            if (existing is null)
+            {
+                _db.ClearanceRoute3Withdrawals.Add(new ClearanceRoute3Withdrawal { ClearanceRoute3DetailsId = route3.Id, DepositShipmentLineItemId = depositLine.Id, Qty = qty.Value });
+                created++;
+            }
+            else { existing.Qty = qty.Value; updated++; }
+        }
+        await _db.SaveChangesAsync();
+        return new SheetUploadResult("Clearance_Route3_Withdrawals", created, updated, errors);
+    }
+
+    // ---------- Withdrawals — the standalone workflow, distinct from Route 3 ----------
+    private async Task<SheetUploadResult> ProcessWithdrawals(IXLWorksheet ws)
+    {
+        var errors = new List<string>(); int created = 0, updated = 0;
+        var lastRow = ws.LastRowUsed()?.RowNumber() ?? PaymentFirstDataRow - 1;
+
+        for (int row = PaymentFirstDataRow; row <= lastRow; row++)
+        {
+            if (RowIsBlank(ws, row, 27)) continue;
+            var depositBlAwbNo = S(ws, row, 1);
+            var refNo = S(ws, row, 2);
+            if (depositBlAwbNo is null || refNo is null) { errors.Add($"Row {row}: DEPOSIT B/L NO and WITHDRAWAL REQUEST REF NO. are both required."); continue; }
+            if (refNo == "Opening Balance — Migration") { errors.Add($"Row {row}: '{refNo}' is a reserved Ref No. used by FZ_Stock_Opening_Balance — please use a different one."); continue; }
+
+            var depositShip = await _db.Shipments.FirstOrDefaultAsync(s => s.BlAwbNo == depositBlAwbNo);
+            if (depositShip is null) { errors.Add($"Row {row}: Deposit Shipment '{depositBlAwbNo}' not found."); continue; }
+
+            var w = await _db.Withdrawals.FirstOrDefaultAsync(x => x.DepositShipmentId == depositShip.Id && x.WithdrawalRequestRefNo == refNo);
+            var isNew = w is null;
+            w ??= new Withdrawal { DepositShipmentId = depositShip.Id, WithdrawalRequestRefNo = refNo };
+
+            w.WithdrawalRequestDate = Dt(ws, row, 3);
+            w.CertificateEntryDate = Dt(ws, row, 4); w.ScudaDeclarationNo = S(ws, row, 5);
+            w.SsmoCocRequired = B(ws, row, 6); w.SsmoCocAvailable = B(ws, row, 7);
+            w.SsmoApplicationDate = Dt(ws, row, 8); w.SsmoCost = D(ws, row, 9);
+            w.SsmoCostSettledDate = Dt(ws, row, 10); w.SsmoRefNumber = S(ws, row, 11); w.SsmoApprovalDate = Dt(ws, row, 12);
+            w.MotApprovalDate = Dt(ws, row, 13);
+            w.SsmoFileRequestDate = Dt(ws, row, 14); w.SsmoInspectionAmountSdg = D(ws, row, 15); w.SsmoFeesSettlementDate = Dt(ws, row, 16);
+            w.CustExamStartDate = Dt(ws, row, 17); w.CustExamCompletedDate = Dt(ws, row, 18);
+            w.CustomsLabRequired = B(ws, row, 19) ?? false; w.CustomsLabFeesSdg = D(ws, row, 20);
+            w.LabFeesPaymentDate = Dt(ws, row, 21); w.LabResultIssuanceDate = Dt(ws, row, 22);
+            w.SsmoExamStartDate = Dt(ws, row, 23); w.SsmoCertIssuanceDate = Dt(ws, row, 24);
+            w.CustEvaluationDate = Dt(ws, row, 25); w.CustomsDutySdg = D(ws, row, 26); w.CustomsSettlementDate = Dt(ws, row, 27);
+
+            if (isNew) { _db.Withdrawals.Add(w); created++; } else updated++;
+        }
+        await _db.SaveChangesAsync();
+        return new SheetUploadResult("Withdrawals", created, updated, errors);
+    }
+
+    private async Task<Withdrawal?> FindWithdrawalForRow(int row, string? depositBlAwbNo, string? refNo, List<string> errors)
+    {
+        if (depositBlAwbNo is null || refNo is null) { errors.Add($"Row {row}: DEPOSIT B/L NO and WITHDRAWAL REQUEST REF NO. are both required."); return null; }
+        var w = await _db.Withdrawals.Include(x => x.DepositShipment)
+            .FirstOrDefaultAsync(x => x.DepositShipment!.BlAwbNo == depositBlAwbNo && x.WithdrawalRequestRefNo == refNo);
+        if (w is null) errors.Add($"Row {row}: No Withdrawal found for '{depositBlAwbNo}' / '{refNo}' — upload Withdrawals first.");
+        return w;
+    }
+
+    // ---------- Withdrawal — Cost Estimate header ----------
+    private async Task<SheetUploadResult> ProcessWithdrawalCostEstimate(IXLWorksheet ws)
+    {
+        var errors = new List<string>(); int created = 0, updated = 0;
+        var lastRow = ws.LastRowUsed()?.RowNumber() ?? PaymentFirstDataRow - 1;
+
+        for (int row = PaymentFirstDataRow; row <= lastRow; row++)
+        {
+            if (RowIsBlank(ws, row, 5)) continue;
+            var w = await FindWithdrawalForRow(row, S(ws, row, 1), S(ws, row, 2), errors);
+            if (w is null) continue;
+
+            var existing = await _db.WithdrawalCostEstimates.FirstOrDefaultAsync(x => x.WithdrawalId == w.Id);
+            var isNew = existing is null;
+            existing ??= new WithdrawalCostEstimate { WithdrawalId = w.Id };
+            existing.EstimateDate = Dt(ws, row, 3); existing.NotifyBuDate = Dt(ws, row, 4); existing.AmountSettledDate = Dt(ws, row, 5);
+
+            if (isNew) { _db.WithdrawalCostEstimates.Add(existing); created++; } else updated++;
+        }
+        await _db.SaveChangesAsync();
+        return new SheetUploadResult("Withdrawal_Cost_Estimate", created, updated, errors);
+    }
+
+    // ---------- Withdrawal — Estimate Line Items ----------
+    private async Task<SheetUploadResult> ProcessWithdrawalEstimateLineItems(IXLWorksheet ws)
+    {
+        var errors = new List<string>(); int created = 0, updated = 0;
+        var lastRow = ws.LastRowUsed()?.RowNumber() ?? PaymentFirstDataRow - 1;
+        var chargeTypes = await _db.ClearanceChargeTypes.ToListAsync();
+
+        for (int row = PaymentFirstDataRow; row <= lastRow; row++)
+        {
+            if (RowIsBlank(ws, row, 4)) continue;
+            var w = await FindWithdrawalForRow(row, S(ws, row, 1), S(ws, row, 2), errors);
+            if (w is null) continue;
+
+            var chargeTypeName = S(ws, row, 3);
+            var chargeType = chargeTypes.FirstOrDefault(c => c.Name == chargeTypeName);
+            if (chargeType is null) { errors.Add($"Row {row}: Charge Type '{chargeTypeName}' not found."); continue; }
+            var value = D(ws, row, 4) ?? 0;
+
+            var existing = await _db.WithdrawalEstimateLineItems.FirstOrDefaultAsync(x => x.WithdrawalId == w.Id && x.ChargeTypeId == chargeType.Id);
+            if (existing is null)
+            {
+                _db.WithdrawalEstimateLineItems.Add(new WithdrawalEstimateLineItem { WithdrawalId = w.Id, ChargeTypeId = chargeType.Id, ValueSdg = value, DueDate = Dt(ws, row, 5) });
+                created++;
+            }
+            else { existing.ValueSdg = value; existing.DueDate = Dt(ws, row, 5); updated++; }
+        }
+        await _db.SaveChangesAsync();
+        return new SheetUploadResult("Withdrawal_Estimate_Line_Items", created, updated, errors);
+    }
+
+    // ---------- Withdrawal — Line Items (which deposited items, how much) ----------
+    private async Task<SheetUploadResult> ProcessWithdrawalLineItems(IXLWorksheet ws)
+    {
+        var errors = new List<string>(); int created = 0, updated = 0;
+        var lastRow = ws.LastRowUsed()?.RowNumber() ?? PaymentFirstDataRow - 1;
+
+        for (int row = PaymentFirstDataRow; row <= lastRow; row++)
+        {
+            if (RowIsBlank(ws, row, 4)) continue;
+            var w = await FindWithdrawalForRow(row, S(ws, row, 1), S(ws, row, 2), errors);
+            if (w is null) continue;
+
+            var modelName = S(ws, row, 3); var qty = D(ws, row, 4);
+            if (modelName is null || qty is null) { errors.Add($"Row {row}: MODEL/PRODUCT and QTY are both required."); continue; }
+
+            var depositLine = await _db.ShipmentLineItems
+                .Include(sl => sl.PurchaseOrderLineItem!).ThenInclude(pl => pl.ModelProduct)
+                .FirstOrDefaultAsync(sl => sl.ShipmentId == w.DepositShipmentId && sl.PurchaseOrderLineItem!.ModelProduct!.Name == modelName);
+            if (depositLine is null) { errors.Add($"Row {row}: No line item found for Model '{modelName}' on the deposit shipment."); continue; }
+
+            var existing = await _db.WithdrawalLineItems.FirstOrDefaultAsync(l => l.WithdrawalId == w.Id && l.DepositShipmentLineItemId == depositLine.Id);
+            if (existing is null)
+            {
+                _db.WithdrawalLineItems.Add(new WithdrawalLineItem { WithdrawalId = w.Id, DepositShipmentLineItemId = depositLine.Id, Qty = qty.Value });
+                created++;
+            }
+            else { existing.Qty = qty.Value; updated++; }
+        }
+        await _db.SaveChangesAsync();
+        return new SheetUploadResult("Withdrawal_Line_Items", created, updated, errors);
     }
 }
