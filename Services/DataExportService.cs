@@ -895,7 +895,12 @@ public class DataExportService
         }
         for (int i = 0; i < headers.Length; i++) ws.Cell(5, i + 1).Style.Fill.BackgroundColor = LegendFill;
 
-        var rows = _db.Withdrawals.Include(w => w.DepositShipment).OrderBy(w => w.DepositShipment!.BlAwbNo).ThenBy(w => w.WithdrawalRequestRefNo).ToList();
+        // The "Opening Balance" record is a synthetic, migration-only entry
+        // fully covered by its own FZ_Stock_Opening_Balance sheet — exclude
+        // it here to avoid a spurious, expected reject on re-upload.
+        var rows = _db.Withdrawals.Include(w => w.DepositShipment)
+            .Where(w => w.WithdrawalRequestRefNo != "Opening Balance — Migration")
+            .OrderBy(w => w.DepositShipment!.BlAwbNo).ThenBy(w => w.WithdrawalRequestRefNo).ToList();
 
         int row = 6;
         foreach (var w in rows)
