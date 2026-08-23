@@ -104,6 +104,12 @@ public class DataUploadService
         var fzStockWs = wb.Worksheets.FirstOrDefault(w => w.Name == "FZ_Stock_Opening_Balance");
         if (fzStockWs is not null) results.Add(await ProcessFzStockOpeningBalance(fzStockWs));
 
+        var tpWs = wb.Worksheets.FirstOrDefault(w => w.Name == "TP_Confirmations");
+        if (tpWs is not null) results.Add(await ProcessTpConfirmations(tpWs));
+
+        var bankCollWs = wb.Worksheets.FirstOrDefault(w => w.Name == "Bank_Collection_Records");
+        if (bankCollWs is not null) results.Add(await ProcessBankCollectionRecords(bankCollWs));
+
         return new UploadSummary(results);
     }
 
@@ -1057,6 +1063,95 @@ public class DataUploadService
             }
         }
         await _db.SaveChangesAsync();
+        await _db.SaveChangesAsync();
         return new SheetUploadResult("FZ_Stock_Opening_Balance", created, updated, errors);
+    }
+
+    // ---------- TP Confirmations ----------
+    private async Task<SheetUploadResult> ProcessTpConfirmations(IXLWorksheet ws)
+    {
+        var errors = new List<string>(); int created = 0, updated = 0;
+        var lastRow = ws.LastRowUsed()?.RowNumber() ?? PaymentFirstDataRow - 1;
+        var currencies = await _db.Currencies.ToListAsync();
+
+        for (int row = PaymentFirstDataRow; row <= lastRow; row++)
+        {
+            if (RowIsBlank(ws, row, 5)) continue;
+            var blAwbNo = S(ws, row, 1); var modelName = S(ws, row, 2); var sequence = I(ws, row, 3);
+            if (blAwbNo is null || modelName is null || sequence is null) { errors.Add($"Row {row}: B/L NO, MODEL/PRODUCT, and SEQUENCE are all required."); continue; }
+
+            var shipLine = await _db.ShipmentLineItems
+                .Include(sl => sl.Shipment!)
+                .Include(sl => sl.PurchaseOrderLineItem!).ThenInclude(pl => pl.ModelProduct)
+                .FirstOrDefaultAsync(sl => sl.Shipment!.BlAwbNo == blAwbNo && sl.PurchaseOrderLineItem!.ModelProduct!.Name == modelName);
+            if (shipLine is null) { errors.Add($"Row {row}: No shipment line item found for Model '{modelName}' on '{blAwbNo}'."); continue; }
+
+            var partner = await _db.PurchaseOrderOffshorePartners
+                .FirstOrDefaultAsync(p => p.PurchaseOrderId == shipLine.Shipment!.PurchaseOrderId && p.SequenceOrder == sequence);
+            if (partner is null) { errors.Add($"Row {row}: No Offshore Partner at sequence {sequence} for this shipment's PO — upload PO_Offshore_Chain first."); continue; }
+
+            var markup = D(ws, row, 4); var curCode = S(ws, row, 5);
+            var currency = currencies.FirstOrDefault(c => c.Code == curCode);
+            if (currency is null) { errors.Add($"Row {row}: Currency '{curCode}' not found."); continue; }
+
+            var existing = await _db.TransferPricingEntries.FirstOrDefaultAsync(t => t.ShipmentLineItemId == shipLine.Id && t.PurchaseOrderOffshorePartnerId == partner.Id);
+            if (existing is null)
+            {
+                _db.TransferPricingEntries.Add(new TransferPricingEntry
+                {
+                    ShipmentLineItemId = shipLine.Id, PurchaseOrderOffshorePartnerId = partner.Id,
+                    MarkupPercent = markup, CurrencyId = currency.Id
+                });
+                created++;
+            }
+            else
+            {
+                existing.MarkupPercent = markup; existing.CurrencyId = currency.Id;
+                updated++;
+            }
+        }
+        await _db.SaveChangesAsync();
+        return new SheetUploadResult("TP_Confirmations", created, updated, errors);
+    }
+
+    // ---------- Bank Collection Records ----------
+    private async Task<SheetUploadResult> ProcessBankCollectionRecords(IXLWorksheet ws)
+    {
+        var errors = new List<string>(); int created = 0, updated = 0;
+        var lastRow = ws.LastRowUsed()?.RowNumber() ?? PaymentFirstDataRow - 1;
+        var currencies = await _db.Currencies.ToListAsync();
+
+        for (int row = PaymentFirstDataRow; row <= lastRow; row++)
+        {
+            if (RowIsBlank(ws, row, 4)) continue;
+            var blAwbNo = S(ws, row, 1); var paymentDate = Dt(ws, row, 2); var curCode = S(ws, row, 3); var value = D(ws, row, 4);
+            if (blAwbNo is null || paymentDate is null || curCode is null || value is null)
+            { errors.Add($"Row {row}: B/L NO, PAYMENT DATE, CURRENCY, and VALUE are all required."); continue; }
+
+            var shipment = await _db.Shipments.FirstOrDefaultAsync(s => s.BlAwbNo == blAwbNo);
+            if (shipment is null) { errors.Add($"Row {row}: Shipment '{blAwbNo}' not found — upload Main first."); continue; }
+            var currency = currencies.FirstOrDefault(c => c.Code == curCode);
+            if (currency is null) { errors.Add($"Row {row}: Currency '{curCode}' not found."); continue; }
+
+            // Matched by (Shipment, Date, Currency, Value) — same convention
+            // as Supplier_Payment_Records, so re-uploading an export doesn't
+            // duplicate the same real payment.
+            var existing = await _db.ShipmentCollectionRecords.FirstOrDefaultAsync(r =>
+                r.ShipmentId == shipment.Id && r.PaymentDate == paymentDate && r.CurrencyId == currency.Id && r.Value == value);
+            if (existing is null)
+            {
+                var rate = await _db.FxRates.Where(f => f.CurrencyId == currency.Id).OrderByDescending(f => f.EffectiveDate).FirstOrDefaultAsync();
+                var rateToUsd = rate?.RateToUsd ?? 1m;
+                _db.ShipmentCollectionRecords.Add(new ShipmentCollectionRecord
+                {
+                    ShipmentId = shipment.Id, PaymentDate = paymentDate.Value, CurrencyId = currency.Id,
+                    Value = value.Value, ValueUsd = value.Value / rateToUsd
+                });
+                created++;
+            }
+            else updated++;
+        }
+        await _db.SaveChangesAsync();
+        return new SheetUploadResult("Bank_Collection_Records", created, updated, errors);
     }
 }
