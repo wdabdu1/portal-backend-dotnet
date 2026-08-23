@@ -58,6 +58,13 @@ public class DataExportService
         ("OFFSHORE","APPROVED MOT TOTAL PRICE USD (auto-computed, reference only)"),
         ("CLR","REMARKS"),
         ("OFFSHORE","LAST OFFSHORE ITEM DESCRIPTION"),("OFFSHORE","LAST OFFSHORE CURRENCY"),
+        ("OFFSHORE","LAST OFFSHORE REMARKS"),
+        ("BANK","SENDER BANK NAME"),("BANK","OS DOC DISPATCH DATE"),("BANK","OS DOC DISPATCHED VIA (Courier Name)"),
+        ("BANK","SENDER BANK CHARGES"),("BANK","RECEIVING BANK NAME"),("BANK","NECESSARY GOOD TYPE (TRUE/FALSE)"),
+        ("BANK","COLLECTION REF NO."),("BANK","COLLECTION VALUE"),("BANK","COLLECTION CURRENCY"),
+        ("BANK","TENOR DAYS"),("BANK","ADD CBOS ALLOWANCE DAYS"),("BANK","RECEIVER BANK CHARGES"),
+        ("SSMO","COC REQUIRED (TRUE/FALSE)"),("SSMO","COC AVAILABLE (TRUE/FALSE)"),("SSMO","APPLICATION DATE"),
+        ("SSMO","COST"),("SSMO","COST SETTLED DATE"),("SSMO","REF NUMBER"),("SSMO","APPROVAL DATE"),
     };
     private static void SetCell(IXLWorksheet ws, int row, int col, object? value)
     {
@@ -164,9 +171,13 @@ public class DataExportService
         var forwarders = _db.ShipmentForwarders.Include(f => f.ForwarderEntity).Include(f => f.Currency).ToDictionary(f => f.ShipmentId);
         var draftDocs = _db.ShipmentDraftDocuments.ToDictionary(d => d.ShipmentId);
         var fullSets = _db.ShipmentSupplierFullSets.ToDictionary(f => f.ShipmentId);
-        var bankings = _db.ShipmentBankings.ToDictionary(b => b.ShipmentId);
+        var bankings = _db.ShipmentBankings
+            .Include(b => b.SenderBank).Include(b => b.OsDocDispatchedVia).Include(b => b.ReceivingBank)
+            .Include(b => b.CollectionCurrency).Include(b => b.Tenor).Include(b => b.AddCbosAllowance)
+            .ToDictionary(b => b.ShipmentId);
         var acds = _db.ShipmentAcds.ToDictionary(a => a.ShipmentId);
         var mots = _db.ShipmentMots.ToDictionary(m => m.ShipmentId);
+        var ssmos = _db.ShipmentSsmos.ToDictionary(s => s.ShipmentId);
         var lastOffshores = _db.LastOffshoreDetails.Include(o => o.Currency).ToDictionary(o => o.ShipmentId);
         var lastOffshoreItems = _db.LastOffshoreItemDetails.ToDictionary(i => i.ShipmentLineItemId);
         var clearances = _db.Clearances.ToDictionary(c => c.ShipmentId);
@@ -181,7 +192,7 @@ public class DataExportService
             // every shipment-related column left blank.
             if (shipLines is null || shipLines.Count == 0)
             {
-                WriteMainRow(ws, row, po, poLine, null, null, null, null, null, null, null, null, null, null);
+                    WriteMainRow(ws, row, po, poLine, null, null, null, null, null, null, null, null, null, null, null);
                 row++;
                 continue;
             }
@@ -201,8 +212,9 @@ public class DataExportService
                 lastOffshores.TryGetValue(ship.Id, out var offshore);
                 lastOffshoreItems.TryGetValue(sl.Id, out var offshoreItem);
                 clearances.TryGetValue(ship.Id, out var clearance);
+                ssmos.TryGetValue(ship.Id, out var ssmo);
 
-                WriteMainRow(ws, row, po, poLine, ship, sl, fwd, docs, fullSet, banking, acd, mot, offshore, offshoreItem, clearance);
+                WriteMainRow(ws, row, po, poLine, ship, sl, fwd, docs, fullSet, banking, acd, mot, offshore, offshoreItem, clearance, ssmo);
                 row++;
             }
         }
@@ -215,7 +227,7 @@ public class DataExportService
         Shipment? ship, ShipmentLineItem? sl, ShipmentForwarder? fwd,
         ShipmentDraftDocuments? docs, ShipmentSupplierFullSet? fullSet, ShipmentBanking? banking,
         ShipmentAcd? acd, ShipmentMot? mot, LastOffshoreDetail? offshore,
-        LastOffshoreItemDetail? offshoreItem, Clearance? clearance = null)
+        LastOffshoreItemDetail? offshoreItem, Clearance? clearance = null, ShipmentSsmo? ssmo = null)
     {
         int c = 1;
         SetCell(ws, row, c++, po.PoNumber);
@@ -290,6 +302,26 @@ public class DataExportService
         SetCell(ws, row, c++, clearance?.Notes);
         SetCell(ws, row, c++, offshoreItem?.Description);
         SetCell(ws, row, c++, offshore?.Currency?.Code);
+        SetCell(ws, row, c++, offshore?.Remarks);
+        SetCell(ws, row, c++, banking?.SenderBank?.Name);
+        SetCell(ws, row, c++, banking?.OsDocDispatchDate);
+        SetCell(ws, row, c++, banking?.OsDocDispatchedVia?.Name);
+        SetCell(ws, row, c++, banking?.SenderBankCharges);
+        SetCell(ws, row, c++, banking?.ReceivingBank?.Name);
+        SetCell(ws, row, c++, banking?.NecessaryGoodType);
+        SetCell(ws, row, c++, banking?.CollectionRefNo);
+        SetCell(ws, row, c++, banking?.CollectionValue);
+        SetCell(ws, row, c++, banking?.CollectionCurrency?.Code);
+        SetCell(ws, row, c++, banking?.Tenor?.Days);
+        SetCell(ws, row, c++, banking?.AddCbosAllowance?.Days);
+        SetCell(ws, row, c++, banking?.ReceiverBankCharges);
+        SetCell(ws, row, c++, ssmo?.CocRequired);
+        SetCell(ws, row, c++, ssmo?.CocAvailable);
+        SetCell(ws, row, c++, ssmo?.ApplicationDate);
+        SetCell(ws, row, c++, ssmo?.Cost);
+        SetCell(ws, row, c++, ssmo?.CostSettledDate);
+        SetCell(ws, row, c++, ssmo?.RefNumber);
+        SetCell(ws, row, c++, ssmo?.ApprovalDate);
     }
 
     private void BuildPaymentDueSheet(XLWorkbook wb)
