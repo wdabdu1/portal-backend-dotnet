@@ -33,8 +33,8 @@ public class DataExportService
         ("MOT", "MOT", XLColor.FromHtml("#EF6C00")),
         ("OFFSHORE", "LAST OFFSHORE DETAILS", XLColor.FromHtml("#5D4037")),
         ("CLR", "CLEARANCE", XLColor.FromHtml("#C62828")),
+        ("SSMO", "SSMO", XLColor.FromHtml("#00695C")),
     };
-
     // (section key, header text) pairs in exact column order — matches the Migration Workbook builder 1:1.
     private static readonly (string Section, string Header)[] MainColumns =
     {
