@@ -91,6 +91,78 @@ public class DataMigrationController : ControllerBase
         return Ok(new { message = result.Message });
     }
 
+    // TEMPORARY — the TruckMovements table was never actually created by
+    // its migration (same root cause as the CurrentCityId column earlier).
+    // Remove this endpoint once run once.
+    [HttpPost("fix-truck-movements-table")]
+    [Authorize(Roles = AppRoles.SuperUser)]
+    public async Task<IActionResult> FixTruckMovementsTable([FromServices] Data.ShippingPortalDbContext db)
+    {
+        var results = new List<string>();
+        try
+        {
+            await db.Database.ExecuteSqlRawAsync(@"
+                CREATE TABLE `TruckMovements` (
+                    `Id` int NOT NULL AUTO_INCREMENT,
+                    `TruckId` int NOT NULL,
+                    `FromCityId` int NULL,
+                    `ToCityId` int NOT NULL,
+                    `MoveDate` date NOT NULL,
+                    `Reason` longtext NULL,
+                    `Value` decimal(65,30) NULL,
+                    `Notes` longtext NULL,
+                    `CreatedByUserId` longtext NOT NULL,
+                    `CreatedAt` datetime(6) NOT NULL,
+                    CONSTRAINT `PK_TruckMovements` PRIMARY KEY (`Id`)
+                ) CHARACTER SET=utf8mb4;");
+            results.Add("Created TruckMovements table.");
+        }
+        catch (Exception ex) { results.Add($"Create table skipped/failed: {ex.Message}"); }
+
+        try
+        {
+            await db.Database.ExecuteSqlRawAsync("CREATE INDEX `IX_TruckMovements_TruckId` ON `TruckMovements` (`TruckId`)");
+            results.Add("Added TruckId index.");
+        }
+        catch (Exception ex) { results.Add($"TruckId index skipped/failed: {ex.Message}"); }
+
+        try
+        {
+            await db.Database.ExecuteSqlRawAsync("CREATE INDEX `IX_TruckMovements_FromCityId` ON `TruckMovements` (`FromCityId`)");
+            results.Add("Added FromCityId index.");
+        }
+        catch (Exception ex) { results.Add($"FromCityId index skipped/failed: {ex.Message}"); }
+
+        try
+        {
+            await db.Database.ExecuteSqlRawAsync("CREATE INDEX `IX_TruckMovements_ToCityId` ON `TruckMovements` (`ToCityId`)");
+            results.Add("Added ToCityId index.");
+        }
+        catch (Exception ex) { results.Add($"ToCityId index skipped/failed: {ex.Message}"); }
+
+        try
+        {
+            await db.Database.ExecuteSqlRawAsync("ALTER TABLE `TruckMovements` ADD CONSTRAINT `FK_TruckMovements_Trucks_TruckId` FOREIGN KEY (`TruckId`) REFERENCES `Trucks` (`Id`) ON DELETE RESTRICT");
+            results.Add("Added Truck FK.");
+        }
+        catch (Exception ex) { results.Add($"Truck FK skipped/failed: {ex.Message}"); }
+
+        try
+        {
+            await db.Database.ExecuteSqlRawAsync("ALTER TABLE `TruckMovements` ADD CONSTRAINT `FK_TruckMovements_LogisticsCities_FromCityId` FOREIGN KEY (`FromCityId`) REFERENCES `LogisticsCities` (`Id`) ON DELETE RESTRICT");
+            results.Add("Added FromCity FK.");
+        }
+        catch (Exception ex) { results.Add($"FromCity FK skipped/failed: {ex.Message}"); }
+
+        try
+        {
+            await db.Database.ExecuteSqlRawAsync("ALTER TABLE `TruckMovements` ADD CONSTRAINT `FK_TruckMovements_LogisticsCities_ToCityId` FOREIGN KEY (`ToCityId`) REFERENCES `LogisticsCities` (`Id`) ON DELETE RESTRICT");
+            results.Add("Added ToCity FK.");
+        }
+        catch (Exception ex) { results.Add($"ToCity FK skipped/failed: {ex.Message}"); }
+
+        return Ok(new { results });
+    }
 }
 
 public record DeletePoRequest(string PoNumber);
