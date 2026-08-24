@@ -8,18 +8,13 @@ using ShippingPortal.Api.Models.Logistics;
 namespace ShippingPortal.Api.Controllers.Logistics;
 
 // A truck's status is never stored directly — it's computed fresh every
-// time from its most recent load's last drop. "Available" means nothing
-// is in progress; "InTransit" means its last drop hasn't been marked
-// arrived yet. This keeps the truck's real-world state impossible to get
-// out of sync with its actual deliveries.
-public record TruckAvailabilityRow(
-    int TruckId, string PlateNo, string? DriverName,
-    string Status, // "Available" | "InTransit" | "Unplaced"
-    int? CurrentCityId, string? CurrentCityName,
-    int? InTransitToCityId, string? InTransitToCityName, DateOnly? ExpectedArrivalDate);
-
-public record TruckMovementRow(int Id, string PlateNo, string? FromCityName, string ToCityName, DateOnly MoveDate, string? Reason, decimal? Value, string? Notes, string ConfirmedByName, DateTime CreatedAt);
-public record MoveTruckRequest(int TruckId, int ToCityId, DateOnly MoveDate, string? Reason, decimal? Value, string? Notes);
+// time from its most recent load's last drop. "cityName" always shows
+// whatever's relevant for dispatch planning: its current city if free,
+// or where it's headed if mid-trip — never both, since only one matters
+// at a time for "when can I use this truck".
+public record TruckAvailabilityRow(int TruckId, string PlateNo, string? DriverName, bool IsAvailable, string? CityName, DateOnly? ExpectedAvailableDate);
+public record TruckMovementRow(DateOnly MoveDate, string FromCity, string ToCity, string? Reason, decimal? Value, string? Notes);
+public record MoveTruckRequest(int ToCityId, DateOnly MoveDate, string? Reason, decimal? Value, string? Notes);
 
 [ApiController]
 [Route("api/truck-availability")]
@@ -55,54 +50,60 @@ public class TruckAvailabilityController : ControllerBase
         var rows = trucks.Select(t =>
         {
             if (activeDropByTruckId.TryGetValue(t.Id, out var drop))
-            {
-                return new TruckAvailabilityRow(
-                    t.Id, t.PlateNo, t.Driver?.Name, "InTransit",
-                    t.CurrentCityId, t.CurrentCity?.Name,
-                    drop.Warehouse?.CityId, drop.Warehouse?.City?.Name, drop.ExpectedDeliveryDate);
-            }
-            var status = t.CurrentCityId is null ? "Unplaced" : "Available";
-            return new TruckAvailabilityRow(t.Id, t.PlateNo, t.Driver?.Name, status, t.CurrentCityId, t.CurrentCity?.Name, null, null, null);
+                return new TruckAvailabilityRow(t.Id, t.PlateNo, t.Driver?.Name, false, drop.Warehouse?.City?.Name, drop.ExpectedDeliveryDate);
+
+            return new TruckAvailabilityRow(t.Id, t.PlateNo, t.Driver?.Name, t.CurrentCityId is not null, t.CurrentCity?.Name, null);
         }).OrderBy(r => r.PlateNo).ToList();
 
         return Ok(rows);
     }
 
-    [HttpGet("movements")]
-    public async Task<ActionResult<IEnumerable<TruckMovementRow>>> GetMovements()
+    [HttpGet("{truckId:int}/movements")]
+    public async Task<ActionResult<IEnumerable<TruckMovementRow>>> GetMovements(int truckId)
     {
         var movements = await _db.TruckMovements
-            .Include(m => m.Truck).Include(m => m.FromCity).Include(m => m.ToCity)
+            .Include(m => m.FromCity).Include(m => m.ToCity)
+            .Where(m => m.TruckId == truckId)
             .OrderByDescending(m => m.MoveDate).ThenByDescending(m => m.Id)
             .ToListAsync();
 
-        var userIds = movements.Select(m => m.CreatedByUserId).Distinct().ToList();
-        var users = await _db.Users.Where(u => userIds.Contains(u.Id)).ToDictionaryAsync(u => u.Id, u => u.DisplayName);
-
-        var rows = movements.Select(m => new TruckMovementRow(
-            m.Id, m.Truck?.PlateNo ?? "", m.FromCity?.Name, m.ToCity?.Name ?? "", m.MoveDate, m.Reason, m.Value, m.Notes,
-            users.GetValueOrDefault(m.CreatedByUserId, "Unknown"), m.CreatedAt));
-
+        var rows = movements.Select(m => new TruckMovementRow(m.MoveDate, m.FromCity?.Name ?? "—", m.ToCity?.Name ?? "", m.Reason, m.Value, m.Notes));
         return Ok(rows);
     }
 
-    [HttpPost("move")]
+    [HttpPost("{truckId:int}/move")]
     [Authorize(Roles = AppRoles.LogisticsEditors)]
-    public async Task<IActionResult> MoveTruck(MoveTruckRequest req)
+    public async Task<IActionResult> MoveTruck(int truckId, MoveTruckRequest req)
     {
-        var truck = await _db.Trucks.FindAsync(req.TruckId);
+        var truck = await _db.Trucks.FindAsync(truckId);
         if (truck is null) return NotFound();
         if (!await _db.LogisticsCities.AnyAsync(c => c.Id == req.ToCityId)) return BadRequest(new { message = "Destination city not found." });
 
         var userId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? "";
         _db.TruckMovements.Add(new TruckMovement
         {
-            TruckId = req.TruckId, FromCityId = truck.CurrentCityId, ToCityId = req.ToCityId,
+            TruckId = truckId, FromCityId = truck.CurrentCityId, ToCityId = req.ToCityId,
             MoveDate = req.MoveDate, Reason = req.Reason, Value = req.Value, Notes = req.Notes,
             CreatedByUserId = userId
         });
         truck.CurrentCityId = req.ToCityId;
 
+        await _db.SaveChangesAsync();
+        return Ok();
+    }
+
+    // Initial placement only — no "from" city exists yet, so this isn't a
+    // real move and doesn't get logged in TruckMovements, just sets where
+    // the truck starts being tracked from.
+    [HttpPost("{truckId:int}/set-starting-city")]
+    [Authorize(Roles = AppRoles.LogisticsEditors)]
+    public async Task<IActionResult> SetStartingCity(int truckId, [FromBody] int cityId)
+    {
+        var truck = await _db.Trucks.FindAsync(truckId);
+        if (truck is null) return NotFound();
+        if (!await _db.LogisticsCities.AnyAsync(c => c.Id == cityId)) return BadRequest(new { message = "City not found." });
+
+        truck.CurrentCityId = cityId;
         await _db.SaveChangesAsync();
         return Ok();
     }
