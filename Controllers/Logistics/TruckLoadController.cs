@@ -166,10 +166,28 @@ public class TruckLoadController : ControllerBase
     [Authorize(Roles = AppRoles.LogisticsEditors)]
     public async Task<IActionResult> SetActualDropOff(int dropId, SetActualDropOffRequest req)
     {
-        var drop = await _db.TruckLoadDrops.FindAsync(dropId);
+        var drop = await _db.TruckLoadDrops.Include(d => d.Warehouse).FirstOrDefaultAsync(d => d.Id == dropId);
         if (drop is null) return NotFound();
 
         drop.ActualDropOffDate = req.ActualDropOffDate;
+
+        // Completing a drop only moves the truck if it's the LAST drop in
+        // this trip (drops are visited in the order they were added) —
+        // an earlier stop finishing doesn't mean the truck is done moving.
+        if (req.ActualDropOffDate.HasValue && drop.Warehouse?.CityId is not null)
+        {
+            var lastDropId = await _db.TruckLoadDrops.Where(d => d.TruckLoadId == drop.TruckLoadId).MaxAsync(d => (int?)d.Id);
+            if (lastDropId == dropId)
+            {
+                var truckLoad = await _db.TruckLoads.FindAsync(drop.TruckLoadId);
+                if (truckLoad is not null)
+                {
+                    var truck = await _db.Trucks.FindAsync(truckLoad.TruckId);
+                    if (truck is not null) truck.CurrentCityId = drop.Warehouse.CityId;
+                }
+            }
+        }
+
         await _db.SaveChangesAsync();
         return NoContent();
     }
