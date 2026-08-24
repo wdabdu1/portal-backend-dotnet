@@ -252,6 +252,12 @@ public class Truck
     public int? DriverId { get; set; }
     public Driver? Driver { get; set; }
     public bool IsActive { get; set; } = true;
+
+    // Where the truck was last confirmed to be — either from completing a
+    // delivery (its last drop's city) or a manual move logged below. Null
+    // means never placed anywhere yet (e.g. a brand-new truck).
+    public int? CurrentCityId { get; set; }
+    public LogisticsCity? CurrentCity { get; set; }
 }
 
 public class Warehouse
