@@ -89,6 +89,37 @@ public class DataMigrationController : ControllerBase
         if (!result.Success) return BadRequest(new { message = result.Message });
         return Ok(new { message = result.Message });
     }
+
+    // TEMPORARY — fixes the Trucks table directly after a migration's Up()
+    // was accidentally generated empty. Remove this endpoint once run once.
+    [HttpPost("fix-truck-current-city-column")]
+    [Authorize(Roles = AppRoles.SuperUser)]
+    public async Task<IActionResult> FixTruckCurrentCityColumn([FromServices] Data.ShippingPortalDbContext db)
+    {
+        var results = new List<string>();
+        try
+        {
+            await db.Database.ExecuteSqlRawAsync("ALTER TABLE `Trucks` ADD COLUMN `CurrentCityId` int NULL");
+            results.Add("Added CurrentCityId column.");
+        }
+        catch (Exception ex) { results.Add($"Column add skipped/failed: {ex.Message}"); }
+
+        try
+        {
+            await db.Database.ExecuteSqlRawAsync("CREATE INDEX `IX_Trucks_CurrentCityId` ON `Trucks` (`CurrentCityId`)");
+            results.Add("Added index.");
+        }
+        catch (Exception ex) { results.Add($"Index add skipped/failed: {ex.Message}"); }
+
+        try
+        {
+            await db.Database.ExecuteSqlRawAsync("ALTER TABLE `Trucks` ADD CONSTRAINT `FK_Trucks_LogisticsCities_CurrentCityId` FOREIGN KEY (`CurrentCityId`) REFERENCES `LogisticsCities` (`Id`) ON DELETE SET NULL");
+            results.Add("Added foreign key.");
+        }
+        catch (Exception ex) { results.Add($"FK add skipped/failed: {ex.Message}"); }
+
+        return Ok(new { results });
+    }
 }
 
 public record DeletePoRequest(string PoNumber);
