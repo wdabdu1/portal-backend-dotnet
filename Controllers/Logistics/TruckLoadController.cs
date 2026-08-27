@@ -40,7 +40,10 @@ public record LoadableAllocation(int WarehouseAllocationId, string ModelProduct,
 // notices it needs a truck."
 public record ReadyForTruckAssignment(
     int WarehouseAllocationId, string BusinessUnit, string ModelProduct, string Unit, string BlAwbNo,
-    string WarehouseName, decimal AllocatedQty, decimal LoadedQty, decimal RemainingQty, DateTime AllocatedAt);
+    int WarehouseId, string WarehouseName, string? City, decimal AllocatedQty, decimal LoadedQty, decimal RemainingQty, DateTime AllocatedAt);
+
+public record QuickAssignItem(int WarehouseAllocationId, decimal Qty, decimal? InHousePrice, decimal? ParallelMarketPrice);
+public record QuickAssignRequest(int TruckId, int? DriverId, DateOnly LoadDate, int WarehouseId, DateOnly? ExpectedDeliveryDate, List<QuickAssignItem> Items);
 
 [ApiController]
 [Authorize(Roles = AppRoles.LogisticsViewers)]
@@ -208,7 +211,7 @@ public class TruckLoadController : ControllerBase
     public async Task<ActionResult<IEnumerable<ReadyForTruckAssignment>>> GetReadyForAssignment()
     {
         var allocations = await _db.WarehouseAllocations
-            .Include(a => a.Warehouse)
+            .Include(a => a.Warehouse!).ThenInclude(w => w.City)
             .Include(a => a.ShipmentLineItem).ThenInclude(li => li!.PurchaseOrderLineItem).ThenInclude(pli => pli!.ModelProduct)
             .Include(a => a.ShipmentLineItem).ThenInclude(li => li!.PurchaseOrderLineItem).ThenInclude(pli => pli!.UnitOfMeasure)
             .Include(a => a.ShipmentLineItem).ThenInclude(li => li!.Shipment).ThenInclude(s => s!.PurchaseOrder).ThenInclude(p => p!.BusinessUnit)
@@ -237,9 +240,64 @@ public class TruckLoadController : ControllerBase
             result.Add(new ReadyForTruckAssignment(
                 a.Id, businessUnit, portLi?.ModelProduct?.Name ?? withdrawalLi?.ModelProduct?.Name ?? "",
                 portLi?.UnitOfMeasure?.Code ?? withdrawalLi?.UnitOfMeasure?.Code ?? "", blAwbNo,
-                a.Warehouse!.Name, a.Qty, loaded, remaining, a.AllocatedAt));
+                a.WarehouseId, a.Warehouse!.Name, a.Warehouse.City?.Name, a.Qty, loaded, remaining, a.AllocatedAt));
         }
         return Ok(result.OrderBy(r => r.AllocatedAt).ToList());
+    }
+
+    // Combines Create Load + Add Drop + Add Items into one atomic action —
+    // this is the whole point of the redesign: no more navigating away to
+    // a separate, generic Truck Loads screen and re-finding the item.
+    // Reuses an existing load for the same truck+date, and an existing
+    // drop for the same warehouse within that load, so assigning several
+    // cities' items to one truck on one day doesn't create duplicates.
+    [HttpPost("quick-assign")]
+    [Authorize(Roles = AppRoles.LogisticsEditors)]
+    public async Task<IActionResult> QuickAssign(QuickAssignRequest req)
+    {
+        if (req.Items.Count == 0) return BadRequest(new { message = "At least one item is required." });
+        if (!await _db.Trucks.AnyAsync(t => t.Id == req.TruckId)) return NotFound(new { message = "Truck not found." });
+
+        var load = await _db.TruckLoads.FirstOrDefaultAsync(l => l.TruckId == req.TruckId && l.LoadDate == req.LoadDate);
+        if (load is null)
+        {
+            load = new TruckLoad { TruckId = req.TruckId, DriverId = req.DriverId, LoadDate = req.LoadDate };
+            _db.TruckLoads.Add(load);
+            await _db.SaveChangesAsync();
+        }
+
+        var drop = await _db.TruckLoadDrops.FirstOrDefaultAsync(d => d.TruckLoadId == load.Id && d.WarehouseId == req.WarehouseId);
+        if (drop is null)
+        {
+            drop = new TruckLoadDrop { TruckLoadId = load.Id, WarehouseId = req.WarehouseId, ExpectedDeliveryDate = req.ExpectedDeliveryDate };
+            _db.TruckLoadDrops.Add(drop);
+            await _db.SaveChangesAsync();
+        }
+
+        foreach (var item in req.Items)
+        {
+            if (item.Qty <= 0) return BadRequest(new { message = "Quantity must be greater than zero." });
+
+            var allocation = await _db.WarehouseAllocations.FindAsync(item.WarehouseAllocationId);
+            if (allocation is null) return BadRequest(new { message = $"Allocation {item.WarehouseAllocationId} not found." });
+
+            var alreadyLoaded = await _db.TruckLoadItems
+                .Where(i => i.WarehouseAllocationId == item.WarehouseAllocationId)
+                .SumAsync(i => (decimal?)i.Qty) ?? 0;
+            if (item.Qty > allocation.Qty - alreadyLoaded)
+            {
+                return BadRequest(new { message = $"Requested quantity ({item.Qty}) exceeds this allocation's remaining unloaded quantity ({allocation.Qty - alreadyLoaded})." });
+            }
+
+            _db.TruckLoadItems.Add(new TruckLoadItem
+            {
+                TruckLoadDropId = drop.Id, WarehouseAllocationId = item.WarehouseAllocationId, Qty = item.Qty,
+                InHousePrice = item.InHousePrice, ParallelMarketPrice = item.ParallelMarketPrice
+            });
+        }
+        await _db.SaveChangesAsync();
+
+        return Ok(new { truckLoadId = load.Id, dropId = drop.Id });
     }
 
     [HttpGet("drops/{dropId:int}/loadable-allocations")]
