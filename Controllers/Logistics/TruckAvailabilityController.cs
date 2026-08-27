@@ -42,10 +42,15 @@ public class TruckAvailabilityController : ControllerBase
             .Select(g => new { TruckLoadId = g.Key, LastDropId = g.Max(d => d.Id) })
             .ToDictionaryAsync(x => x.TruckLoadId, x => x.LastDropId);
 
+        // A truck can genuinely have more than one incomplete "last drop"
+        // at once (e.g. two separate loads on different dates) — pick
+        // whichever is expected soonest as the one that reflects its
+        // actual current status.
         var activeDropByTruckId = openDrops
             .Where(d => lastDropIdByLoad.GetValueOrDefault(d.TruckLoadId) == d.Id)
             .Where(d => d.TruckLoad is not null)
-            .ToDictionary(d => d.TruckLoad!.TruckId);
+            .GroupBy(d => d.TruckLoad!.TruckId)
+            .ToDictionary(g => g.Key, g => g.OrderBy(d => d.ExpectedDeliveryDate ?? DateOnly.MaxValue).First());
 
         var rows = trucks.Select(t =>
         {
