@@ -92,6 +92,11 @@ public class PayBankDuesController : ControllerBase
     {
         var query = _db.ShipmentBankings
             .Where(b => b.ReceivingBankId != null)
+            // Direct Sales shipments are tracked on the separate "Direct
+            // Sales" Finance page instead — even if a Collection Value is
+            // saved here for record-keeping, it must never surface as a
+            // payable bank due.
+            .Where(b => !b.Shipment!.IsDirectSales)
             .Include(b => b.Shipment!).ThenInclude(s => s.PurchaseOrder)
             .Include(b => b.ReceivingBank)
             .Include(b => b.SenderBank)
