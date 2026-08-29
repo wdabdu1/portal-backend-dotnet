@@ -68,6 +68,7 @@ public class ShippingPortalDbContext : IdentityDbContext<ApplicationUser>
     // Shipments
     public DbSet<Shipment> Shipments => Set<Shipment>();
     public DbSet<ShipmentLineItem> ShipmentLineItems => Set<ShipmentLineItem>();
+    public DbSet<ShipmentPurchaseOrder> ShipmentPurchaseOrders => Set<ShipmentPurchaseOrder>();
     public DbSet<ShipmentForwarder> ShipmentForwarders => Set<ShipmentForwarder>();
     public DbSet<ShipmentAcd> ShipmentAcds => Set<ShipmentAcd>();
     public DbSet<ShipmentDraftDocuments> ShipmentDraftDocuments => Set<ShipmentDraftDocuments>();
@@ -78,6 +79,7 @@ public class ShippingPortalDbContext : IdentityDbContext<ApplicationUser>
     public DbSet<ShipmentPaymentDue> ShipmentPaymentDues => Set<ShipmentPaymentDue>();
     public DbSet<ShipmentBanking> ShipmentBankings => Set<ShipmentBanking>();
     public DbSet<ShipmentCollectionRecord> ShipmentCollectionRecords => Set<ShipmentCollectionRecord>();
+    public DbSet<ShipmentCustomerDue> ShipmentCustomerDues => Set<ShipmentCustomerDue>();
     public DbSet<ShipmentOffshoreErpInfo> ShipmentOffshoreErpInfos => Set<ShipmentOffshoreErpInfo>();
     public DbSet<LastOffshoreDetail> LastOffshoreDetails => Set<LastOffshoreDetail>();
     public DbSet<LastOffshoreItemDetail> LastOffshoreItemDetails => Set<LastOffshoreItemDetail>();
@@ -153,6 +155,20 @@ public class ShippingPortalDbContext : IdentityDbContext<ApplicationUser>
             .WithMany()
             .OnDelete(DeleteBehavior.Restrict);
 
+        builder.Entity<ShipmentPurchaseOrder>()
+            .HasIndex(x => new { x.ShipmentId, x.PurchaseOrderId })
+            .IsUnique();
+
+        builder.Entity<ShipmentPurchaseOrder>()
+            .HasOne(x => x.Shipment)
+            .WithMany(s => s.PurchaseOrderLinks)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        builder.Entity<ShipmentPurchaseOrder>()
+            .HasOne(x => x.PurchaseOrder)
+            .WithMany()
+            .OnDelete(DeleteBehavior.Restrict);
+
         builder.Entity<UserBusinessUnitAccess>()
             .HasOne(a => a.User)
             .WithMany(u => u.BusinessUnitAccess)
@@ -208,6 +224,16 @@ public class ShippingPortalDbContext : IdentityDbContext<ApplicationUser>
             .OnDelete(DeleteBehavior.Restrict);
 
         builder.Entity<ShipmentCollectionRecord>()
+            .HasOne(x => x.Currency)
+            .WithMany()
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder.Entity<ShipmentCustomerDue>()
+            .HasOne(x => x.Shipment)
+            .WithMany()
+            .OnDelete(DeleteBehavior.Cascade);
+
+        builder.Entity<ShipmentCustomerDue>()
             .HasOne(x => x.Currency)
             .WithMany()
             .OnDelete(DeleteBehavior.Restrict);
