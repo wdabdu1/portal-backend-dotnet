@@ -12,7 +12,7 @@ namespace ShippingPortal.Api.Controllers.Logistics;
 // whatever's relevant for dispatch planning: its current city if free,
 // or where it's headed if mid-trip — never both, since only one matters
 // at a time for "when can I use this truck".
-public record TruckAvailabilityRow(int TruckId, string PlateNo, string? DriverName, bool IsAvailable, string? CityName, DateOnly? ExpectedAvailableDate);
+public record TruckAvailabilityRow(int TruckId, string PlateNo, string? DriverName, bool IsAvailable, string? CityName, DateOnly? ExpectedAvailableDate, int? ActiveDropId);
 public record TruckMovementRow(DateOnly MoveDate, string FromCity, string ToCity, string? Reason, decimal? Value, string? Notes);
 public record MoveTruckRequest(int ToCityId, DateOnly MoveDate, string? Reason, decimal? Value, string? Notes);
 
@@ -55,9 +55,9 @@ public class TruckAvailabilityController : ControllerBase
         var rows = trucks.Select(t =>
         {
             if (activeDropByTruckId.TryGetValue(t.Id, out var drop))
-                return new TruckAvailabilityRow(t.Id, t.PlateNo, t.Driver?.Name, false, drop.Warehouse?.City?.Name, drop.ExpectedDeliveryDate);
+                return new TruckAvailabilityRow(t.Id, t.PlateNo, t.Driver?.Name, false, drop.Warehouse?.City?.Name, drop.ExpectedDeliveryDate, drop.Id);
 
-            return new TruckAvailabilityRow(t.Id, t.PlateNo, t.Driver?.Name, t.CurrentCityId is not null, t.CurrentCity?.Name, null);
+            return new TruckAvailabilityRow(t.Id, t.PlateNo, t.Driver?.Name, t.CurrentCityId is not null, t.CurrentCity?.Name, null, null);
         }).OrderBy(r => r.PlateNo).ToList();
 
         return Ok(rows);

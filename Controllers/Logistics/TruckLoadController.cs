@@ -17,6 +17,7 @@ public record TruckLoadItemRow(
 
 public record AddDropRequest(int WarehouseId, DateOnly? ExpectedDeliveryDate);
 public record SetActualDropOffRequest(DateOnly? ActualDropOffDate);
+public record SetExpectedDeliveryRequest(DateOnly? ExpectedDeliveryDate);
 public record DropSummary(int Id, int WarehouseId, string WarehouseName, string? City, DateOnly? ExpectedDeliveryDate, DateOnly? ActualDropOffDate);
 
 public record AddTruckLoadItemRequest(int WarehouseAllocationId, decimal Qty, decimal? InHousePrice, decimal? ParallelMarketPrice);
@@ -191,6 +192,23 @@ public class TruckLoadController : ControllerBase
             }
         }
 
+        await _db.SaveChangesAsync();
+        return NoContent();
+    }
+
+    // Updates the planned date only — separate from actual-dropoff below,
+    // since a slipping ETA and a confirmed arrival are different events and
+    // a truck can need its ETA pushed back several times before it ever
+    // arrives. Does not touch the truck's CurrentCityId; only completing
+    // the drop (actual-dropoff) does that.
+    [HttpPut("drops/{dropId:int}/expected-delivery")]
+    [Authorize(Roles = AppRoles.LogisticsEditors)]
+    public async Task<IActionResult> SetExpectedDelivery(int dropId, SetExpectedDeliveryRequest req)
+    {
+        var drop = await _db.TruckLoadDrops.FindAsync(dropId);
+        if (drop is null) return NotFound();
+
+        drop.ExpectedDeliveryDate = req.ExpectedDeliveryDate;
         await _db.SaveChangesAsync();
         return NoContent();
     }
