@@ -12,9 +12,13 @@ namespace ShippingPortal.Api.Controllers.Shipments;
 
 public record ShipmentLineItemRequest(int PurchaseOrderLineItemId, decimal QtyInBl);
 
+// PurchaseOrderId is no longer supplied directly — it's derived from
+// whichever PurchaseOrderLineItems were selected, since a shipment can
+// now combine line items from more than one PO (see Create() below).
 public record CreateShipmentRequest(
-    string BlAwbNo, int PurchaseOrderId, DateOnly? BlAwbDate, DateOnly? Etd, DateOnly? Eta,
+    string BlAwbNo, DateOnly? BlAwbDate, DateOnly? Etd, DateOnly? Eta,
     int ShippingLineId, string? VesselName, int Fcl20Count, int Fcl40Count, bool Soc, int? BlFreeDays,
+    bool IsDirectSales, string? ConsigneeName,
     List<ShipmentLineItemRequest> LineItems);
 
 public record ShipmentSummary(int Id, string BlAwbNo, string PoNumber, string BusinessUnit, string ShippingLine, string Status, DateOnly? Eta, int LineItemCount, DateTime CreatedAt, bool IsClearanceCompleted);
@@ -75,19 +79,68 @@ public class ShipmentsController : ControllerBase
     [Authorize(Roles = AppRoles.OrdersShipmentsEditors)]
     public async Task<ActionResult<ShipmentSummary>> Create(CreateShipmentRequest req, [FromServices] Services.BuAccessService buAccess)
     {
-        var po = await _db.PurchaseOrders.Include(p => p.LineItems).FirstOrDefaultAsync(p => p.Id == req.PurchaseOrderId);
-        if (po is null) return NotFound(new { message = "Purchase order not found." });
-        if (!buAccess.CanWriteBusinessUnit(User, po.BusinessUnitId)) return Forbid();
-        if (po.Status != OrderStatus.Confirmed) return BadRequest(new { message = "Shipments can only be created against confirmed purchase orders." });
+        if (req.LineItems.Count == 0)
+            return BadRequest(new { message = "At least one line item is required." });
+
+        if (req.IsDirectSales && string.IsNullOrWhiteSpace(req.ConsigneeName))
+            return BadRequest(new { message = "Consignee Name is required for a Direct Sales shipment." });
 
         if (await _db.Shipments.AnyAsync(s => s.BlAwbNo == req.BlAwbNo))
             return Conflict(new { message = $"BL/AWB number '{req.BlAwbNo}' already exists." });
 
-        if (req.LineItems.Count == 0)
-            return BadRequest(new { message = "At least one line item is required." });
-
         var lineItemIds = req.LineItems.Select(li => li.PurchaseOrderLineItemId).ToList();
-        var poLineItems = po.LineItems.Where(li => lineItemIds.Contains(li.Id)).ToDictionary(li => li.Id);
+        var poLineItems = await _db.PurchaseOrderLineItems
+            .Where(pli => lineItemIds.Contains(pli.Id))
+            .Include(pli => pli.PurchaseOrder)
+            .ToDictionaryAsync(pli => pli.Id);
+
+        foreach (var li in req.LineItems)
+        {
+            if (!poLineItems.ContainsKey(li.PurchaseOrderLineItemId))
+                return BadRequest(new { message = $"Line item {li.PurchaseOrderLineItemId} not found." });
+        }
+
+        // The set of distinct POs actually referenced by the selected line
+        // items — normally just one, but a shipment may now combine line
+        // items from more than one PO as long as they satisfy the checks
+        // below (a real business case: combining orders to save freight).
+        var pos = poLineItems.Values.Select(pli => pli.PurchaseOrder!).DistinctBy(p => p.Id).ToList();
+
+        foreach (var po in pos)
+        {
+            if (!buAccess.CanWriteBusinessUnit(User, po.BusinessUnitId)) return Forbid();
+        }
+
+        if (pos.Any(p => p.Status != OrderStatus.Confirmed))
+            return BadRequest(new { message = "Shipments can only be created against confirmed purchase orders." });
+
+        if (pos.Count > 1)
+        {
+            var first = pos[0];
+            var mismatched = pos.Skip(1).FirstOrDefault(p =>
+                p.SupplierId != first.SupplierId ||
+                p.BusinessUnitId != first.BusinessUnitId ||
+                p.DivisionId != first.DivisionId);
+            if (mismatched is not null)
+                return BadRequest(new { message = $"Purchase orders {first.PoNumber} and {mismatched.PoNumber} cannot be combined into one shipment — they must share the same Supplier, Business Unit, and Division." });
+
+            var poIds = pos.Select(p => p.Id).ToList();
+            var offshoreChains = await _db.PurchaseOrderOffshorePartners
+                .Where(op => poIds.Contains(op.PurchaseOrderId))
+                .OrderBy(op => op.SequenceOrder)
+                .ToListAsync();
+            var chainByPo = offshoreChains
+                .GroupBy(op => op.PurchaseOrderId)
+                .ToDictionary(g => g.Key, g => g.OrderBy(op => op.SequenceOrder).Select(op => op.BusinessPartnerId).ToList());
+
+            var firstChain = chainByPo.GetValueOrDefault(first.Id) ?? new List<int>();
+            foreach (var po in pos.Skip(1))
+            {
+                var chain = chainByPo.GetValueOrDefault(po.Id) ?? new List<int>();
+                if (!chain.SequenceEqual(firstChain))
+                    return BadRequest(new { message = $"Purchase orders {first.PoNumber} and {po.PoNumber} cannot be combined into one shipment — they must share the same Offshore Partner chain." });
+            }
+        }
 
         var alreadyShipped = await _db.ShipmentLineItems
             .Where(sli => lineItemIds.Contains(sli.PurchaseOrderLineItemId) && sli.Shipment!.Status != ShipmentStatus.Cancelled)
@@ -97,9 +150,7 @@ public class ShipmentsController : ControllerBase
 
         foreach (var li in req.LineItems)
         {
-            if (!poLineItems.TryGetValue(li.PurchaseOrderLineItemId, out var poLine))
-                return BadRequest(new { message = $"Line item {li.PurchaseOrderLineItemId} does not belong to this purchase order." });
-
+            var poLine = poLineItems[li.PurchaseOrderLineItemId];
             var shipped = alreadyShipped.GetValueOrDefault(li.PurchaseOrderLineItemId, 0m);
             var remaining = poLine.Qty - shipped;
             if (li.QtyInBl > remaining)
@@ -108,10 +159,17 @@ public class ShipmentsController : ControllerBase
 
         var userId = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "";
 
+        // The "primary" PO — whichever PO the first selected line item
+        // belongs to. It becomes Shipment.PurchaseOrderId, used unchanged
+        // everywhere that field is already read today (display, the
+        // offshore-chain lookups, BU scoping) — safe because a combined
+        // shipment's POs are guaranteed to share that chain/BU/Division.
+        var primaryPo = poLineItems[req.LineItems[0].PurchaseOrderLineItemId].PurchaseOrder!;
+
         var shipment = new Shipment
         {
             BlAwbNo = req.BlAwbNo,
-            PurchaseOrderId = req.PurchaseOrderId,
+            PurchaseOrderId = primaryPo.Id,
             BlAwbDate = req.BlAwbDate,
             Etd = req.Etd,
             Eta = req.Eta,
@@ -121,6 +179,8 @@ public class ShipmentsController : ControllerBase
             Fcl40Count = req.Fcl40Count,
             Soc = req.Soc,
             BlFreeDays = req.BlFreeDays,
+            IsDirectSales = req.IsDirectSales,
+            ConsigneeName = req.IsDirectSales ? req.ConsigneeName : null,
             Status = ShipmentStatus.Draft,
             CreatedByUserId = userId,
             CreatedAt = DateTime.UtcNow,
@@ -138,13 +198,18 @@ public class ShipmentsController : ControllerBase
             });
         }
 
+        foreach (var po in pos)
+        {
+            shipment.PurchaseOrderLinks.Add(new ShipmentPurchaseOrder { PurchaseOrderId = po.Id });
+        }
+
         _db.Shipments.Add(shipment);
         await _db.SaveChangesAsync();
 
         var shippingLine = await _db.ShippingLines.FindAsync(req.ShippingLineId);
-        var businessUnit = await _db.BusinessUnits.FindAsync(po.BusinessUnitId);
+        var businessUnit = await _db.BusinessUnits.FindAsync(primaryPo.BusinessUnitId);
         return CreatedAtAction(nameof(GetAll), new ShipmentSummary(
-            shipment.Id, shipment.BlAwbNo, po.PoNumber, businessUnit?.Name ?? "", shippingLine?.Name ?? "", shipment.Status.ToString(), shipment.Eta, shipment.LineItems.Count, shipment.CreatedAt, false));
+            shipment.Id, shipment.BlAwbNo, primaryPo.PoNumber, businessUnit?.Name ?? "", shippingLine?.Name ?? "", shipment.Status.ToString(), shipment.Eta, shipment.LineItems.Count, shipment.CreatedAt, false));
     }
 
     [HttpPost("{id:int}/confirm")]
