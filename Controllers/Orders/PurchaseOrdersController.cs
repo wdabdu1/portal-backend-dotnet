@@ -30,6 +30,7 @@ public record CreatePurchaseOrderRequest(
     List<LineItemRequest> LineItems, List<OffshorePartnerRequest> OffshorePartners);
 
 public record PurchaseOrderSummary(int Id, string PoNumber, string BusinessUnit, string Supplier, string Status, int LineItemCount, DateTime CreatedAt, decimal OrderValueUsd, decimal PercentShipped);
+public record ConfirmedOrderOption(int Id, string PoNumber, string BusinessUnit, string Supplier, decimal OrderValueUsd, int BusinessUnitId, int SupplierId, int DivisionId);
 
 public record LineItemResponse(int Id, string ProductCategory, string ModelProduct, string ProductType, decimal Qty, string UnitOfMeasure, decimal UnitPrice, string Currency, decimal Total, decimal TotalUsd);
 public record OffshorePartnerResponse(int Id, string BusinessPartnerName, int SequenceOrder);
@@ -80,8 +81,14 @@ public class PurchaseOrdersController : ControllerBase
                         / p.LineItems.Sum(li => li.Qty)) * 100))
             .ToListAsync();
     }
+    // Carries the raw Supplier/BusinessUnit/Division ids (not just their
+    // names) so the New Shipment page can work out, client-side, which
+    // other confirmed orders could be combined with a given one into one
+    // shipment (same Supplier + BU + Division) — the actual enforcement
+    // happens server-side in ShipmentsController.Create(), this is only
+    // for not offering a combination that's guaranteed to be rejected.
     [HttpGet("confirmed")]
-    public async Task<ActionResult<IEnumerable<PurchaseOrderSummary>>> GetConfirmed()
+    public async Task<ActionResult<IEnumerable<ConfirmedOrderOption>>> GetConfirmed()
     {
         return await _db.PurchaseOrders
             .Where(p => p.Status == OrderStatus.Confirmed)
@@ -89,10 +96,9 @@ public class PurchaseOrdersController : ControllerBase
             .Include(p => p.Supplier)
             .Include(p => p.LineItems)
             .OrderByDescending(p => p.CreatedAt)
-            .Select(p => new PurchaseOrderSummary(
-                p.Id, p.PoNumber, p.BusinessUnit!.Name, p.Supplier!.Name,
-                p.Status.ToString(), p.LineItems.Count, p.CreatedAt,
-                p.LineItems.Sum(li => li.TotalUsd), 0))
+            .Select(p => new ConfirmedOrderOption(
+                p.Id, p.PoNumber, p.BusinessUnit!.Name, p.Supplier!.Name, p.LineItems.Sum(li => li.TotalUsd),
+                p.BusinessUnitId, p.SupplierId, p.DivisionId))
             .ToListAsync();
     }
 
