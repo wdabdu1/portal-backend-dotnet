@@ -102,7 +102,9 @@ public class ClearanceRouteDetailsController : ControllerBase
     }
     private async Task<ClearanceEntity?> GetOrCreateClearanceAsync(int shipmentId)
     {
-        if (!await _db.Shipments.AnyAsync(s => s.Id == shipmentId)) return null;
+        // Direct Sales shipments never get a Clearance record — treat
+        // them the same as a nonexistent shipment here.
+        if (!await _db.Shipments.AnyAsync(s => s.Id == shipmentId && !s.IsDirectSales)) return null;
 
         var clearance = await _db.Clearances.FirstOrDefaultAsync(c => c.ShipmentId == shipmentId);
         if (clearance is null)

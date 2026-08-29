@@ -282,7 +282,7 @@ public class ClearanceController : ControllerBase
         var generalDays = slaByDivision.GetValueOrDefault(ShippingPortal.Api.Models.Clearance.ClearanceDivision.General, 0);
 
         var query = _db.Shipments
-            .Where(s => s.Status == ShipmentStatus.Confirmed)
+            .Where(s => s.Status == ShipmentStatus.Confirmed && !s.IsDirectSales)
             .Include(s => s.PurchaseOrder).ThenInclude(p => p!.BusinessUnit)
             .Include(s => s.LineItems).ThenInclude(li => li.PurchaseOrderLineItem).ThenInclude(pli => pli!.ProductCategory)
             .Include(s => s.LineItems).ThenInclude(li => li.PurchaseOrderLineItem).ThenInclude(pli => pli!.ModelProduct)
@@ -636,7 +636,9 @@ public class ClearanceController : ControllerBase
     {
         var lockDenied = await _sectionLock.EnsureNotLockedAsync("Clearance", shipmentId, "generalInfo");
         if (lockDenied is not null) return lockDenied;
-        if (!await _db.Shipments.AnyAsync(s => s.Id == shipmentId)) return NotFound();
+        // Direct Sales shipments never get a Clearance record — treat
+        // them the same as a nonexistent shipment here.
+        if (!await _db.Shipments.AnyAsync(s => s.Id == shipmentId && !s.IsDirectSales)) return NotFound();
 
         var clearance = await _db.Clearances.FirstOrDefaultAsync(c => c.ShipmentId == shipmentId);
         if (clearance is null) { clearance = new ClearanceEntity { ShipmentId = shipmentId }; _db.Clearances.Add(clearance); }
@@ -670,7 +672,9 @@ public class ClearanceController : ControllerBase
     {
         var lockDenied = await _sectionLock.EnsureNotLockedAsync("Clearance", shipmentId, "route");
         if (lockDenied is not null) return lockDenied;
-        if (!await _db.Shipments.AnyAsync(s => s.Id == shipmentId)) return NotFound();
+        // Direct Sales shipments never get a Clearance record — treat
+        // them the same as a nonexistent shipment here.
+        if (!await _db.Shipments.AnyAsync(s => s.Id == shipmentId && !s.IsDirectSales)) return NotFound();
 
         var clearance = await _db.Clearances.FirstOrDefaultAsync(c => c.ShipmentId == shipmentId);
         if (clearance is null) { clearance = new ClearanceEntity { ShipmentId = shipmentId }; _db.Clearances.Add(clearance); }
