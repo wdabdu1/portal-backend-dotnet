@@ -74,7 +74,16 @@ public class DepartmentPerformanceController : ControllerBase
 
         var shipments = await query.ToListAsync();
         var shipmentIds = shipments.Select(s => s.Id).ToList();
-        var poIds = shipments.Select(s => s.PurchaseOrderId).Distinct().ToList();
+
+        // A shipment can combine line items from more than one PO — count
+        // every PO it actually touches (via the join table), not just its
+        // single "primary" PurchaseOrderId, so a combined shipment's
+        // secondary PO(s) aren't invisible to the Orders count/value here.
+        var poIds = await _db.ShipmentPurchaseOrders
+            .Where(spo => shipmentIds.Contains(spo.ShipmentId))
+            .Select(spo => spo.PurchaseOrderId)
+            .Distinct()
+            .ToListAsync();
 
         // --- Orders: distinct POs behind this shipment set, execution % ---
         var pos = await _db.PurchaseOrders.Where(p => poIds.Contains(p.Id)).Include(p => p.LineItems).ToListAsync();
