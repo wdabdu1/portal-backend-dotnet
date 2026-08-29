@@ -76,25 +76,49 @@ public class DashboardsController : ControllerBase
         var pos = await query.OrderByDescending(p => p.CreatedAt).ToListAsync();
         var poIds = pos.Select(p => p.Id).ToList();
 
+        // A shipment can now combine line items from more than one PO, so
+        // "which shipments touch this PO" is answered via the
+        // ShipmentPurchaseOrder join table, not by shipment.PurchaseOrderId
+        // alone — a combined shipment must show up under every PO it
+        // actually has line items for.
+        var shipmentIdsForPos = await _db.ShipmentPurchaseOrders
+            .Where(spo => poIds.Contains(spo.PurchaseOrderId))
+            .Select(spo => spo.ShipmentId)
+            .Distinct()
+            .ToListAsync();
+
         var shipments = await _db.Shipments
-            .Where(s => poIds.Contains(s.PurchaseOrderId))
+            .Where(s => shipmentIdsForPos.Contains(s.Id))
             .Include(s => s.LineItems).ThenInclude(li => li.PurchaseOrderLineItem).ThenInclude(pli => pli!.ProductCategory)
             .Include(s => s.LineItems).ThenInclude(li => li.PurchaseOrderLineItem).ThenInclude(pli => pli!.ModelProduct)
             .Include(s => s.LineItems).ThenInclude(li => li.PurchaseOrderLineItem).ThenInclude(pli => pli!.Currency)
             .ToListAsync();
-        var shipmentsByPo = shipments.GroupBy(s => s.PurchaseOrderId).ToDictionary(g => g.Key, g => g.ToList());
+
+        var shipmentIdToPoIds = (await _db.ShipmentPurchaseOrders
+                .Where(spo => shipmentIdsForPos.Contains(spo.ShipmentId))
+                .ToListAsync())
+            .GroupBy(spo => spo.ShipmentId)
+            .ToDictionary(g => g.Key, g => g.Select(x => x.PurchaseOrderId).ToHashSet());
 
         var estimatedCompletions = await scheduleService.GetEstimatedCompletionDatesAsync(shipments.Select(s => s.Id).ToList());
 
+        // Each PO's row only shows the shipments that touch it, and within
+        // those shipments only the line items that actually belong to this
+        // PO (a combined shipment's other PO's line items belong under
+        // that other PO's own row instead).
         var result = pos.Select(p => new PoDashboardRow(
             p.Id, p.PoNumber, p.BusinessUnit?.Name ?? "", p.Supplier?.Name ?? "", p.Consignee?.Name ?? "", p.Status.ToString(),
             p.CreatedAt, p.LineItems.Sum(li => li.TotalUsd),
-            shipmentsByPo.GetValueOrDefault(p.Id, new List<ShippingPortal.Api.Models.Shipments.Shipment>())
-                .SelectMany(s => s.LineItems.Select(li => new PoDashboardShipmentRow(
-                    s.BlAwbNo, li.PurchaseOrderLineItem?.ProductCategory?.Name ?? "", li.PurchaseOrderLineItem?.ModelProduct?.Name ?? "",
-                    li.QtyInBl, li.PurchaseOrderLineItem?.UnitPrice ?? 0, li.PurchaseOrderLineItem?.Currency?.Code ?? "",
-                    li.ItemSubtotal, s.Eta, s.Etd, estimatedCompletions.GetValueOrDefault(s.Id)
-                ))).ToList()
+            shipments
+                .Where(s => shipmentIdToPoIds.GetValueOrDefault(s.Id)?.Contains(p.Id) == true)
+                .SelectMany(s => s.LineItems
+                    .Where(li => li.PurchaseOrderLineItem?.PurchaseOrderId == p.Id)
+                    .Select(li => new PoDashboardShipmentRow(
+                        s.BlAwbNo, li.PurchaseOrderLineItem?.ProductCategory?.Name ?? "", li.PurchaseOrderLineItem?.ModelProduct?.Name ?? "",
+                        li.QtyInBl, li.PurchaseOrderLineItem?.UnitPrice ?? 0, li.PurchaseOrderLineItem?.Currency?.Code ?? "",
+                        li.ItemSubtotal, s.Eta, s.Etd, estimatedCompletions.GetValueOrDefault(s.Id)
+                    )))
+                .ToList()
         )).ToList();
 
         return Ok(result);
