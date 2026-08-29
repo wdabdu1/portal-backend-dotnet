@@ -80,6 +80,11 @@ public class BankDuesController : ControllerBase
             .Include(b => b.Tenor)
             .Include(b => b.AddCbosAllowance)
             .Include(b => b.CollectionCurrency)
+            // Direct Sales shipments are tracked on the separate "Direct
+            // Sales" Finance page instead — even if a Collection Value is
+            // saved here for record-keeping, it must never surface as a
+            // bank due.
+            .Where(b => !b.Shipment!.IsDirectSales)
             .AsQueryable();
 
         if (!buAccess.SeesAllBus(User))
