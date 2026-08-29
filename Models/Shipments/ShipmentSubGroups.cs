@@ -184,3 +184,23 @@ public class ShipmentCollectionRecord
     public decimal Value { get; set; }
     public decimal ValueUsd { get; set; }
 }
+
+// Direct Sales only — the "Customer Agreed Payment" schedule: one or
+// more amounts the client agreed to pay, each with its own due date.
+// Mirrors ShipmentPaymentDue's shape (used for Supplier due schedules)
+// but on the customer/collection side. Actual money received against
+// these is tracked separately in ShipmentCollectionRecord (the same
+// table Bank Dues already uses for collections) — a shipment is either
+// Direct Sales or not, so its collection records are unambiguously one
+// or the other.
+public class ShipmentCustomerDue
+{
+    public int Id { get; set; }
+    public int ShipmentId { get; set; }
+    public Shipment? Shipment { get; set; }
+
+    public DateOnly DueDate { get; set; }
+    public decimal Value { get; set; }
+    public int CurrencyId { get; set; }
+    public Currency? Currency { get; set; }
+}
