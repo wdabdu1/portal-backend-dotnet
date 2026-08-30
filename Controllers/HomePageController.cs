@@ -88,7 +88,7 @@ public class HomePageController : ControllerBase
 
         if (showShipments || showArrivals || showClearance || showFz)
         {
-            var shipQuery = _db.Shipments.Where(s => s.Status != ShipmentStatus.Cancelled)
+            var shipQuery = _db.Shipments.Where(s => s.Status != ShipmentStatus.Cancelled && s.Status != ShipmentStatus.Closed)
                 .Include(s => s.PurchaseOrder).ThenInclude(p => p!.BusinessUnit)
                 .Include(s => s.PurchaseOrder).ThenInclude(p => p!.Consignee)
                 .Include(s => s.ShippingLine)

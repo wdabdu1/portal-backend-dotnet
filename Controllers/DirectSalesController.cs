@@ -62,10 +62,9 @@ public class DirectSalesController : ControllerBase
     }
 
     // Every due, across every Direct Sales shipment, with collections
-    // allocated FIFO by due date. A collection can only settle a due whose
-    // DueDate is on or after the collection's own PaymentDate — a
-    // collection made after a due's date can't retroactively cover it,
-    // only a later due.
+    // allocated FIFO by due date: the oldest still-open due is filled
+    // first, regardless of when relative to that due's date the
+    // collection was actually paid.
     [HttpGet]
     public async Task<ActionResult<IEnumerable<DirectSalesDueRow>>> GetDues([FromQuery] bool includeSettled, [FromServices] BuAccessService buAccess)
     {
@@ -132,7 +131,6 @@ public class DirectSalesController : ControllerBase
                 for (var i = 0; i < shipmentCollections.Count && remainingToAllocate > 0; i++)
                 {
                     if (collectionRemainingUsd[i] <= 0) continue;
-                    if (shipmentCollections[i].PaymentDate > due.DueDate) continue;
 
                     var use = Math.Min(remainingToAllocate, collectionRemainingUsd[i]);
                     collectedUsd += use;
@@ -248,5 +246,44 @@ public class DirectSalesController : ControllerBase
         _db.ShipmentCollectionRecords.Remove(record);
         await _db.SaveChangesAsync();
         return NoContent();
+    }
+
+    // --- Close Deal ---
+
+    public record CloseDealRequest(bool DocumentsHanded, bool PaymentCollected);
+    public record CloseDealResponse(bool Closed, DateTime? ClosedAt);
+
+    [HttpGet("{shipmentId:int}/close-status")]
+    public async Task<ActionResult<CloseDealResponse>> GetCloseStatus(int shipmentId, [FromServices] BuAccessService buAccess)
+    {
+        var denied = await CheckAccessAsync(shipmentId, buAccess); if (denied is not null) return denied;
+
+        var shipment = await _db.Shipments.FirstAsync(s => s.Id == shipmentId);
+        return Ok(new CloseDealResponse(shipment.Status == ShipmentStatus.Closed, shipment.DirectSalesClosedAt));
+    }
+
+    // Both checkboxes are re-validated server-side, not just gated by the
+    // disabled Close button client-side — a deal can't be closed with
+    // either box unticked, no matter what the request claims otherwise
+    // unless both are true.
+    [HttpPost("{shipmentId:int}/close")]
+    [Authorize(Roles = AppRoles.BankDuesEditors)]
+    public async Task<ActionResult<CloseDealResponse>> CloseDeal(int shipmentId, CloseDealRequest req, [FromServices] BuAccessService buAccess)
+    {
+        var denied = await CheckAccessAsync(shipmentId, buAccess); if (denied is not null) return denied;
+        if (!req.DocumentsHanded || !req.PaymentCollected)
+            return BadRequest(new { message = "Both Original Documents Handed and Full Payment Collected must be confirmed before closing the deal." });
+
+        var shipment = await _db.Shipments.FirstAsync(s => s.Id == shipmentId);
+        if (shipment.Status == ShipmentStatus.Closed) return Ok(new CloseDealResponse(true, shipment.DirectSalesClosedAt));
+
+        shipment.DirectSalesDocumentsHanded = true;
+        shipment.DirectSalesPaymentCollected = true;
+        shipment.DirectSalesClosedAt = DateTime.UtcNow;
+        shipment.Status = ShipmentStatus.Closed;
+        shipment.UpdatedAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync();
+
+        return Ok(new CloseDealResponse(true, shipment.DirectSalesClosedAt));
     }
 }

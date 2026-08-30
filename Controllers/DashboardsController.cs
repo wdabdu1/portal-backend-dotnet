@@ -131,7 +131,8 @@ public class DashboardsController : ControllerBase
         [FromServices] ShippingPortal.Api.Services.ClearanceScheduleService scheduleService)
     {
         var query = _db.Shipments
-            .Where(s => s.Status != ShippingPortal.Api.Models.Shipments.ShipmentStatus.Cancelled)
+            .Where(s => s.Status != ShippingPortal.Api.Models.Shipments.ShipmentStatus.Cancelled
+                     && s.Status != ShippingPortal.Api.Models.Shipments.ShipmentStatus.Closed)
             .Include(s => s.PurchaseOrder).ThenInclude(p => p!.BusinessUnit)
             .Include(s => s.LineItems).ThenInclude(li => li.PurchaseOrderLineItem).ThenInclude(pli => pli!.ProductCategory)
             .Include(s => s.LineItems).ThenInclude(li => li.PurchaseOrderLineItem).ThenInclude(pli => pli!.ModelProduct)
