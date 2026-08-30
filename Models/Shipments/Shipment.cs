@@ -8,7 +8,11 @@ public enum ShipmentStatus
 {
     Draft = 0,
     Confirmed = 1,
-    Cancelled = 2
+    Cancelled = 2,
+    // Direct Sales only, for now: set once the "Close Deal" confirmation
+    // is submitted (see Shipment.DirectSalesClosedAt below). Not used by
+    // the normal (non-Direct-Sales) shipment lifecycle.
+    Closed = 3
 }
 
 public class Shipment
@@ -44,6 +48,13 @@ public class Shipment
     // end client that isn't necessarily the PO's registered Consignee.
     public bool IsDirectSales { get; set; }
     public string? ConsigneeName { get; set; }
+
+    // Direct Sales "Close Deal" confirmation — captured for future
+    // reference/analysis only; no other logic reads the two booleans
+    // today. Status flips to Closed only once both are true.
+    public bool DirectSalesDocumentsHanded { get; set; }
+    public bool DirectSalesPaymentCollected { get; set; }
+    public DateTime? DirectSalesClosedAt { get; set; }
 
     public ICollection<ShipmentLineItem> LineItems { get; set; } = new List<ShipmentLineItem>();
 
