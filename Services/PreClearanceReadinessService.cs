@@ -4,7 +4,7 @@ using ShippingPortal.Api.Models.Clearance;
 
 namespace ShippingPortal.Api.Services;
 
-public record ReadinessItem(string GroupItem, DateOnly ShouldBeDoneBy, DateOnly? ActualDate, string Status, string Light);
+public record ReadinessItem(string GroupItem, DateOnly ShouldBeDoneBy, DateOnly? ActualDate, string Status, string Light, bool NotApplicable = false);
 public record TrackResult(string Track, List<ReadinessItem> Items);
 public record ShipmentReadiness(
     int ShipmentId, string BlAwbNo, string BusinessUnit, string Category, int Fcl20Count, int Fcl40Count,
@@ -165,7 +165,25 @@ public class PreClearanceReadinessService
             var motShouldBe = SubtractBusinessDays(eta, (int)Math.Ceiling(motDays), holidaySet);
             var ssmoShouldBe = SubtractBusinessDays(eta, (int)Math.Ceiling(ssmoDays), holidaySet);
             var motItem = BuildItem("MOT Approval", motShouldBe, mot?.ApprovalDate, today, holidaySet);
-            var ssmoItem = BuildItem("SSMO Approval", ssmoShouldBe, ssmo?.ApprovalDate, today, holidaySet);
+
+            // SSMO/COC only ever needs tracking when COC is required AND
+            // not already in hand — the same condition the Update
+            // Shipment page uses to disable the whole application block
+            // (see ssmoForm.cocRequired / cocAvailable there). When COC
+            // isn't required, or is required but already available,
+            // there is no action left to take, so this must never
+            // surface as an overdue/pending alert even though no
+            // approval date was ever going to be entered. Left
+            // unanswered (CocRequired still null) still flags as
+            // before, since that itself is an open item to resolve.
+            var cocRequired = ssmo?.CocRequired;
+            var cocAvailable = ssmo?.CocAvailable;
+            var ssmoNotNeeded = cocRequired == false || (cocRequired == true && cocAvailable == true);
+            var ssmoItem = ssmoNotNeeded
+                ? new ReadinessItem("SSMO Approval", ssmoShouldBe, ssmo?.ApprovalDate,
+                    cocRequired == false ? "COC not required" : "COC already available — not required",
+                    "Green", NotApplicable: true)
+                : BuildItem("SSMO Approval", ssmoShouldBe, ssmo?.ApprovalDate, today, holidaySet);
 
             // --- Vessel Arrival — actual vs ETA directly ---
             var vesselItem = new ReadinessItem("Vessel Arrival", eta, deliveryOrder?.ActualArrivalDate,
