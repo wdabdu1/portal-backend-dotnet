@@ -58,22 +58,28 @@ public class ClearanceController : ControllerBase
         }
 
         var shipmentIds = await query.Select(s => s.Id).ToListAsync();
-        var readiness = await readinessService.CalculateAsync(shipmentIds);
 
         // This report exists to prompt action on shipments still
         // exposed to demurrage/storage risk — once a route has genuinely
         // completed (cleared at port, or deposited into FZ), it's done
-        // and no longer belongs here, regardless of how its earlier
-        // pre-clearance readiness classification looked.
+        // and no longer belongs here. That completion check only needs
+        // a few cheap dictionary lookups, so it now runs BEFORE the full
+        // per-shipment SLA/schedule calculation below rather than after
+        // — otherwise this dashboard keeps recalculating every shipment
+        // ever confirmed, including ones fully delivered months or years
+        // ago, and only throws that work away afterward. As the
+        // database grows, that makes the page steadily slower for no
+        // benefit, since a delivered shipment's readiness was never
+        // going to be shown anyway.
         var clearances = await _db.Clearances.Where(c => shipmentIds.Contains(c.ShipmentId)).ToDictionaryAsync(c => c.ShipmentId);
         var clearanceIds = clearances.Values.Select(c => c.Id).ToList();
         var route1Completions = await _db.ClearanceRoute1Details.Where(r => clearanceIds.Contains(r.ClearanceId)).ToDictionaryAsync(r => r.ClearanceId, r => r.ClearanceActualCompletedDate);
         var route2Completions = await _db.ClearanceRoute2Details.Where(r => clearanceIds.Contains(r.ClearanceId)).ToDictionaryAsync(r => r.ClearanceId, r => r.ClearanceActualCompletedDate);
         var route3Completions = await _db.ClearanceRoute3Details.Where(r => clearanceIds.Contains(r.ClearanceId)).ToDictionaryAsync(r => r.ClearanceId, r => r.ClearanceActualCompletedDate);
 
-        var stillActive = readiness.Where(r =>
+        var activeShipmentIds = shipmentIds.Where(id =>
         {
-            if (!clearances.TryGetValue(r.ShipmentId, out var clearance)) return true;
+            if (!clearances.TryGetValue(id, out var clearance)) return true;
             DateOnly? completion = clearance.Route switch
             {
                 ShippingPortal.Api.Models.Clearance.ClearanceRouteType.Route1ClearAtPort => route1Completions.GetValueOrDefault(clearance.Id),
@@ -83,6 +89,10 @@ public class ClearanceController : ControllerBase
             };
             return !completion.HasValue;
         }).ToList();
+
+        // Only shipments still genuinely in play (pending / unclosed /
+        // uncleared) go through the expensive SLA calculation.
+        var stillActive = await readinessService.CalculateAsync(activeShipmentIds);
 
         // Distill each shipment down to the ONE step that's currently
         // active — the whole point of this report is a quick scan, not
@@ -108,8 +118,8 @@ public class ClearanceController : ControllerBase
         var holidaySetForLateness = (await _db.PublicHolidays.Where(h => h.AffectsClr).Select(h => h.Date).ToListAsync()).ToHashSet();
         var deliveryOrdersForLateness = await _db.ClearanceDeliveryOrders.Where(d => clearanceIds.Contains(d.ClearanceId)).ToDictionaryAsync(d => d.ClearanceId);
 
-        var sobDates = await _db.Shipments.Where(s => shipmentIds.Contains(s.Id)).ToDictionaryAsync(s => s.Id, s => s.SobActualDate);
-        var marineInsurance = await _db.ShipmentForwarders.Where(f => shipmentIds.Contains(f.ShipmentId)).ToDictionaryAsync(f => f.ShipmentId, f => f.MarineInsurance);
+        var sobDates = await _db.Shipments.Where(s => activeShipmentIds.Contains(s.Id)).ToDictionaryAsync(s => s.Id, s => s.SobActualDate);
+        var marineInsurance = await _db.ShipmentForwarders.Where(f => activeShipmentIds.Contains(f.ShipmentId)).ToDictionaryAsync(f => f.ShipmentId, f => f.MarineInsurance);
 
         foreach (var r in stillActive)
         {
@@ -182,7 +192,11 @@ public class ClearanceController : ControllerBase
             var ssmoTrack = r.Tracks.FirstOrDefault(t => t.Track == "SSMO Approval")?.Items.FirstOrDefault();
             foreach (var (label, item) in new[] { ("MOT", motTrack), ("SSMO", ssmoTrack) })
             {
-                if (item is null || item.ActualDate.HasValue) continue;
+                // NotApplicable covers SSMO/COC not being required, or
+                // required but already available — nothing left to do,
+                // so it must never raise an alert even though no
+                // approval date was ever going to be entered for it.
+                if (item is null || item.ActualDate.HasValue || item.NotApplicable) continue;
                 var daysToDeadline = item.ShouldBeDoneBy.DayNumber - today.DayNumber;
                 var level = daysToDeadline <= 3 ? "Red" : "Yellow";
                 if (motSsmoAlertLevel != "Red") motSsmoAlertLevel = level;
