@@ -7,7 +7,10 @@ using ShippingPortal.Api.Models.Identity;
 
 namespace ShippingPortal.Api.Controllers.Settings;
 
-public record ClearanceSlaUpdateRequest(decimal TargetDays);
+// TargetDaysEtd is nullable/optional: only the PreClearanceDocs rows'
+// Settings UI sends it (as a second field alongside TargetDays); every
+// other row's row keeps sending just TargetDays, unchanged from before.
+public record ClearanceSlaUpdateRequest(decimal TargetDays, decimal? TargetDaysEtd = null);
 public record RouteTotalResponse(string Division, decimal TotalDays);
 
 [ApiController]
@@ -40,6 +43,7 @@ public class ClearanceSlaSettingsController : ControllerBase
         if (setting is null) return NotFound();
 
         setting.TargetDays = req.TargetDays;
+        if (req.TargetDaysEtd.HasValue) setting.TargetDaysEtd = req.TargetDaysEtd.Value;
         await _db.SaveChangesAsync();
         return Ok(setting);
     }
