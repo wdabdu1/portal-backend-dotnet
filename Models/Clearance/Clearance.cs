@@ -56,9 +56,10 @@ public static class ClearanceDivision
 }
 
 // One row per Group Item (not per individual field) — e.g. "SSMO File
-// Process" within Route-1. TargetDays is the only user-editable value;
-// Division/GroupItem/SequenceOrder are fixed by the seeder. A route's total
-// duration is the sum of its Group Items' TargetDays, computed on read.
+// Process" within Route-1. TargetDays/TargetDaysEtd are the only
+// user-editable values; Division/GroupItem/SequenceOrder are fixed by the
+// seeder. A route's total duration is the sum of its Group Items'
+// TargetDays, computed on read.
 public class ClearanceSlaSetting
 {
     public int Id { get; set; }
@@ -66,5 +67,12 @@ public class ClearanceSlaSetting
     public string GroupItem { get; set; } = "";
     public int SequenceOrder { get; set; }
     public decimal TargetDays { get; set; }
+
+    // Used only by the PreClearanceDocs rows, which are the one place the
+    // readiness calc runs both a backward-from-ETA cascade (TargetDays)
+    // and a forward-from-ETD cascade (this field) for the same row and
+    // takes whichever deadline is earlier. Unused (left at 0) for every
+    // other division, which is single-direction already.
+    public decimal TargetDaysEtd { get; set; }
     public bool IsActive { get; set; } = true;
 }
