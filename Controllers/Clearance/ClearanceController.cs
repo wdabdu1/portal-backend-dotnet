@@ -10,7 +10,8 @@ namespace ShippingPortal.Api.Controllers.Clearance;
 public record ClearanceShipmentSummary(
     int ShipmentId, string BlAwbNo, string BusinessUnit, string Category, DateOnly? Eta,
     int FclCount, string? DeclarationNo, string Product, decimal Qty, string Unit, string TrafficLight, string RouteStatus,
-    string ShippingLine, decimal SlaPercent, bool IsCompleted, bool EtaHasArrived, int? DemurrageFreeDaysRemaining);
+    string ShippingLine, decimal SlaPercent, bool IsCompleted, bool EtaHasArrived, int? DemurrageFreeDaysRemaining,
+    DateOnly? OriginalShipmentSetReceivedDate);
 
 public record ClearanceGeneralInfoRequest(
     DateOnly? CopyOfBlReceivedDate, DateOnly? OriginalShipmentSetReceivedDate, string? LcNo,
@@ -441,7 +442,7 @@ public class ClearanceController : ControllerBase
                 s.Id, s.BlAwbNo, s.PurchaseOrder?.BusinessUnit?.Name ?? "", firstLine?.ProductCategory?.Name ?? "",
                 s.Eta, s.Fcl20Count + s.Fcl40Count, declarationNo, firstLine?.ModelProduct?.Name ?? "", totalQty, firstLine?.UnitOfMeasure?.Code ?? "",
                 trafficLight, routeStatus, s.ShippingLine?.Name ?? "", slaPercent, actualCompletedDate.HasValue,
-                etaHasArrived, demurrageFreeDaysRemaining));
+                etaHasArrived, demurrageFreeDaysRemaining, clearance?.OriginalShipmentSetReceivedDate));
         }
 
         var ordered = results.OrderBy(x => x.Eta ?? DateOnly.MaxValue).ToList();
