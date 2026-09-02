@@ -132,7 +132,7 @@ public class PreClearanceReadinessService
             var cascadeForward = etd ?? eta;
             foreach (var row in docsRows)
             {
-                var target = AddBusinessDays(cascadeForward, (int)Math.Ceiling(row.TargetDays), holidaySet);
+                var target = AddBusinessDays(cascadeForward, (int)Math.Ceiling(row.TargetDaysEtd), holidaySet);
                 var actual = ActualFor(row.GroupItem);
                 // Live push: if this step is still pending and already
                 // overdue against its own forward target, the NEXT step's

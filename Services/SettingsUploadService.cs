@@ -706,13 +706,22 @@ public class SettingsUploadService
             var division = S(ws, row, 1); var groupItem = S(ws, row, 2); var seq = I(ws, row, 3); var target = D(ws, row, 4);
             if (division is null || groupItem is null || seq is null || target is null) { errors.Add($"Row {row}: Division, GroupItem, SequenceOrder, and TargetDays are all required."); continue; }
             var active = B(ws, row, 5) ?? true;
+            // Optional — only meaningful for PreClearanceDocs rows. Blank
+            // leaves an existing row's TargetDaysEtd untouched; a new row
+            // with no value defaults to matching TargetDays.
+            var targetEtd = D(ws, row, 6);
             var match = existing.FirstOrDefault(x => x.Division == division && x.GroupItem == groupItem);
             if (match is null)
             {
-                var x = new ClearanceSlaSetting { Division = division, GroupItem = groupItem, SequenceOrder = seq.Value, TargetDays = target.Value, IsActive = active };
+                var x = new ClearanceSlaSetting { Division = division, GroupItem = groupItem, SequenceOrder = seq.Value, TargetDays = target.Value, TargetDaysEtd = targetEtd ?? target.Value, IsActive = active };
                 _db.ClearanceSlaSettings.Add(x); existing.Add(x); created++;
             }
-            else { match.SequenceOrder = seq.Value; match.TargetDays = target.Value; match.IsActive = active; updated++; }
+            else
+            {
+                match.SequenceOrder = seq.Value; match.TargetDays = target.Value; match.IsActive = active;
+                if (targetEtd.HasValue) match.TargetDaysEtd = targetEtd.Value;
+                updated++;
+            }
         }
         await _db.SaveChangesAsync();
         return new SheetUploadResult("ClearanceSlaSettings", created, updated, errors);

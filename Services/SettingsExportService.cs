@@ -207,10 +207,10 @@ public class SettingsExportService
 
         var slaSettings = await _db.ClearanceSlaSettings.ToListAsync();
         var wsSla = NewSheet(wb, "ClearanceSlaSettings", "Process SLA (Clearance Step Targets)",
-            "Division: ClearanceGeneral/Route1/Route2/Route3/PreClearanceDocs/PreClearanceMot/PreClearanceSsmo/PreClearanceDo. SequenceOrder controls step order within a Division. TargetDays can have decimals.",
-            new[] { "Division", "GroupItem", "SequenceOrder", "TargetDays", "IsActive (TRUE/FALSE)" }, new[] { "Route1", "SPC Bill", "7", "3", "TRUE" });
+            "Division: ClearanceGeneral/Route1/Route2/Route3/PreClearanceDocs/PreClearanceMot/PreClearanceSsmo/PreClearanceDo. SequenceOrder controls step order within a Division. TargetDays can have decimals. TargetDaysEtd is only used by PreClearanceDocs rows (the forward-from-ETD leg alongside TargetDays' backward-from-ETA leg) — leave blank/0 for every other division.",
+            new[] { "Division", "GroupItem", "SequenceOrder", "TargetDays", "IsActive (TRUE/FALSE)", "TargetDaysEtd" }, new[] { "Route1", "SPC Bill", "7", "3", "TRUE", "0" });
         for (int i = 0; i < slaSettings.Count; i++)
-            WriteRow(wsSla, 6 + i, slaSettings[i].Division, slaSettings[i].GroupItem, slaSettings[i].SequenceOrder, slaSettings[i].TargetDays, slaSettings[i].IsActive);
+            WriteRow(wsSla, 6 + i, slaSettings[i].Division, slaSettings[i].GroupItem, slaSettings[i].SequenceOrder, slaSettings[i].TargetDays, slaSettings[i].IsActive, slaSettings[i].TargetDaysEtd);
 
         var spcRates = await _db.SpcRates.ToListAsync();
         var wsSpcRate = NewSheet(wb, "SpcRates", "SPC Euro-to-SDG Rates",
