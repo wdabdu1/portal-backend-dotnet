@@ -54,8 +54,9 @@ public static class AppRoles
     public const string Manager = "Manager";             // broad view + Settings edit, all BUs
     public const string SuperUser = "SuperUser";         // full access everywhere, creates users
     public const string LogisticsOfficer = "LogisticsOfficer"; // warehouse allocation + truck loading, all BUs
+    public const string CPricing = "CPricing";           // C Pricing data-entry role — locked to the C Pricing pages only, all BUs
 
-    public static readonly string[] All = { IpUser, IpSupervisor, ClrUsr, ClrSupervisor, Bu, Treasury, CorpFinance, Manager, SuperUser };
+    public static readonly string[] All = { IpUser, IpSupervisor, ClrUsr, ClrSupervisor, Bu, Treasury, CorpFinance, Manager, SuperUser, CPricing };
 
     // Roles limited to their assigned Business Unit(s) — everyone else sees all BUs.
     public static readonly string[] BuScopedRoles = { IpUser, IpSupervisor, Bu };
@@ -83,4 +84,9 @@ public static class AppRoles
 
     public const string LogisticsEditors = LogisticsOfficer + "," + SuperUser;
     public const string LogisticsViewers = LogisticsOfficer + "," + Manager + "," + SuperUser;
+
+    // C Pricing pages (working table, history, C_Cat/C_Type mini-settings) —
+    // deliberately excludes Treasury/CorpFinance: this feature moved out of
+    // Finance's visibility entirely, not just added alongside it.
+    public const string CPricingUsers = CPricing + "," + Manager + "," + SuperUser;
 }
