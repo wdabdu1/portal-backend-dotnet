@@ -49,4 +49,11 @@ public class LastOffshoreItemDetail
     public CPricingType? CPricingType { get; set; }
     public int? CurrencyId { get; set; }
     public Currency? Currency { get; set; }
+
+    // Set (and re-set) every time this item is saved from the C Pricing
+    // working table — "approval date" on the History page. Updates on every
+    // re-save rather than only the first, since post-confirm edits stay
+    // editable and the History page's default view is "most recently saved
+    // first".
+    public DateTime? CPricingSavedAt { get; set; }
 }
