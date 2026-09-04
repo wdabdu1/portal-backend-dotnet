@@ -59,6 +59,8 @@ public class ShippingPortalDbContext : IdentityDbContext<ApplicationUser>
     public DbSet<ShippingLineDemurrageTariff> ShippingLineDemurrageTariffs => Set<ShippingLineDemurrageTariff>();
     public DbSet<TariffGroup> TariffGroups => Set<TariffGroup>();
     public DbSet<SpcStorageTier> SpcStorageTiers => Set<SpcStorageTier>();
+    public DbSet<CPricingCategory> CPricingCategories => Set<CPricingCategory>();
+    public DbSet<CPricingType> CPricingTypes => Set<CPricingType>();
 
     // Orders
     public DbSet<PurchaseOrder> PurchaseOrders => Set<PurchaseOrder>();
@@ -271,6 +273,28 @@ public class ShippingPortalDbContext : IdentityDbContext<ApplicationUser>
             .HasOne(x => x.ShipmentLineItem)
             .WithMany()
             .OnDelete(DeleteBehavior.Cascade);
+
+        // C Pricing — restrict-delete on every lookup FK so a C_Cat/C_Type/
+        // Currency can't vanish out from under a real saved item.
+        builder.Entity<CPricingType>()
+            .HasOne(x => x.CPricingCategory)
+            .WithMany()
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder.Entity<LastOffshoreItemDetail>()
+            .HasOne(x => x.CPricingCategory)
+            .WithMany()
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder.Entity<LastOffshoreItemDetail>()
+            .HasOne(x => x.CPricingType)
+            .WithMany()
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder.Entity<LastOffshoreItemDetail>()
+            .HasOne(x => x.Currency)
+            .WithMany()
+            .OnDelete(DeleteBehavior.Restrict);
 
         builder.Entity<ShippingPortal.Api.Models.TransferPricingEntry>()
             .HasIndex(x => new { x.ShipmentLineItemId, x.PurchaseOrderOffshorePartnerId })
