@@ -110,6 +110,27 @@ public class Currency
     public bool IsActive { get; set; } = true;
 }
 
+// C Pricing — user-managed classification for offshore-priced items,
+// created from the C Pricing "Settings" mini-page by the CPricing role
+// (and Manager/SuperUser) rather than through the general Settings admin
+// screens. C_Type must be created against an existing C_Cat, never
+// standalone — enforced by the required CPricingCategoryId FK below.
+public class CPricingCategory
+{
+    public int Id { get; set; }
+    [Required, MaxLength(120)] public string Name { get; set; } = "";
+    public bool IsActive { get; set; } = true;
+}
+
+public class CPricingType
+{
+    public int Id { get; set; }
+    [Required, MaxLength(120)] public string Name { get; set; } = "";
+    public int CPricingCategoryId { get; set; }
+    public CPricingCategory? CPricingCategory { get; set; }
+    public bool IsActive { get; set; } = true;
+}
+
 public class Courier
 {
     public int Id { get; set; }
