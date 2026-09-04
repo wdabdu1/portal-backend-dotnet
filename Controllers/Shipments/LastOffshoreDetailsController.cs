@@ -9,7 +9,13 @@ namespace ShippingPortal.Api.Controllers.Shipments;
 
 public record LastOffshoreItemResponse(
     int ShipmentLineItemId, string BusinessUnit, string Category, string ModelProduct,
-    string? HsCode, string? Description, decimal? UnitPrice, decimal Qty, decimal? Total);
+    string? HsCode, string? Description, decimal? UnitPrice, decimal Qty, decimal? Total,
+    // C Pricing — read-only here: these are entered exclusively via the C
+    // Pricing working table (api/c-pricing), this section just displays
+    // whatever's been saved so far. CurrencyCode falls back to the
+    // shipment-level Last Offshore currency for items saved before Currency
+    // moved to per-item.
+    string? CPricingCategory, string? CPricingType, string? CurrencyCode);
 
 public record LastOffshoreDetailsResponse(
     string? PiNo, string? InspectionNo, string? Grn, string? InvoiceNo, string? Remarks,
@@ -50,6 +56,9 @@ public class LastOffshoreDetailsController : ControllerBase
             .ToListAsync();
 
         var itemDetails = await _db.LastOffshoreItemDetails
+            .Include(x => x.CPricingCategory)
+            .Include(x => x.CPricingType)
+            .Include(x => x.Currency)
             .Where(x => lineItems.Select(li => li.Id).Contains(x.ShipmentLineItemId))
             .ToDictionaryAsync(x => x.ShipmentLineItemId);
 
@@ -63,9 +72,11 @@ public class LastOffshoreDetailsController : ControllerBase
         {
             itemDetails.TryGetValue(li.Id, out var extra);
             decimal? total = extra?.UnitPrice.HasValue == true ? li.QtyInBl * extra.UnitPrice.Value : null;
+            var currencyCode = extra?.Currency?.Code ?? detail?.Currency?.Code;
             return new LastOffshoreItemResponse(
                 li.Id, businessUnit, li.PurchaseOrderLineItem?.ProductCategory?.Name ?? "", li.PurchaseOrderLineItem?.ModelProduct?.Name ?? "",
-                li.HsCode, extra?.Description, extra?.UnitPrice, li.QtyInBl, total);
+                li.HsCode, extra?.Description, extra?.UnitPrice, li.QtyInBl, total,
+                extra?.CPricingCategory?.Name, extra?.CPricingType?.Name, currencyCode);
         }).ToList();
 
         return Ok(new LastOffshoreDetailsResponse(
