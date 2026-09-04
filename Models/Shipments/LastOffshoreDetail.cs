@@ -25,6 +25,15 @@ public class LastOffshoreDetail
 // Details needs (Description, Unit Price). HS Code stays on
 // ShipmentLineItem itself — this just adds what ShipmentLineItem doesn't
 // already have, rather than duplicating it.
+//
+// C Pricing fields (added for the dedicated CPricing role's data-entry
+// workflow, via api/c-pricing): CPricingCategoryId/CPricingTypeId classify
+// the item, and CurrencyId is this item's OWN currency — Currency moved
+// from shipment-level-only (see LastOffshoreDetail.CurrencyId above) to
+// per-item, since items in the same shipment can genuinely be priced in
+// different currencies. Older rows saved before this existed have a null
+// CurrencyId here; callers should fall back to the shipment-level
+// LastOffshoreDetail.CurrencyId in that case.
 public class LastOffshoreItemDetail
 {
     public int Id { get; set; }
@@ -33,4 +42,11 @@ public class LastOffshoreItemDetail
 
     public string? Description { get; set; }
     public decimal? UnitPrice { get; set; }
+
+    public int? CPricingCategoryId { get; set; }
+    public CPricingCategory? CPricingCategory { get; set; }
+    public int? CPricingTypeId { get; set; }
+    public CPricingType? CPricingType { get; set; }
+    public int? CurrencyId { get; set; }
+    public Currency? Currency { get; set; }
 }
