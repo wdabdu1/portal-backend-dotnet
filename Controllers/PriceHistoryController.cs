@@ -19,7 +19,7 @@ namespace ShippingPortal.Api.Controllers;
 public record PriceHistoryRow(
     string BusinessUnit, string BlAwbNo, DateOnly? ActualArrivalDate, string Category,
     string ModelProduct, string? CPricingCategory, string? CPricingType, string? HsCode,
-    string? Description, decimal? CostPrice, string? Currency);
+    string? Description, decimal? CostPrice, string? Currency, DateTime? ApprovalDate);
 
 [ApiController]
 [Authorize(Roles = AppRoles.CPricingUsers)]
@@ -89,8 +89,9 @@ public class PriceHistoryController : ControllerBase
                 shipLine.HsCode,
                 i.Description,
                 i.UnitPrice,
-                i.Currency?.Code ?? lastOffshoreCurrencies.GetValueOrDefault(ship.Id));
-        }).OrderByDescending(r => r.ActualArrivalDate).ToList();
+                i.Currency?.Code ?? lastOffshoreCurrencies.GetValueOrDefault(ship.Id),
+                i.CPricingSavedAt);
+        }).OrderByDescending(r => r.ApprovalDate).ToList();
 
         return Ok(rows);
     }
