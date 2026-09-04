@@ -7,16 +7,23 @@ using ShippingPortal.Api.Services;
 
 namespace ShippingPortal.Api.Controllers;
 
-// Every offshore-priced item ever entered, across all shipments — lets
-// Corp Finance (and whoever is setting a new price) search prior items
-// by BU/Category and see what price was set last time, for consistency.
+// Every offshore-priced item ever entered, across all shipments — the C
+// Pricing role's "History" page. One row per item (a multi-item BL repeats
+// its BL number across rows), so C_Cat/C_Type/HS Code/Description/CP can
+// be searched at the same granularity they were entered at.
+//
+// Moved from api/price-history (Finance-visible "CP History") to
+// api/c-pricing/history and re-scoped to AppRoles.CPricingUsers — this
+// page is no longer shown to Treasury/CorpFinance at all, per the C
+// Pricing feature's access design.
 public record PriceHistoryRow(
     string BusinessUnit, string BlAwbNo, DateOnly? ActualArrivalDate, string Category,
-    string ModelProduct, string? HsCode, string? Description, decimal? CostPrice, string? Currency);
+    string ModelProduct, string? CPricingCategory, string? CPricingType, string? HsCode,
+    string? Description, decimal? CostPrice, string? Currency);
 
 [ApiController]
-[Authorize(Roles = AppRoles.BankDuesViewers)]
-[Route("api/price-history")]
+[Authorize(Roles = AppRoles.CPricingUsers)]
+[Route("api/c-pricing/history")]
 public class PriceHistoryController : ControllerBase
 {
     private readonly ShippingPortalDbContext _db;
@@ -34,6 +41,9 @@ public class PriceHistoryController : ControllerBase
             .Include(i => i.ShipmentLineItem!).ThenInclude(sl => sl.Shipment!).ThenInclude(s => s.PurchaseOrder!).ThenInclude(po => po.BusinessUnit)
             .Include(i => i.ShipmentLineItem!).ThenInclude(sl => sl.PurchaseOrderLineItem!).ThenInclude(pl => pl.ProductCategory)
             .Include(i => i.ShipmentLineItem!).ThenInclude(sl => sl.PurchaseOrderLineItem!).ThenInclude(pl => pl.ModelProduct)
+            .Include(i => i.CPricingCategory)
+            .Include(i => i.CPricingType)
+            .Include(i => i.Currency)
             .AsQueryable();
 
         if (!_buAccess.SeesAllBus(User))
@@ -74,10 +84,12 @@ public class PriceHistoryController : ControllerBase
                 ArrivalDateFor(ship.Id),
                 poLine.ProductCategory?.Name ?? "",
                 poLine.ModelProduct?.Name ?? "",
+                i.CPricingCategory?.Name,
+                i.CPricingType?.Name,
                 shipLine.HsCode,
                 i.Description,
                 i.UnitPrice,
-                lastOffshoreCurrencies.GetValueOrDefault(ship.Id));
+                i.Currency?.Code ?? lastOffshoreCurrencies.GetValueOrDefault(ship.Id));
         }).OrderByDescending(r => r.ActualArrivalDate).ToList();
 
         return Ok(rows);
