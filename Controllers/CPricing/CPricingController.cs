@@ -17,7 +17,7 @@ namespace ShippingPortal.Api.Controllers.CPricing;
 public record CPricingItemRow(
     int ShipmentLineItemId, int BusinessUnitId, string BusinessUnit, string BlAwbNo, string Category, string ModelProduct,
     DateOnly? Eta, int? CPricingCategoryId, string? CPricingCategoryName, int? CPricingTypeId, string? CPricingTypeName,
-    string? HsCode, string? Description, int? CurrencyId, string? CurrencyCode, decimal? Cp, bool IsConfirmed);
+    string? HsCode, string? Description, int? CurrencyId, string? CurrencyCode, decimal? Cp, decimal? PoUnitPriceUsd, bool IsConfirmed);
 
 public record SaveCPricingItemRequest(int? CPricingCategoryId, int? CPricingTypeId, string? HsCode, string? Description, int? CurrencyId, decimal? Cp);
 
@@ -79,6 +79,14 @@ public class CPricingController : ControllerBase
                 && currency is not null
                 && extra.UnitPrice.HasValue;
 
+            // Read-only reference figure — the unit price actually agreed on
+            // the Purchase Order, converted to USD (PurchaseOrderLineItem's
+            // own Total/TotalUsd are per the PO's full ordered Qty, so unit
+            // price is constant regardless of how much of that PO ended up
+            // on this particular BL/shipment).
+            var poLine = li.PurchaseOrderLineItem;
+            decimal? poUnitPriceUsd = poLine is not null && poLine.Qty != 0 ? poLine.TotalUsd / poLine.Qty : null;
+
             return new CPricingItemRow(
                 li.Id,
                 li.Shipment!.PurchaseOrder!.BusinessUnitId,
@@ -92,6 +100,7 @@ public class CPricingController : ControllerBase
                 li.HsCode, extra?.Description,
                 currency?.Id, currency?.Code,
                 extra?.UnitPrice,
+                poUnitPriceUsd,
                 isConfirmed);
         }).ToList();
 
@@ -122,6 +131,7 @@ public class CPricingController : ControllerBase
         extra.CPricingCategoryId = req.CPricingCategoryId;
         extra.CPricingTypeId = req.CPricingTypeId;
         extra.CurrencyId = req.CurrencyId;
+        extra.CPricingSavedAt = DateTime.UtcNow;
 
         await _db.SaveChangesAsync();
         return NoContent();
