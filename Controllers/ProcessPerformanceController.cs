@@ -14,6 +14,16 @@ namespace ShippingPortal.Api.Controllers;
 // Shipment Set Received span specifically (offshore + courier + local
 // bank handling); Delivery Order stays Internal despite the Shipping
 // Line's own release process being a real dependency.
+//
+// The last three entries are used by Demurrage Analysis, not this
+// dashboard: MOT/SSMO Certificate Delays are one-directional overruns
+// against a Government approval, so they stay Government; OS Doc
+// Dispatch is the processing team's own turnaround getting documents to
+// the bank, so it's Internal; Container Return (Truck & Containers'
+// actual completion -> the container physically handed back) defaults
+// to Internal since it's our own trucking/logistics team's execution —
+// change this one if the business decides gate delays at the shipping
+// line's side are the more common cause.
 public static class ProcessStepCategories
 {
     public static readonly Dictionary<string, string> ByStep = new()
@@ -37,7 +47,11 @@ public static class ProcessStepCategories
         ["SSMO Examination"] = "Government",
         ["Customs Evaluation"] = "Government",
         ["SPC Bill"] = "Government",
-        ["Truck & Containers"] = "Internal"
+        ["Truck & Containers"] = "Internal",
+        ["MOT Certificate Delays"] = "Government",
+        ["SSMO Certificate Delays"] = "Government",
+        ["OS Doc Dispatch"] = "Internal",
+        ["Container Return"] = "Internal"
     };
 }
 
