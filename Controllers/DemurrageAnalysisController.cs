@@ -400,7 +400,7 @@ public class DemurrageAnalysisController : ControllerBase
                 ? (int?)ClearanceScheduleService.BusinessDaysBetween(banking!.OsDocDispatchDate!.Value, clearance!.OriginalShipmentSetReceivedDate!.Value, holidaySet)
                 : null;
             var target = DocsTarget("Original Shipment Set Received");
-            var gap = (actualDays.HasValue && target.HasValue) ? actualDays.Value - target.Value : null;
+            decimal? gap = (actualDays.HasValue && target.HasValue) ? actualDays.Value - target.Value : null;
             documentChainSteps.Add(new ClearanceStepGap("Original Shipment Set Received", actualDays, target, gap,
                 ProcessStepCategories.ByStep.GetValueOrDefault("Original Shipment Set Received", "Internal")));
         }
