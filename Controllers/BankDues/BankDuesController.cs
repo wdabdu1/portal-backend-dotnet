@@ -78,7 +78,6 @@ public class BankDuesController : ControllerBase
             .Include(b => b.Shipment).ThenInclude(s => s!.PurchaseOrder).ThenInclude(po => po!.BusinessUnit)
             .Include(b => b.ReceivingBank)
             .Include(b => b.Tenor)
-            .Include(b => b.AddCbosAllowance)
             .Include(b => b.CollectionCurrency)
             // Direct Sales shipments are tracked on the separate "Direct
             // Sales" Finance page instead — even if a Collection Value is
@@ -146,8 +145,8 @@ public class BankDuesController : ControllerBase
                 dueDate = shipment.BlAwbDate.Value.AddDays(banking.Tenor.Days);
 
             DateOnly? cbosDueDate = null;
-            if (dueDate.HasValue && banking.AddCbosAllowance is not null)
-                cbosDueDate = dueDate.Value.AddDays(banking.AddCbosAllowance.Days);
+            if (dueDate.HasValue && banking.Tenor?.CbosAllowanceDays is not null)
+                cbosDueDate = dueDate.Value.AddDays(banking.Tenor.CbosAllowanceDays.Value);
 
             rows.Add(new BankDueRow(
                 shipment.Id, shipment.PurchaseOrder?.BusinessUnit?.Name ?? "", shipment.PurchaseOrder?.Consignee?.Name ?? "",
