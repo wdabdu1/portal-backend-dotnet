@@ -149,6 +149,12 @@ public class Tenor
 {
     public int Id { get; set; }
     public int Days { get; set; }
+    // Extra days layered on top of Days before CBOS itself considers a
+    // collection overdue — set once per Tenor here in Settings rather
+    // than re-picked per shipment, so every shipment using this Tenor
+    // stays consistent automatically. Null = no CBOS allowance defined
+    // for this Tenor yet.
+    public int? CbosAllowanceDays { get; set; }
     public bool IsActive { get; set; } = true;
 }
 
