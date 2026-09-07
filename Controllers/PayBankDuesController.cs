@@ -101,7 +101,6 @@ public class PayBankDuesController : ControllerBase
             .Include(b => b.ReceivingBank)
             .Include(b => b.SenderBank)
             .Include(b => b.Tenor)
-            .Include(b => b.AddCbosAllowance)
             .Include(b => b.CollectionCurrency)
             .AsQueryable();
 
@@ -156,8 +155,8 @@ public class PayBankDuesController : ControllerBase
             if (banking.Tenor is not null && shipment.BlAwbDate.HasValue)
                 dueDate = shipment.BlAwbDate.Value.AddDays(banking.Tenor.Days);
             DateOnly? cbosDueDate = null;
-            if (dueDate.HasValue && banking.AddCbosAllowance is not null)
-                cbosDueDate = dueDate.Value.AddDays(banking.AddCbosAllowance.Days);
+            if (dueDate.HasValue && banking.Tenor?.CbosAllowanceDays is not null)
+                cbosDueDate = dueDate.Value.AddDays(banking.Tenor.CbosAllowanceDays.Value);
 
             var row = new PayableDueRow(
                 shipment.Id, shipment.BlAwbNo, categoriesByShipment.GetValueOrDefault(shipment.Id, ""),
