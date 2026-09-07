@@ -173,9 +173,9 @@ public class SettingsExportService
             WriteRow(wsWh, 6 + i, warehouses[i].Name, warehouses[i].City?.Name, warehouses[i].ContactName, warehouses[i].ContactPhone, warehouses[i].IsActive);
 
         var tenors = await _db.Tenors.ToListAsync();
-        var wsTenor = NewSheet(wb, "Tenors", "Tenors", "Used for both bank collection Tenor and the additional CBOS Allowance dropdown.",
-            new[] { "Days", "IsActive (TRUE/FALSE)" }, new[] { "90", "TRUE" });
-        for (int i = 0; i < tenors.Count; i++) WriteRow(wsTenor, 6 + i, tenors[i].Days, tenors[i].IsActive);
+        var wsTenor = NewSheet(wb, "Tenors", "Tenors", "CBOS Allowance Days is optional — extra days added on top of Days before CBOS considers a collection overdue. Leave blank if this Tenor has no CBOS allowance.",
+            new[] { "Days", "CBOS Allowance Days (optional)", "IsActive (TRUE/FALSE)" }, new[] { "90", "15", "TRUE" });
+        for (int i = 0; i < tenors.Count; i++) WriteRow(wsTenor, 6 + i, tenors[i].Days, tenors[i].CbosAllowanceDays, tenors[i].IsActive);
 
         var senderBanks = await _db.SenderBanks.ToListAsync();
         var wsSb = NewSheet(wb, "SenderBanks", "Sender Banks", "ChargeRate is a fraction (e.g. 0.001 = 0.1%). MinimumChargeAed is the floor charge.",
