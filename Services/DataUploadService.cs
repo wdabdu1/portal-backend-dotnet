@@ -500,7 +500,11 @@ public class DataUploadService
         var collectionValue = D(ws, row, 71);
         var collectionCurrencyCode = S(ws, row, 72);
         var tenorDays = I(ws, row, 73);
-        var addCbosAllowanceDays = I(ws, row, 74);
+        // Column 74 ("Add CBOS Allowance Days") is no longer editable
+        // per shipment — CBOS Allowance is now defined once per Tenor
+        // in Settings. Still read (and ignored) here so every column
+        // after it keeps its position in this sheet.
+        _ = I(ws, row, 74);
         var receiverBankCharges = D(ws, row, 75);
         if (bankTrackingNo is not null || senderBankName is not null || receivingBankName is not null || collectionRefNo is not null || collectionValue is not null)
         {
@@ -537,11 +541,6 @@ public class DataUploadService
             {
                 var tenor = lk.Tenors.FirstOrDefault(x => x.Days == tenorDays);
                 if (tenor is not null) banking.TenorId = tenor.Id;
-            }
-            if (addCbosAllowanceDays is not null)
-            {
-                var allowance = lk.Tenors.FirstOrDefault(x => x.Days == addCbosAllowanceDays);
-                if (allowance is not null) banking.AddCbosAllowanceId = allowance.Id;
             }
         }
 
