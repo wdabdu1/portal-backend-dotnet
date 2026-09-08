@@ -117,6 +117,9 @@ public class PayBankDuesController : ControllerBase
 
         var bankings = await query.ToListAsync();
 
+        // One global setting, applied to every row — see BankDuesController.
+        var cbosSetting = await _db.CbosTenorSettings.Include(s => s.Tenor).FirstOrDefaultAsync();
+
         var lastOffshoreInvoicesByShipment = await _db.LastOffshoreDetails.ToDictionaryAsync(d => d.ShipmentId, d => d.InvoiceNo);
         var shipmentIds = bankings.Select(b => b.ShipmentId).ToList();
         var categoriesByShipment = await _db.ShipmentLineItems
@@ -154,9 +157,11 @@ public class PayBankDuesController : ControllerBase
             DateOnly? dueDate = null;
             if (banking.Tenor is not null && shipment.BlAwbDate.HasValue)
                 dueDate = shipment.BlAwbDate.Value.AddDays(banking.Tenor.Days);
+            // CBOS Due Date = Due Date + the current global CBOS Tenor's
+            // days — read live from Settings, same for every shipment.
             DateOnly? cbosDueDate = null;
-            if (dueDate.HasValue && banking.Tenor?.CbosAllowanceDays is not null)
-                cbosDueDate = dueDate.Value.AddDays(banking.Tenor.CbosAllowanceDays.Value);
+            if (dueDate.HasValue && cbosSetting?.Tenor is not null)
+                cbosDueDate = dueDate.Value.AddDays(cbosSetting.Tenor.Days);
 
             var row = new PayableDueRow(
                 shipment.Id, shipment.BlAwbNo, categoriesByShipment.GetValueOrDefault(shipment.Id, ""),
