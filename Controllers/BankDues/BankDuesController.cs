@@ -94,6 +94,12 @@ public class BankDuesController : ControllerBase
 
         var bankings = await query.ToListAsync();
 
+        // The CBOS Tenor is one global, system-wide setting (Settings ->
+        // Tenors -> CBOS Tenor) — fetched once here and applied to every
+        // row, rather than read per-shipment, since there's nothing
+        // shipment-specific about it.
+        var cbosSetting = await _db.CbosTenorSettings.Include(s => s.Tenor).FirstOrDefaultAsync();
+
         var clearances = await _db.Clearances.ToDictionaryAsync(c => c.ShipmentId);
         var lastOffshoreInvoicesByShipment = await _db.LastOffshoreDetails.ToDictionaryAsync(d => d.ShipmentId, d => d.InvoiceNo);
 
@@ -144,9 +150,13 @@ public class BankDuesController : ControllerBase
             if (shipment.BlAwbDate.HasValue && banking.Tenor is not null)
                 dueDate = shipment.BlAwbDate.Value.AddDays(banking.Tenor.Days);
 
+            // CBOS Due Date = Due Date + the current global CBOS Tenor's
+            // days (Settings -> Tenors -> CBOS Tenor) — read live, the
+            // same value for every shipment, so changing it in Settings
+            // immediately re-flows to every currently-open due date.
             DateOnly? cbosDueDate = null;
-            if (dueDate.HasValue && banking.Tenor?.CbosAllowanceDays is not null)
-                cbosDueDate = dueDate.Value.AddDays(banking.Tenor.CbosAllowanceDays.Value);
+            if (dueDate.HasValue && cbosSetting?.Tenor is not null)
+                cbosDueDate = dueDate.Value.AddDays(cbosSetting.Tenor.Days);
 
             rows.Add(new BankDueRow(
                 shipment.Id, shipment.PurchaseOrder?.BusinessUnit?.Name ?? "", shipment.PurchaseOrder?.Consignee?.Name ?? "",
