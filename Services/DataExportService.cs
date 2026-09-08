@@ -4,6 +4,7 @@ using ShippingPortal.Api.Data;
 using ShippingPortal.Api.Models.Orders;
 using ShippingPortal.Api.Models.Shipments;
 using ShippingPortal.Api.Models.Clearance;
+using ShippingPortal.Api.Models.Lookups;
 
 namespace ShippingPortal.Api.Services;
 
@@ -82,7 +83,7 @@ public class DataExportService
     public async Task<byte[]> ExportAsync()
     {
         using var wb = new XLWorkbook();
-        BuildMainSheet(wb);
+        await BuildMainSheet(wb);
         BuildPaymentDueSheet(wb);
         BuildPaymentRecordsSheet(wb);
         BuildPoOffshoreChainSheet(wb);
@@ -108,7 +109,7 @@ public class DataExportService
         return ms.ToArray();
     }
 
-    private void BuildMainSheet(XLWorkbook wb)
+    private async Task BuildMainSheet(XLWorkbook wb)
     {
         var ws = wb.Worksheets.Add("Main");
 
@@ -206,7 +207,7 @@ public class DataExportService
             // every shipment-related column left blank.
             if (shipLines is null || shipLines.Count == 0)
             {
-                    WriteMainRow(ws, row, po, poLine, null, null, null, null, null, null, null, null, null, null, null);
+                    WriteMainRow(ws, row, po, poLine, null, null, null, null, null, null, null, null, null, null, cbosSetting);
                 row++;
                 continue;
             }
@@ -228,7 +229,7 @@ public class DataExportService
                 clearances.TryGetValue(ship.Id, out var clearance);
                 ssmos.TryGetValue(ship.Id, out var ssmo);
 
-                WriteMainRow(ws, row, po, poLine, ship, sl, fwd, docs, fullSet, banking, acd, mot, offshore, offshoreItem, clearance, ssmo);
+                WriteMainRow(ws, row, po, poLine, ship, sl, fwd, docs, fullSet, banking, acd, mot, offshore, offshoreItem, cbosSetting, clearance, ssmo);
                 row++;
             }
         }
@@ -241,7 +242,8 @@ public class DataExportService
         Shipment? ship, ShipmentLineItem? sl, ShipmentForwarder? fwd,
         ShipmentDraftDocuments? docs, ShipmentSupplierFullSet? fullSet, ShipmentBanking? banking,
         ShipmentAcd? acd, ShipmentMot? mot, LastOffshoreDetail? offshore,
-        LastOffshoreItemDetail? offshoreItem, Clearance? clearance = null, ShipmentSsmo? ssmo = null)
+        LastOffshoreItemDetail? offshoreItem, CbosTenorSetting? cbosSetting,
+        Clearance? clearance = null, ShipmentSsmo? ssmo = null)
     {
         int c = 1;
         SetCell(ws, row, c++, po.PoNumber);
