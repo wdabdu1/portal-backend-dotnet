@@ -564,11 +564,10 @@ public class SettingsUploadService
             if (RowIsBlank(ws, row, 1)) continue;
             var days = I(ws, row, 1);
             if (days is null) { errors.Add($"Row {row}: Days is required."); continue; }
-            var cbosAllowanceDays = I(ws, row, 2);
-            var active = B(ws, row, 3) ?? true;
+            var active = B(ws, row, 2) ?? true;
             var match = existing.FirstOrDefault(t => t.Days == days);
-            if (match is null) { var t = new Tenor { Days = days.Value, CbosAllowanceDays = cbosAllowanceDays, IsActive = active }; _db.Tenors.Add(t); existing.Add(t); created++; }
-            else { match.CbosAllowanceDays = cbosAllowanceDays; match.IsActive = active; updated++; }
+            if (match is null) { var t = new Tenor { Days = days.Value, IsActive = active }; _db.Tenors.Add(t); existing.Add(t); created++; }
+            else { match.IsActive = active; updated++; }
         }
         await _db.SaveChangesAsync();
         return new SheetUploadResult("Tenors", created, updated, errors);

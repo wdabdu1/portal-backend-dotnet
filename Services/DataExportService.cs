@@ -62,7 +62,7 @@ public class DataExportService
         ("BANK","SENDER BANK NAME"),("BANK","OS DOC DISPATCH DATE"),("BANK","OS DOC DISPATCHED VIA (Courier Name)"),
         ("BANK","SENDER BANK CHARGES"),("BANK","RECEIVING BANK NAME"),("BANK","NECESSARY GOOD TYPE (TRUE/FALSE)"),
         ("BANK","COLLECTION REF NO."),("BANK","COLLECTION VALUE"),("BANK","COLLECTION CURRENCY"),
-        ("BANK","TENOR DAYS"),("BANK","ADD CBOS ALLOWANCE DAYS (from Tenor, reference only)"),("BANK","RECEIVER BANK CHARGES"),
+        ("BANK","TENOR DAYS"),("BANK","CBOS TENOR DAYS (global setting, reference only)"),("BANK","RECEIVER BANK CHARGES"),
         ("SSMO","COC REQUIRED (TRUE/FALSE)"),("SSMO","COC AVAILABLE (TRUE/FALSE)"),("SSMO","APPLICATION DATE"),
         ("SSMO","COST"),("SSMO","COST SETTLED DATE"),("SSMO","REF NUMBER"),("SSMO","APPROVAL DATE"),
         ("SHIPLINE","HS CODE"),
@@ -187,6 +187,10 @@ public class DataExportService
             .ToDictionary(b => b.ShipmentId);
         var acds = _db.ShipmentAcds.ToDictionary(a => a.ShipmentId);
         var mots = _db.ShipmentMots.ToDictionary(m => m.ShipmentId);
+        // CBOS Tenor is one global setting now (Settings -> Tenors -> CBOS
+        // Tenor), not per-shipment — the export column below just reflects
+        // this same value on every row, reference-only.
+        var cbosSetting = await _db.CbosTenorSettings.Include(s => s.Tenor).FirstOrDefaultAsync();
         var ssmos = _db.ShipmentSsmos.ToDictionary(s => s.ShipmentId);
         var lastOffshores = _db.LastOffshoreDetails.Include(o => o.Currency).ToDictionary(o => o.ShipmentId);
         var lastOffshoreItems = _db.LastOffshoreItemDetails.ToDictionary(i => i.ShipmentLineItemId);
@@ -323,12 +327,10 @@ public class DataExportService
         SetCell(ws, row, c++, banking?.CollectionValue);
         SetCell(ws, row, c++, banking?.CollectionCurrency?.Code);
         SetCell(ws, row, c++, banking?.Tenor?.Days);
-        // Read-only now — CBOS Allowance is defined once per Tenor in
-        // Settings (Tenor.CbosAllowanceDays) rather than picked per
-        // shipment; this column reflects whatever the shipment's chosen
-        // Tenor carries, kept in place so downstream column positions
-        // in this sheet don't shift.
-        SetCell(ws, row, c++, banking?.Tenor?.CbosAllowanceDays);
+        // CBOS Tenor is now one global setting (Settings -> Tenors -> CBOS
+        // Tenor), not per-shipment — reference-only, same value every row,
+        // kept in place purely so columns after it don't shift position.
+        SetCell(ws, row, c++, cbosSetting?.Tenor?.Days);
         SetCell(ws, row, c++, banking?.ReceiverBankCharges);
         SetCell(ws, row, c++, ssmo?.CocRequired);
         SetCell(ws, row, c++, ssmo?.CocAvailable);
