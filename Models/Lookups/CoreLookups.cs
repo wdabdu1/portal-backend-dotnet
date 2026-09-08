@@ -149,13 +149,22 @@ public class Tenor
 {
     public int Id { get; set; }
     public int Days { get; set; }
-    // Extra days layered on top of Days before CBOS itself considers a
-    // collection overdue — set once per Tenor here in Settings rather
-    // than re-picked per shipment, so every shipment using this Tenor
-    // stays consistent automatically. Null = no CBOS allowance defined
-    // for this Tenor yet.
-    public int? CbosAllowanceDays { get; set; }
     public bool IsActive { get; set; } = true;
+}
+
+// A single, system-wide value — not per-shipment, not per-Tenor. Corp
+// Finance picks one Tenor here (from the same Tenor list used elsewhere)
+// to represent "the current CBOS Tenor"; Bank Dues/Pay Bank Dues read
+// this one row live every time they compute a CBOS Due Date, so changing
+// it here immediately affects every running shipment's calculation —
+// nothing is copied onto individual shipments. Expected to change rarely.
+// Exactly one row ever exists; GetOrCreate-style upsert in the controller
+// keeps it that way.
+public class CbosTenorSetting
+{
+    public int Id { get; set; }
+    public int? TenorId { get; set; }
+    public Tenor? Tenor { get; set; }
 }
 
 public class SenderBank
