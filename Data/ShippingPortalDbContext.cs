@@ -38,6 +38,7 @@ public class ShippingPortalDbContext : IdentityDbContext<ApplicationUser>
     public DbSet<Courier> Couriers => Set<Courier>();
     public DbSet<Forwarder> Forwarders => Set<Forwarder>();
     public DbSet<Tenor> Tenors => Set<Tenor>();
+    public DbSet<CbosTenorSetting> CbosTenorSettings => Set<CbosTenorSetting>();
     public DbSet<SenderBank> SenderBanks => Set<SenderBank>();
     public DbSet<ReceiverBank> ReceiverBanks => Set<ReceiverBank>();
     public DbSet<ReceiverBankAccount> ReceiverBankAccounts => Set<ReceiverBankAccount>();
@@ -447,6 +448,7 @@ public class ShippingPortalDbContext : IdentityDbContext<ApplicationUser>
         builder.Entity<ShipmentBanking>().HasOne(b => b.ReceivingBank).WithMany().OnDelete(DeleteBehavior.Restrict);
         builder.Entity<ShipmentBanking>().HasOne(b => b.CollectionCurrency).WithMany().OnDelete(DeleteBehavior.Restrict);
         builder.Entity<ShipmentBanking>().HasOne(b => b.Tenor).WithMany().OnDelete(DeleteBehavior.Restrict);
+        builder.Entity<CbosTenorSetting>().HasOne(s => s.Tenor).WithMany().OnDelete(DeleteBehavior.Restrict);
 
         // FZ Inventory: Route 2's destination is a Settings lookup (restrict-delete),
         // Route 2's link to its own Shipment already exists via Clearance.
