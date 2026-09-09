@@ -54,9 +54,15 @@ public static class AppRoles
     public const string Manager = "Manager";             // broad view + Settings edit, all BUs
     public const string SuperUser = "SuperUser";         // full access everywhere, creates users
     public const string LogisticsOfficer = "LogisticsOfficer"; // warehouse allocation + truck loading, all BUs
+    public const string Coordinator = "Coordinator";     // Clearance-dept client contact — owns the Move Type / Internal-External decision, shares the Logistics box's gated queue, all BUs
     public const string CPricing = "CPricing";           // C Pricing data-entry role — locked to the C Pricing pages only, all BUs
 
-    public static readonly string[] All = { IpUser, IpSupervisor, ClrUsr, ClrSupervisor, Bu, Treasury, CorpFinance, Manager, SuperUser, CPricing };
+    // NOTE: LogisticsOfficer was previously missing from this array, which
+    // meant IdentitySeeder never created the role in AspNetRoles and it
+    // could never actually be assigned to a user — fixed here alongside
+    // adding Coordinator, since both are needed for the Logistics module
+    // confidentiality redesign to be testable at all.
+    public static readonly string[] All = { IpUser, IpSupervisor, ClrUsr, ClrSupervisor, Bu, Treasury, CorpFinance, Manager, SuperUser, LogisticsOfficer, CPricing, Coordinator };
 
     // Roles limited to their assigned Business Unit(s) — everyone else sees all BUs.
     public static readonly string[] BuScopedRoles = { IpUser, IpSupervisor, Bu };
@@ -83,7 +89,13 @@ public static class AppRoles
     public const string PayBankDuesUsers = IpUser + "," + IpSupervisor + "," + Treasury + "," + CorpFinance + "," + SuperUser;
 
     public const string LogisticsEditors = LogisticsOfficer + "," + SuperUser;
-    public const string LogisticsViewers = LogisticsOfficer + "," + Manager + "," + SuperUser;
+    public const string LogisticsViewers = LogisticsOfficer + "," + Coordinator + "," + Manager + "," + SuperUser;
+
+    // The Logistics visibility-settings screen: Logistics/Coordinator/Manager/
+    // SuperUser can all view current values (LogisticsViewers, above); only
+    // Coordinator (plus Manager/SuperUser, who already edit every other
+    // Settings screen) can change them — Logistics stays read-only.
+    public const string LogisticsRevealEditors = Coordinator + "," + Manager + "," + SuperUser;
 
     // C Pricing pages (working table, history, C_Cat/C_Type mini-settings) —
     // deliberately excludes Treasury/CorpFinance: this feature moved out of
