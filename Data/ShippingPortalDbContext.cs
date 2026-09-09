@@ -56,6 +56,7 @@ public class ShippingPortalDbContext : IdentityDbContext<ApplicationUser>
     public DbSet<ShippingPortal.Api.Models.Logistics.TruckLoadDrop> TruckLoadDrops => Set<ShippingPortal.Api.Models.Logistics.TruckLoadDrop>();
     public DbSet<ShippingPortal.Api.Models.Logistics.TruckLoadItem> TruckLoadItems => Set<ShippingPortal.Api.Models.Logistics.TruckLoadItem>();
     public DbSet<ShippingPortal.Api.Models.Logistics.TruckMovement> TruckMovements => Set<ShippingPortal.Api.Models.Logistics.TruckMovement>();
+    public DbSet<ShippingPortal.Api.Models.Logistics.LogisticsVisibilitySettings> LogisticsVisibilitySettings => Set<ShippingPortal.Api.Models.Logistics.LogisticsVisibilitySettings>();
     public DbSet<ShippingLine> ShippingLines => Set<ShippingLine>();
     public DbSet<ShippingLineDemurrageTariff> ShippingLineDemurrageTariffs => Set<ShippingLineDemurrageTariff>();
     public DbSet<TariffGroup> TariffGroups => Set<TariffGroup>();
