@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using ShippingPortal.Api.Data;
 using ShippingPortal.Api.Models.Clearance;
 using ShippingPortal.Api.Models.Lookups;
+using ShippingPortal.Api.Models.Logistics;
 
 namespace ShippingPortal.Api.Services;
 
@@ -101,6 +102,13 @@ public class SettingsUploadService
             ("ClearanceSlaSettings", UploadClearanceSlaSettings),
             ("SpcRates", UploadSpcRates),
             ("ReceiverBankAccounts", UploadReceiverBankAccounts),
+            // Added after this workbook was first built — see data-migration
+            // audit notes. CPricingCategories before CPricingTypes, since
+            // the latter requires the former to already exist.
+            ("CPricingCategories", UploadSimpleNameActive<CPricingCategory>("CPricingCategories")),
+            ("CPricingTypes", UploadCPricingTypes),
+            ("CbosTenorSettings", UploadCbosTenorSettings),
+            ("LogisticsVisibilitySettings", UploadLogisticsVisibilitySettings),
         };
 
         foreach (var (sheetName, handler) in handlers)
@@ -778,5 +786,101 @@ public class SettingsUploadService
         }
         await _db.SaveChangesAsync();
         return new SheetUploadResult("ReceiverBankAccounts", created, updated, errors);
+    }
+
+    // ---------- C Pricing / global settings (added after this workbook was
+    // first built — see data-migration audit notes) ----------
+
+    private async Task<SheetUploadResult> UploadCPricingTypes(IXLWorksheet ws)
+    {
+        var errors = new List<string>(); int created = 0, updated = 0;
+        var lastRow = ws.LastRowUsed()?.RowNumber() ?? FirstDataRow - 1;
+        var categories = await _db.CPricingCategories.ToListAsync();
+        var existing = await _db.CPricingTypes.ToListAsync();
+
+        for (int row = FirstDataRow; row <= lastRow; row++)
+        {
+            if (RowIsBlank(ws, row, 3)) continue;
+            var name = S(ws, row, 1);
+            if (name is null) { errors.Add($"Row {row}: Name is required."); continue; }
+            var catName = S(ws, row, 2);
+            if (catName is null) { errors.Add($"Row {row}: C Pricing Category is required."); continue; }
+            var cat = categories.FirstOrDefault(c => c.Name == catName);
+            if (cat is null) { errors.Add($"Row {row}: C Pricing Category '{catName}' not found."); continue; }
+            var active = B(ws, row, 3) ?? true;
+
+            var match = existing.FirstOrDefault(t => t.Name == name);
+            if (match is null)
+            {
+                var t = new CPricingType { Name = name, CPricingCategoryId = cat.Id, IsActive = active };
+                _db.CPricingTypes.Add(t); existing.Add(t); created++;
+            }
+            else { match.CPricingCategoryId = cat.Id; match.IsActive = active; updated++; }
+        }
+        await _db.SaveChangesAsync();
+        return new SheetUploadResult("CPricingTypes", created, updated, errors);
+    }
+
+    // Single global row — get-or-create rather than upsert-by-key. Blank
+    // TenorDays clears the link (matches the export's "leave blank to
+    // clear it" note).
+    private async Task<SheetUploadResult> UploadCbosTenorSettings(IXLWorksheet ws)
+    {
+        var errors = new List<string>(); int created = 0, updated = 0;
+        var lastRow = ws.LastRowUsed()?.RowNumber() ?? FirstDataRow - 1;
+        var dataRow = Enumerable.Range(FirstDataRow, Math.Max(0, lastRow - FirstDataRow + 1))
+            .FirstOrDefault(r => !RowIsBlank(ws, r, 1), -1);
+
+        var setting = await _db.CbosTenorSettings.FirstOrDefaultAsync();
+        if (setting is null) { setting = new CbosTenorSetting(); _db.CbosTenorSettings.Add(setting); created++; }
+        else updated++;
+
+        if (dataRow > 0)
+        {
+            var days = I(ws, dataRow, 1);
+            if (days is null) { setting.TenorId = null; }
+            else
+            {
+                var tenor = await _db.Tenors.FirstOrDefaultAsync(t => t.Days == days);
+                if (tenor is null) { errors.Add($"Row {dataRow}: Tenor of {days} days not found."); }
+                else { setting.TenorId = tenor.Id; }
+            }
+        }
+        else { setting.TenorId = null; }
+
+        await _db.SaveChangesAsync();
+        return new SheetUploadResult("CbosTenorSettings", created, updated, errors);
+    }
+
+    // Single global row of required ints — get-or-create.
+    private async Task<SheetUploadResult> UploadLogisticsVisibilitySettings(IXLWorksheet ws)
+    {
+        var errors = new List<string>(); int created = 0, updated = 0;
+        var lastRow = ws.LastRowUsed()?.RowNumber() ?? FirstDataRow - 1;
+        var dataRow = Enumerable.Range(FirstDataRow, Math.Max(0, lastRow - FirstDataRow + 1))
+            .FirstOrDefault(r => !RowIsBlank(ws, r, 3), -1);
+
+        if (dataRow < 0) { return new SheetUploadResult("LogisticsVisibilitySettings", 0, 0, errors); }
+
+        var arrival = I(ws, dataRow, 1);
+        var preClearance = I(ws, dataRow, 2);
+        var postDelivery = I(ws, dataRow, 3);
+        if (arrival is null || preClearance is null || postDelivery is null)
+        {
+            errors.Add($"Row {dataRow}: Arrival Lead Time, Pre-Clearance Reveal, and Post-Delivery Re-hide (days) are all required.");
+            return new SheetUploadResult("LogisticsVisibilitySettings", 0, 0, errors);
+        }
+
+        var setting = await _db.LogisticsVisibilitySettings.FirstOrDefaultAsync();
+        if (setting is null) { setting = new LogisticsVisibilitySettings(); _db.LogisticsVisibilitySettings.Add(setting); created++; }
+        else updated++;
+
+        setting.ArrivalLeadTimeDays = arrival.Value;
+        setting.PreClearanceCatQtyRevealDays = preClearance.Value;
+        setting.PostDeliveryRehideDays = postDelivery.Value;
+        setting.UpdatedAt = DateTime.UtcNow;
+
+        await _db.SaveChangesAsync();
+        return new SheetUploadResult("LogisticsVisibilitySettings", created, updated, errors);
     }
 }

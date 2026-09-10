@@ -226,6 +226,28 @@ public class SettingsExportService
         for (int i = 0; i < bankAccounts.Count; i++)
             WriteRow(wsBankAcc, 6 + i, bankAccounts[i].ReceiverBank?.Name, bankAccounts[i].AccountNo, bankAccounts[i].AccountName, bankAccounts[i].IsActive);
 
+        // --- C Pricing (added after this workbook was first built — see
+        // data-migration audit notes) ---
+        await WriteSimpleNameActive(wb, "CPricingCategories", "C Pricing Categories", "Finished Goods", _db.CPricingCategories.Select(x => new NameActive(x.Name, x.IsActive)));
+
+        var cpTypes = await _db.CPricingTypes.Include(t => t.CPricingCategory).ToListAsync();
+        var wsCpType = NewSheet(wb, "CPricingTypes", "C Pricing Types", "CPricingCategoryName is required and must match an existing C Pricing Category.",
+            new[] { "Name", "CPricingCategoryName", "IsActive (TRUE/FALSE)" }, new[] { "Standard", "Finished Goods", "TRUE" });
+        for (int i = 0; i < cpTypes.Count; i++) WriteRow(wsCpType, 6 + i, cpTypes[i].Name, cpTypes[i].CPricingCategory?.Name, cpTypes[i].IsActive);
+
+        // --- Single global settings (always exactly one row) ---
+        var cbosTenor = await _db.CbosTenorSettings.Include(s => s.Tenor).FirstOrDefaultAsync();
+        var wsCbos = NewSheet(wb, "CbosTenorSettings", "CBOS Tenor (global setting)", "TenorDays must match an existing Tenor's Days value. Leave blank to clear it.",
+            new[] { "TenorDays" }, new[] { "90" });
+        if (cbosTenor is not null) WriteRow(wsCbos, 6, cbosTenor.Tenor?.Days);
+
+        var logisticsVis = await _db.LogisticsVisibilitySettings.FirstOrDefaultAsync();
+        var wsLogVis = NewSheet(wb, "LogisticsVisibilitySettings", "Logistics Visibility (global setting)",
+            "Controls what Logistics/Coordinator can see, and when — see Settings for the full explanation of each field.",
+            new[] { "ArrivalLeadTimeDays", "PreClearanceCatQtyRevealDays", "PostDeliveryRehideDays" }, new[] { "14", "7", "30" });
+        if (logisticsVis is not null)
+            WriteRow(wsLogVis, 6, logisticsVis.ArrivalLeadTimeDays, logisticsVis.PreClearanceCatQtyRevealDays, logisticsVis.PostDeliveryRehideDays);
+
         using var ms = new MemoryStream();
         wb.SaveAs(ms);
         return ms.ToArray();
