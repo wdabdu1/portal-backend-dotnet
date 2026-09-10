@@ -19,7 +19,10 @@ public record CPricingItemRow(
     DateOnly? Eta, int? CPricingCategoryId, string? CPricingCategoryName, int? CPricingTypeId, string? CPricingTypeName,
     string? HsCode, string? Description, int? CurrencyId, string? CurrencyCode, decimal? Cp, decimal? PoUnitPriceUsd, bool IsConfirmed);
 
-public record SaveCPricingItemRequest(int? CPricingCategoryId, int? CPricingTypeId, string? HsCode, string? Description, int? CurrencyId, decimal? Cp);
+// HsCode is intentionally absent here — it's entered once, on the Update
+// Shipment page, and shown read-only everywhere else (including here and
+// on Additional/ERP Info) via ShipmentLineItem.HsCode directly.
+public record SaveCPricingItemRequest(int? CPricingCategoryId, int? CPricingTypeId, string? Description, int? CurrencyId, decimal? Cp);
 
 [ApiController]
 [Authorize(Roles = AppRoles.CPricingUsers)]
@@ -117,8 +120,6 @@ public class CPricingController : ControllerBase
 
         if (!_buAccess.CanWriteBusinessUnit(User, li.Shipment!.PurchaseOrder!.BusinessUnitId))
             return Forbid();
-
-        li.HsCode = req.HsCode;
 
         var extra = await _db.LastOffshoreItemDetails.FirstOrDefaultAsync(x => x.ShipmentLineItemId == shipmentLineItemId);
         if (extra is null)
