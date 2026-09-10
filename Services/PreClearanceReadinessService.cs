@@ -16,8 +16,12 @@ public record ShipmentReadiness(
 // schedule), reused wherever a compact SLA Status is wanted (the
 // Shipment/Additional lists) without pulling in Pipeline Health's other
 // alerting (MOT/SSMO, demurrage cost, insurance risk) that a plain
-// status column has no room for.
-public record ShipmentCurrentStep(string StepName, string Status, string Light, DateOnly? TargetDate);
+// status column has no room for. Percent is a plain step-count ratio
+// (steps with an actual date ÷ every applicable step, Document Chain
+// through the real Clearance schedule) — simpler than Clearance's own
+// SLA Progress bar, which weights by each step's TargetDays; good
+// enough for an at-a-glance bar, not meant to match that number exactly.
+public record ShipmentCurrentStep(string StepName, string Status, string Light, DateOnly? TargetDate, decimal Percent);
 
 // Pipeline Health's actual display shape — one current step per
 // shipment (Document Chain -> Vessel Arrival -> DO Received, then
@@ -74,12 +78,14 @@ public class PreClearanceReadinessService
     }
 
     // Batched readiness (Document Chain / MOT / SSMO / Vessel / DO) plus,
-    // only for shipments already past all of that, a per-shipment call
-    // into the real Clearance schedule (Cost Estimate -> Certificate
-    // Entry -> route steps) — the same "cheap for early-stage shipments,
-    // one extra query only once they're further along" shape the
-    // Pipeline Health endpoint already uses. Confirmed shipments only —
-    // a Draft shipment has no clearance workflow to report on yet.
+    // for every shipment, one per-shipment call into the real Clearance
+    // schedule (Cost Estimate -> Certificate Entry -> route steps) — the
+    // schedule is needed either way now, to fold its steps into the
+    // percent-complete count below, not just as a fallback once
+    // readiness is fully done. Confirmed shipments only — a Draft
+    // shipment has no clearance workflow to report on yet. Per-shipment
+    // schedule calls are the same cost shape the Clearance list itself
+    // already pays for its own SLA Progress bar, one row at a time.
     public async Task<Dictionary<int, ShipmentCurrentStep>> GetCurrentStepsAsync(List<int> confirmedShipmentIds)
     {
         var result = new Dictionary<int, ShipmentCurrentStep>();
@@ -89,31 +95,39 @@ public class PreClearanceReadinessService
 
         foreach (var r in readiness)
         {
-            ReadinessItem? current = null;
-            foreach (var track in r.Tracks)
-            {
-                if (track.Track == "MOT Approval" || track.Track == "SSMO Approval") continue;
-                var incomplete = track.Items.FirstOrDefault(i => !i.ActualDate.HasValue);
-                if (incomplete is not null) { current = incomplete; break; }
-            }
+            // Document Chain + Vessel Arrival + DO Received, in that
+            // order — MOT/SSMO run in parallel and don't occupy a
+            // position in the main sequence, same exclusion Pipeline
+            // Health applies.
+            var readinessItems = r.Tracks
+                .Where(t => t.Track != "MOT Approval" && t.Track != "SSMO Approval")
+                .SelectMany(t => t.Items)
+                .ToList();
+
+            var current = readinessItems.FirstOrDefault(i => !i.ActualDate.HasValue);
+            var schedule = await _scheduleService.GetScheduleAsync(r.ShipmentId);
+
+            var totalCount = readinessItems.Count + schedule.Items.Count;
+            var doneCount = readinessItems.Count(i => i.ActualDate.HasValue) + schedule.Items.Count(i => i.ActualDate.HasValue);
+            var percent = totalCount == 0 ? 0m : Math.Min(100m, (decimal)doneCount / totalCount * 100m);
 
             if (current is not null)
             {
-                result[r.ShipmentId] = new ShipmentCurrentStep(current.GroupItem, current.Status, current.Light, current.ShouldBeDoneBy);
+                result[r.ShipmentId] = new ShipmentCurrentStep(current.GroupItem, current.Status, current.Light, current.ShouldBeDoneBy, percent);
                 continue;
             }
 
             // Document Chain / Vessel Arrival / DO Received are all done
-            // (or there was no ETA yet to measure them against) — carry on
-            // into the real clearance schedule for this one shipment.
-            var schedule = await _scheduleService.GetScheduleAsync(r.ShipmentId);
+            // (or there was no ETA yet to measure them against) — the
+            // current step, if any, is now in the real clearance schedule.
             var incompleteItem = schedule.Items.FirstOrDefault(i => !i.ActualDate.HasValue);
 
             result[r.ShipmentId] = incompleteItem is not null
-                ? new ShipmentCurrentStep(incompleteItem.GroupItem, incompleteItem.Status, incompleteItem.Light, incompleteItem.TargetDate)
-                : (schedule.Items.Count > 0
-                    ? new ShipmentCurrentStep("All steps complete", "Awaiting Truck & Containers", "Green", null)
-                    : new ShipmentCurrentStep("Not yet due", "Awaiting ETA / route selection", "Green", null));
+                ? new ShipmentCurrentStep(incompleteItem.GroupItem, incompleteItem.Status, incompleteItem.Light, incompleteItem.TargetDate, percent)
+                : new ShipmentCurrentStep(
+                    schedule.Items.Count > 0 ? "All steps complete" : "Not yet due",
+                    schedule.Items.Count > 0 ? "Awaiting Truck & Containers" : "Awaiting ETA / route selection",
+                    "Green", null, percent);
         }
 
         return result;
