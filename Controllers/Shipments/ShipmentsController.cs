@@ -21,7 +21,15 @@ public record CreateShipmentRequest(
     bool IsDirectSales, string? ConsigneeName,
     List<ShipmentLineItemRequest> LineItems);
 
-public record ShipmentSummary(int Id, string BlAwbNo, string PoNumber, string BusinessUnit, string ShippingLine, string Status, DateOnly? Eta, int LineItemCount, DateTime CreatedAt, bool IsClearanceCompleted);
+public record ShipmentSummary(
+    int Id, string BlAwbNo, string PoNumber, string BusinessUnit, string Supplier, string Status, DateOnly? Eta,
+    int LineItemCount, DateTime CreatedAt, bool IsClearanceCompleted,
+    // "—" / "" (blank light) for anything without a live clearance
+    // workflow yet (Draft, Cancelled) — otherwise the current bottleneck
+    // step, all the way from document-chain readiness through the real
+    // Clearance schedule, or "Cleared" once the route's own completion
+    // date is set.
+    string SlaStatus, string SlaLight);
 
 [ApiController]
 [Authorize]
@@ -33,11 +41,12 @@ public class ShipmentsController : ControllerBase
 
     [HttpGet]
     [Authorize(Roles = AppRoles.OrdersShipmentsViewers)]
-    public async Task<ActionResult<IEnumerable<ShipmentSummary>>> GetAll([FromServices] BuAccessService buAccess)
+    public async Task<ActionResult<IEnumerable<ShipmentSummary>>> GetAll(
+        [FromServices] BuAccessService buAccess, [FromServices] Services.PreClearanceReadinessService readinessService)
     {
         var query = _db.Shipments
             .Include(s => s.PurchaseOrder).ThenInclude(p => p!.BusinessUnit)
-            .Include(s => s.ShippingLine)
+            .Include(s => s.PurchaseOrder).ThenInclude(p => p!.Supplier)
             .Include(s => s.LineItems)
             .AsQueryable();
 
@@ -70,9 +79,30 @@ public class ShipmentsController : ControllerBase
             };
         }
 
-        return shipments.Select(s => new ShipmentSummary(
-            s.Id, s.BlAwbNo, s.PurchaseOrder!.PoNumber, s.PurchaseOrder.BusinessUnit!.Name, s.ShippingLine!.Name,
-            s.Status.ToString(), s.Eta, s.LineItems.Count, s.CreatedAt, IsCompleted(s.Id))).ToList();
+        // SLA Status — only worth computing for a Confirmed shipment
+        // that isn't already cleared; Draft/Cancelled have no live
+        // clearance workflow, and an already-cleared one is simply done.
+        var confirmedActiveIds = shipments
+            .Where(s => s.Status == ShipmentStatus.Confirmed && !IsCompleted(s.Id))
+            .Select(s => s.Id)
+            .ToList();
+        var currentSteps = await readinessService.GetCurrentStepsAsync(confirmedActiveIds);
+
+        (string Status, string Light) SlaFor(Shipment s)
+        {
+            if (s.Status != ShipmentStatus.Confirmed) return ("—", "");
+            if (IsCompleted(s.Id)) return ("Cleared", "Green");
+            if (currentSteps.TryGetValue(s.Id, out var step)) return ($"{step.StepName} — {step.Status}", step.Light);
+            return ("—", "");
+        }
+
+        return shipments.Select(s =>
+        {
+            var (slaStatus, slaLight) = SlaFor(s);
+            return new ShipmentSummary(
+                s.Id, s.BlAwbNo, s.PurchaseOrder!.PoNumber, s.PurchaseOrder.BusinessUnit!.Name, s.PurchaseOrder.Supplier?.Name ?? "",
+                s.Status.ToString(), s.Eta, s.LineItems.Count, s.CreatedAt, IsCompleted(s.Id), slaStatus, slaLight);
+        }).ToList();
     }
 
     [HttpPost]
@@ -206,10 +236,11 @@ public class ShipmentsController : ControllerBase
         _db.Shipments.Add(shipment);
         await _db.SaveChangesAsync();
 
-        var shippingLine = await _db.ShippingLines.FindAsync(req.ShippingLineId);
         var businessUnit = await _db.BusinessUnits.FindAsync(primaryPo.BusinessUnitId);
+        var supplier = await _db.BusinessPartners.FindAsync(primaryPo.SupplierId);
         return CreatedAtAction(nameof(GetAll), new ShipmentSummary(
-            shipment.Id, shipment.BlAwbNo, primaryPo.PoNumber, businessUnit?.Name ?? "", shippingLine?.Name ?? "", shipment.Status.ToString(), shipment.Eta, shipment.LineItems.Count, shipment.CreatedAt, false));
+            shipment.Id, shipment.BlAwbNo, primaryPo.PoNumber, businessUnit?.Name ?? "", supplier?.Name ?? "",
+            shipment.Status.ToString(), shipment.Eta, shipment.LineItems.Count, shipment.CreatedAt, false, "—", ""));
     }
 
     [HttpPost("{id:int}/confirm")]
