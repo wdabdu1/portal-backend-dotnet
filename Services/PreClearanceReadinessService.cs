@@ -10,6 +10,15 @@ public record ShipmentReadiness(
     int ShipmentId, string BlAwbNo, string BusinessUnit, string Category, int Fcl20Count, int Fcl40Count,
     DateOnly? Etd, DateOnly? Eta, string Classification, List<TrackResult> Tracks);
 
+// One-line "where is this shipment right now" summary — the same
+// current-step distillation Pipeline Health uses (Document Chain ->
+// Vessel Arrival -> DO Received, then seamlessly into Clearance's own
+// schedule), reused wherever a compact SLA Status is wanted (the
+// Shipment/Additional lists) without pulling in Pipeline Health's other
+// alerting (MOT/SSMO, demurrage cost, insurance risk) that a plain
+// status column has no room for.
+public record ShipmentCurrentStep(string StepName, string Status, string Light, DateOnly? TargetDate);
+
 // Pipeline Health's actual display shape — one current step per
 // shipment (Document Chain -> Vessel Arrival -> DO Received, then
 // seamlessly into Clearance's own schedule) rather than the full
@@ -57,7 +66,58 @@ public record ShipmentHighlight(
 public class PreClearanceReadinessService
 {
     private readonly ShippingPortalDbContext _db;
-    public PreClearanceReadinessService(ShippingPortalDbContext db) => _db = db;
+    private readonly ClearanceScheduleService _scheduleService;
+    public PreClearanceReadinessService(ShippingPortalDbContext db, ClearanceScheduleService scheduleService)
+    {
+        _db = db;
+        _scheduleService = scheduleService;
+    }
+
+    // Batched readiness (Document Chain / MOT / SSMO / Vessel / DO) plus,
+    // only for shipments already past all of that, a per-shipment call
+    // into the real Clearance schedule (Cost Estimate -> Certificate
+    // Entry -> route steps) — the same "cheap for early-stage shipments,
+    // one extra query only once they're further along" shape the
+    // Pipeline Health endpoint already uses. Confirmed shipments only —
+    // a Draft shipment has no clearance workflow to report on yet.
+    public async Task<Dictionary<int, ShipmentCurrentStep>> GetCurrentStepsAsync(List<int> confirmedShipmentIds)
+    {
+        var result = new Dictionary<int, ShipmentCurrentStep>();
+        if (confirmedShipmentIds.Count == 0) return result;
+
+        var readiness = await CalculateAsync(confirmedShipmentIds);
+
+        foreach (var r in readiness)
+        {
+            ReadinessItem? current = null;
+            foreach (var track in r.Tracks)
+            {
+                if (track.Track == "MOT Approval" || track.Track == "SSMO Approval") continue;
+                var incomplete = track.Items.FirstOrDefault(i => !i.ActualDate.HasValue);
+                if (incomplete is not null) { current = incomplete; break; }
+            }
+
+            if (current is not null)
+            {
+                result[r.ShipmentId] = new ShipmentCurrentStep(current.GroupItem, current.Status, current.Light, current.ShouldBeDoneBy);
+                continue;
+            }
+
+            // Document Chain / Vessel Arrival / DO Received are all done
+            // (or there was no ETA yet to measure them against) — carry on
+            // into the real clearance schedule for this one shipment.
+            var schedule = await _scheduleService.GetScheduleAsync(r.ShipmentId);
+            var incompleteItem = schedule.Items.FirstOrDefault(i => !i.ActualDate.HasValue);
+
+            result[r.ShipmentId] = incompleteItem is not null
+                ? new ShipmentCurrentStep(incompleteItem.GroupItem, incompleteItem.Status, incompleteItem.Light, incompleteItem.TargetDate)
+                : (schedule.Items.Count > 0
+                    ? new ShipmentCurrentStep("All steps complete", "Awaiting Truck & Containers", "Green", null)
+                    : new ShipmentCurrentStep("Not yet due", "Awaiting ETA / route selection", "Green", null));
+        }
+
+        return result;
+    }
 
     public async Task<List<ShipmentReadiness>> CalculateAsync(List<int> shipmentIds)
     {
