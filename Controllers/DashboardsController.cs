@@ -30,7 +30,12 @@ public record GoodsInTransitRow(
 public record ShipmentDashboardRow(
     DateTime OrderCreationDate, string CurrentStatus, string BusinessUnit, string BlAwbNo, string PoNumber,
     string Category, string ModelProduct, decimal Qty, decimal UnitPrice, string Currency, decimal Total,
-    decimal PaidUsd, decimal BalanceUnpaidUsd, DateOnly? Eta, DateOnly? Etd, DateOnly? ClearanceCompletionDate);
+    decimal PaidUsd, decimal BalanceUnpaidUsd, DateOnly? Eta, DateOnly? Etd, DateOnly? ClearanceCompletionDate,
+    // Only populated on the "Draft PO" rows added below — the portion of a
+    // PO line item that has no shipment (or not yet a full one) cut
+    // against it yet. Null everywhere else: a shipment row's Qty already
+    // is what shipped, there's nothing "remaining" left to report on it.
+    decimal? RemainingQty);
 
 public record SupplierPaymentRow(string BusinessUnit, string SupplierName, string BlAwbNo, DateOnly DueDate, string Label, decimal AmountUsd);
 
@@ -179,7 +184,7 @@ public class DashboardsController : ControllerBase
             };
 
             string status;
-            if (s.Status == ShippingPortal.Api.Models.Shipments.ShipmentStatus.Draft) status = "Draft";
+            if (s.Status == ShippingPortal.Api.Models.Shipments.ShipmentStatus.Draft) status = "Draft BL";
             else if (routeCompletion.HasValue) status = "Delivered";
             else if (deliveryOrder?.ActualArrivalDate.HasValue == true) status = "Under Clearance";
             else status = "In Transit";
@@ -200,7 +205,56 @@ public class DashboardsController : ControllerBase
                     s.CreatedAt, status, s.PurchaseOrder?.BusinessUnit?.Name ?? "", s.BlAwbNo, s.PurchaseOrder?.PoNumber ?? "",
                     li.PurchaseOrderLineItem?.ProductCategory?.Name ?? "", li.PurchaseOrderLineItem?.ModelProduct?.Name ?? "",
                     li.QtyInBl, li.PurchaseOrderLineItem?.UnitPrice ?? 0, li.PurchaseOrderLineItem?.Currency?.Code ?? "",
-                    li.ItemSubtotal, paidUsd, balanceUsd, s.Eta, s.Etd, completion));
+                    li.ItemSubtotal, paidUsd, balanceUsd, s.Eta, s.Etd, completion, null));
+            }
+        }
+
+        // Fold in the PO Dashboard's "still open" view: any PO line item
+        // with qty not yet covered by a (non-Cancelled) shipment shows up
+        // here too, with no BL — this is the only way an order that has no
+        // shipment at all yet (or is only partially shipped) shows up on
+        // what's otherwise a shipment-keyed table.
+        var poQuery = _db.PurchaseOrders
+            .Where(p => p.Status != ShippingPortal.Api.Models.Orders.OrderStatus.Cancelled)
+            .Include(p => p.BusinessUnit)
+            .Include(p => p.LineItems).ThenInclude(li => li.ProductCategory)
+            .Include(p => p.LineItems).ThenInclude(li => li.ModelProduct)
+            .Include(p => p.LineItems).ThenInclude(li => li.Currency)
+            .AsQueryable();
+
+        if (!buAccess.SeesAllBus(User))
+        {
+            var allowedBus = buAccess.GetAllowedBusinessUnitIds(User);
+            poQuery = poQuery.Where(p => allowedBus.Contains(p.BusinessUnitId));
+        }
+
+        var pos = await poQuery.ToListAsync();
+        var poLineItemIds = pos.SelectMany(p => p.LineItems).Select(li => li.Id).ToList();
+
+        var shippedQtyByPoLineItem = await _db.ShipmentLineItems
+            .Where(li => poLineItemIds.Contains(li.PurchaseOrderLineItemId)
+                      && li.Shipment!.Status != ShippingPortal.Api.Models.Shipments.ShipmentStatus.Cancelled)
+            .GroupBy(li => li.PurchaseOrderLineItemId)
+            .Select(g => new { PoLineItemId = g.Key, Shipped = g.Sum(x => x.QtyInBl) })
+            .ToDictionaryAsync(x => x.PoLineItemId, x => x.Shipped);
+
+        foreach (var po in pos)
+        {
+            foreach (var li in po.LineItems)
+            {
+                var shipped = shippedQtyByPoLineItem.GetValueOrDefault(li.Id);
+                var remaining = li.Qty - shipped;
+                if (remaining <= 0) continue;
+
+                // Qty/Unit Price/Total show the PO line as ordered (so it
+                // reads the same as any other line here); Remaining Qty is
+                // the new column that says how much of it is still open.
+                // No BL/ETA/ETD/payment data exists yet — nothing to show.
+                result.Add(new ShipmentDashboardRow(
+                    po.CreatedAt, "Draft PO", po.BusinessUnit?.Name ?? "", "", po.PoNumber,
+                    li.ProductCategory?.Name ?? "", li.ModelProduct?.Name ?? "",
+                    li.Qty, li.UnitPrice, li.Currency?.Code ?? "", li.Total,
+                    0m, 0m, null, null, null, remaining));
             }
         }
 
