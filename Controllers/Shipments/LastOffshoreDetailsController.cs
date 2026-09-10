@@ -108,9 +108,11 @@ public class LastOffshoreDetailsController : ControllerBase
 
         foreach (var input in req.Items.Where(i => lineItemIds.Contains(i.ShipmentLineItemId)))
         {
-            var li = await _db.ShipmentLineItems.FindAsync(input.ShipmentLineItemId);
-            if (li is not null) li.HsCode = input.HsCode;
-
+            // HsCode is deliberately not written here — it's entered once,
+            // on the Update Shipment page, and this section (like C Pricing)
+            // only ever displays it read-only. input.HsCode is accepted but
+            // ignored so an old client payload can't resurrect a second
+            // write path.
             var extra = await _db.LastOffshoreItemDetails.FirstOrDefaultAsync(x => x.ShipmentLineItemId == input.ShipmentLineItemId);
             if (extra is null)
             {

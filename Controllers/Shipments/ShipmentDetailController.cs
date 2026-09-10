@@ -117,13 +117,17 @@ public class ShipmentDetailController : ControllerBase
             shipment.PurchaseOrder.ReceivedSignedPiDate, shipment.PurchaseOrder.OrderExecutionDate, shipment.PurchaseOrder.LatestShippingDate,
             shipment.IsDirectSales, shipment.ConsigneeName);
     }
+    // HS Code is entered here per line item and is the single authoritative
+    // source for ShipmentLineItem.HsCode — C Pricing and Additional/ERP Info
+    // both display it read-only rather than writing it. No section-lock
+    // badge exists for this block (it isn't part of the accordion workflow
+    // sequence), so unlike the sections above there's no EnsureNotLockedAsync
+    // check here.
     [HttpPut("hs-codes")]
     public async Task<IActionResult> SaveHsCodes(int shipmentId, SaveHsCodesRequest req)
     {
         var denied = await CheckWriteAccessAsync(shipmentId);
         if (denied is not null) return denied;
-        var lockDenied = await _sectionLock.EnsureNotLockedAsync("Shipment", shipmentId, "acd");
-        if (lockDenied is not null) return lockDenied;
 
         var lineItems = await _db.ShipmentLineItems.Where(li => li.ShipmentId == shipmentId).ToListAsync();
         foreach (var update in req.LineItemHsCodes)
