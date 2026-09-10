@@ -13,6 +13,7 @@ namespace ShippingPortal.Api.Controllers.Logistics;
 public record LogisticsItemRow(
     string SourceType, int SourceLineItemId,
     string BusinessUnit, string Consignee, string Category, string ModelProduct, string BlAwbNo,
+    DateOnly? ArrivalDate,
     DateOnly? PlannedCompletionDate, DateOnly? ActualCompletionDate,
     decimal Qty, string Unit, string ClearanceRoute, string? FzDestination,
     decimal AllocatedQty, decimal RemainingQty);
@@ -59,6 +60,14 @@ public class LogisticsController : ControllerBase
         var allocatedTotals = await GetAllocatedTotalsAsync();
         var result = new List<LogisticsItemRow>();
 
+        // Confidentiality gate settings (Phase 1.5 of the Logistics
+        // redesign) — a Route 1 shipment doesn't appear at all until it's
+        // within this many days of its arrival. In-memory default if the
+        // seed row is somehow missing; never persisted from here.
+        var visibilitySettings = await _db.LogisticsVisibilitySettings.FirstOrDefaultAsync()
+            ?? new LogisticsVisibilitySettings();
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+
         // --- Route 1 (Clear at Port) ---
         var portClearances = await _db.Clearances
             .Where(c => c.Route == ClearanceRouteType.Route1ClearAtPort)
@@ -67,6 +76,7 @@ public class LogisticsController : ControllerBase
             .ToListAsync();
 
         var portShipmentIds = portClearances.Select(c => c.ShipmentId).ToList();
+        var portClearanceIds = portClearances.Select(c => c.Id).ToList();
 
         // Batched instead of one query per shipment inside the loop below.
         var portLineItemsByShipment = (await _db.ShipmentLineItems
@@ -80,9 +90,30 @@ public class LogisticsController : ControllerBase
 
         var estimatedCompletionByShipment = await _schedule.GetEstimatedCompletionDatesAsync(portShipmentIds);
 
+        // Arrival = Actual Arrival Date (Clearance's Delivery Order
+        // section) if entered, else vessel ETA — this is what the
+        // arrival-lead-time gate below is measured against, not the
+        // clearance completion dates (which are a separate concept and
+        // stay shown alongside it).
+        var deliveryOrderByClearanceId = await _db.ClearanceDeliveryOrders
+            .Where(d => portClearanceIds.Contains(d.ClearanceId))
+            .ToDictionaryAsync(d => d.ClearanceId, d => d);
+
         foreach (var clearance in portClearances)
         {
             var shipment = clearance.Shipment!;
+            var deliveryOrder = deliveryOrderByClearanceId.GetValueOrDefault(clearance.Id);
+            var arrivalDate = deliveryOrder?.ActualArrivalDate ?? shipment.Eta;
+
+            // Confidentiality gate: skip the whole shipment if its arrival
+            // is further out than the configured lead time. Fails OPEN
+            // (still shown) when no arrival date is known yet at all,
+            // rather than hiding it indefinitely — an assumption, flag to
+            // the user if that's not the desired behavior.
+            if (arrivalDate.HasValue
+                && (arrivalDate.Value.ToDateTime(TimeOnly.MinValue) - today.ToDateTime(TimeOnly.MinValue)).TotalDays > visibilitySettings.ArrivalLeadTimeDays)
+                continue;
+
             var estimatedCompletion = estimatedCompletionByShipment.GetValueOrDefault(shipment.Id);
             var lineItems = portLineItemsByShipment.GetValueOrDefault(shipment.Id, new List<ShipmentLineItem>());
 
@@ -92,8 +123,9 @@ public class LogisticsController : ControllerBase
                 result.Add(new LogisticsItemRow(
                     "Port", li.Id,
                     shipment.PurchaseOrder?.BusinessUnit?.Name ?? "", shipment.PurchaseOrder?.Consignee?.Name ?? "",
-                    li.PurchaseOrderLineItem?.ProductCategory?.Name ?? "", li.PurchaseOrderLineItem?.ModelProduct?.Name ?? "",
-                    shipment.BlAwbNo, estimatedCompletion, clearance.ClearanceCompleteDate,
+                    li.PurchaseOrderLineItem?.ProductCategory?.Name ?? "", "",
+                    shipment.BlAwbNo, arrivalDate,
+                    estimatedCompletion, clearance.ClearanceCompleteDate,
                     li.QtyInBl, li.PurchaseOrderLineItem?.UnitOfMeasure?.Code ?? "", "Clear at Port", null,
                     allocated, li.QtyInBl - allocated));
             }
@@ -134,11 +166,16 @@ public class LogisticsController : ControllerBase
             {
                 var li = wli.DepositShipmentLineItem!;
                 var allocated = allocatedTotals.GetValueOrDefault(("FZWithdrawal", wli.Id));
+                // No arrival-lead-time gate applied here yet (still open —
+                // Route 3/FZ withdrawals have no vessel-arrival concept at
+                // all; per the agreed design their reveal trigger is
+                // "about to be cleared" instead, which needs its own
+                // logic, not built yet).
                 result.Add(new LogisticsItemRow(
                     "FZWithdrawal", wli.Id,
                     depositShipment.PurchaseOrder?.BusinessUnit?.Name ?? "", depositShipment.PurchaseOrder?.Consignee?.Name ?? "",
-                    li.PurchaseOrderLineItem?.ProductCategory?.Name ?? "", li.PurchaseOrderLineItem?.ModelProduct?.Name ?? "",
-                    depositShipment.BlAwbNo, null, withdrawal.ClearanceActualCompletedDate,
+                    li.PurchaseOrderLineItem?.ProductCategory?.Name ?? "", "",
+                    depositShipment.BlAwbNo, null, null, withdrawal.ClearanceActualCompletedDate,
                     wli.Qty, li.PurchaseOrderLineItem?.UnitOfMeasure?.Code ?? "", "Clear from FZ", depositRoute2?.Destination?.Name,
                     allocated, wli.Qty - allocated));
             }
