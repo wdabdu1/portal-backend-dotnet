@@ -25,7 +25,8 @@ public record SaveTpLineItemRequest(List<TpStageInput> Stages);
 
 public record TpOrderSummary(
     int ShipmentId, string BlAwbNo, string PoNumber, string BusinessUnit, string SupplierName,
-    decimal SupplierValueUsd, DateTime CreatedAt, List<string> RouteCompanyNames, bool IsConfirmed);
+    decimal SupplierValueUsd, DateTime CreatedAt, DateOnly? Eta, List<string> RouteCompanyNames,
+    string ConsigneeName, bool IsConfirmed);
 
 public record BuStageAccumulated(int SequenceOrder, bool IsLast, decimal TotalUsd, decimal MarkupPercent);
 public record BuAccumulatedRow(string BusinessUnit, decimal TotalSupplierUsd, List<BuStageAccumulated> Stages);
@@ -244,6 +245,7 @@ public class TransferPricingController : ControllerBase
             .Where(s => eligiblePoIds.Contains(s.PurchaseOrderId))
             .Include(s => s.PurchaseOrder).ThenInclude(p => p!.BusinessUnit)
             .Include(s => s.PurchaseOrder).ThenInclude(p => p!.Supplier)
+            .Include(s => s.PurchaseOrder).ThenInclude(p => p!.Consignee)
             .ToListAsync();
 
         var lockedShipmentIds = await _db.SectionLocks
@@ -268,9 +270,14 @@ public class TransferPricingController : ControllerBase
         return Ok(shipments.Select(s =>
         {
             var route = offshoreChains.Where(op => op.PurchaseOrderId == s.PurchaseOrderId).Select(op => op.BusinessPartner!.Name).ToList();
+            // Direct Sales shipments carry their own end-client ConsigneeName
+            // (the PO's registered Consignee isn't necessarily who the goods
+            // are actually being sold on to); everything else falls back to
+            // the PO's Consignee, same convention used elsewhere in the app.
+            var consigneeName = s.ConsigneeName ?? s.PurchaseOrder?.Consignee?.Name ?? "";
             return new TpOrderSummary(
                 s.Id, s.BlAwbNo, s.PurchaseOrder!.PoNumber, s.PurchaseOrder.BusinessUnit!.Name, s.PurchaseOrder.Supplier?.Name ?? "",
-                supplierValueByShipment.GetValueOrDefault(s.Id), s.CreatedAt, route, lockedShipmentIds.Contains(s.Id));
+                supplierValueByShipment.GetValueOrDefault(s.Id), s.CreatedAt, s.Eta, route, consigneeName, lockedShipmentIds.Contains(s.Id));
         }).OrderByDescending(o => o.CreatedAt).ToList());
     }
 
