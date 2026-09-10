@@ -24,12 +24,13 @@ public record CreateShipmentRequest(
 public record ShipmentSummary(
     int Id, string BlAwbNo, string PoNumber, string BusinessUnit, string Supplier, string Status, DateOnly? Eta,
     int LineItemCount, DateTime CreatedAt, bool IsClearanceCompleted,
-    // "—" / "" (blank light) for anything without a live clearance
+    // "—" / "" (blank light) / 0 for anything without a live clearance
     // workflow yet (Draft, Cancelled) — otherwise the current bottleneck
     // step, all the way from document-chain readiness through the real
     // Clearance schedule, or "Cleared" once the route's own completion
-    // date is set.
-    string SlaStatus, string SlaLight);
+    // date is set. SlaPercent is a plain step-count ratio, separate from
+    // (and simpler than) Clearance's own day-weighted SLA Progress.
+    string SlaStatus, string SlaLight, decimal SlaPercent);
 
 [ApiController]
 [Authorize]
@@ -88,20 +89,20 @@ public class ShipmentsController : ControllerBase
             .ToList();
         var currentSteps = await readinessService.GetCurrentStepsAsync(confirmedActiveIds);
 
-        (string Status, string Light) SlaFor(Shipment s)
+        (string Status, string Light, decimal Percent) SlaFor(Shipment s)
         {
-            if (s.Status != ShipmentStatus.Confirmed) return ("—", "");
-            if (IsCompleted(s.Id)) return ("Cleared", "Green");
-            if (currentSteps.TryGetValue(s.Id, out var step)) return ($"{step.StepName} — {step.Status}", step.Light);
-            return ("—", "");
+            if (s.Status != ShipmentStatus.Confirmed) return ("—", "", 0m);
+            if (IsCompleted(s.Id)) return ("Cleared", "Green", 100m);
+            if (currentSteps.TryGetValue(s.Id, out var step)) return ($"{step.StepName} — {step.Status}", step.Light, step.Percent);
+            return ("—", "", 0m);
         }
 
         return shipments.Select(s =>
         {
-            var (slaStatus, slaLight) = SlaFor(s);
+            var (slaStatus, slaLight, slaPercent) = SlaFor(s);
             return new ShipmentSummary(
                 s.Id, s.BlAwbNo, s.PurchaseOrder!.PoNumber, s.PurchaseOrder.BusinessUnit!.Name, s.PurchaseOrder.Supplier?.Name ?? "",
-                s.Status.ToString(), s.Eta, s.LineItems.Count, s.CreatedAt, IsCompleted(s.Id), slaStatus, slaLight);
+                s.Status.ToString(), s.Eta, s.LineItems.Count, s.CreatedAt, IsCompleted(s.Id), slaStatus, slaLight, slaPercent);
         }).ToList();
     }
 
@@ -240,7 +241,7 @@ public class ShipmentsController : ControllerBase
         var supplier = await _db.BusinessPartners.FindAsync(primaryPo.SupplierId);
         return CreatedAtAction(nameof(GetAll), new ShipmentSummary(
             shipment.Id, shipment.BlAwbNo, primaryPo.PoNumber, businessUnit?.Name ?? "", supplier?.Name ?? "",
-            shipment.Status.ToString(), shipment.Eta, shipment.LineItems.Count, shipment.CreatedAt, false, "—", ""));
+            shipment.Status.ToString(), shipment.Eta, shipment.LineItems.Count, shipment.CreatedAt, false, "—", "", 0m));
     }
 
     [HttpPost("{id:int}/confirm")]
