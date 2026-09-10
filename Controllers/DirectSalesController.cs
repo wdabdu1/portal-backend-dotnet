@@ -11,8 +11,13 @@ namespace ShippingPortal.Api.Controllers;
 
 public record DirectSalesDueRow(
     int ShipmentId, string BusinessUnit, string Division, string Consignee, string BlAwbNo, string Category,
-    DateOnly DueDate, decimal DueAmount, string DueCurrency, decimal DueAmountUsd,
-    decimal CollectedUsd, decimal RemainingUsd, bool Settled);
+    DateOnly? Eta, DateOnly DueDate, decimal DueAmount, string DueCurrency, decimal DueAmountUsd,
+    decimal CollectedUsd, decimal RemainingUsd, bool Settled,
+    // Same two flags the "Confirm Deal Closed" block on Update Shipment
+    // sets — shown here per row (one shipment can have several due rows)
+    // so the list doubles as a shipment-level closing checklist at a
+    // glance, without needing to open each shipment individually.
+    bool DocumentsHanded, bool PaymentCollected);
 
 public record CustomerDueRequest(DateOnly DueDate, int CurrencyId, [Range(typeof(decimal), "0.0001", "79228162514264337593543950335", ErrorMessage = "Value must be greater than zero.")] decimal Value);
 public record CustomerDueResponse(int Id, DateOnly DueDate, int CurrencyId, string CurrencyCode, decimal Value);
@@ -144,9 +149,10 @@ public class DirectSalesController : ControllerBase
 
                 rows.Add(new DirectSalesDueRow(
                     shipment.Id, shipment.PurchaseOrder?.BusinessUnit?.Name ?? "", shipment.PurchaseOrder?.Division?.Name ?? "",
-                    shipment.ConsigneeName ?? "", shipment.BlAwbNo, category,
+                    shipment.ConsigneeName ?? "", shipment.BlAwbNo, category, shipment.Eta,
                     due.DueDate, due.Value, due.Currency?.Code ?? "", dueAmountUsd,
-                    collectedUsd, remainingUsd, settled));
+                    collectedUsd, remainingUsd, settled,
+                    shipment.DirectSalesDocumentsHanded, shipment.DirectSalesPaymentCollected));
             }
         }
 
