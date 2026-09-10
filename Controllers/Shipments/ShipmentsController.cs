@@ -10,7 +10,13 @@ using ShippingPortal.Api.Services;
 
 namespace ShippingPortal.Api.Controllers.Shipments;
 
-public record ShipmentLineItemRequest(int PurchaseOrderLineItemId, decimal QtyInBl);
+// HsCode is captured here, at line-item selection time, rather than via a
+// separate edit screen — it's entered once, against the product actually
+// being shipped, and from then on ShipmentLineItem.HsCode is the single
+// authoritative value (C Pricing and Additional/ERP Info both show it
+// read-only; Update Shipment's own HS Codes block lets it be corrected
+// afterward if it wasn't known yet at creation time).
+public record ShipmentLineItemRequest(int PurchaseOrderLineItemId, decimal QtyInBl, string? HsCode);
 
 // PurchaseOrderId is no longer supplied directly — it's derived from
 // whichever PurchaseOrderLineItems were selected, since a shipment can
@@ -225,7 +231,8 @@ public class ShipmentsController : ControllerBase
             {
                 PurchaseOrderLineItemId = li.PurchaseOrderLineItemId,
                 QtyInBl = li.QtyInBl,
-                ItemSubtotal = li.QtyInBl * poLine.UnitPrice
+                ItemSubtotal = li.QtyInBl * poLine.UnitPrice,
+                HsCode = li.HsCode
             });
         }
 
