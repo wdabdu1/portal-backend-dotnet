@@ -60,6 +60,15 @@ public class DataUploadService
         var s = S(ws, row, col);
         return s is not null && DateOnly.TryParse(s, out var parsed) ? parsed : null;
     }
+    // For the one DateTime? column on Main (Direct Sales' Deal Closed At) —
+    // everything else on this sheet is a DateOnly, hence Dt() above instead.
+    private static DateTime? DtTime(IXLWorksheet ws, int row, int col)
+    {
+        var cell = ws.Cell(row, col);
+        if (cell.TryGetValue(out DateTime dt)) return dt;
+        var s = S(ws, row, col);
+        return s is not null && DateTime.TryParse(s, out var parsed) ? parsed : null;
+    }
     private static bool RowIsBlank(IXLWorksheet ws, int row, int lastCol)
     {
         for (int c = 1; c <= lastCol; c++)
@@ -131,6 +140,9 @@ public class DataUploadService
 
         var locksWs = wb.Worksheets.FirstOrDefault(w => w.Name == "Section_Locks");
         if (locksWs is not null) results.Add(await ProcessSectionLocks(locksWs, uploaderUserId));
+
+        var directSalesDuesWs = wb.Worksheets.FirstOrDefault(w => w.Name == "Direct_Sales_Customer_Dues");
+        if (directSalesDuesWs is not null) results.Add(await ProcessDirectSalesCustomerDues(directSalesDuesWs));
 
         return new UploadSummary(results);
     }
@@ -357,6 +369,11 @@ public class DataUploadService
                     {
                         "CONFIRMED" => ShipmentStatus.Confirmed,
                         "CANCELLED" => ShipmentStatus.Cancelled,
+                        // Direct Sales' own status, set once "Close Deal" is
+                        // confirmed — added alongside the new DIRECTSALES
+                        // columns below so a closed deal round-trips as
+                        // Closed, not silently back to Draft.
+                        "CLOSED" => ShipmentStatus.Closed,
                         _ => ShipmentStatus.Draft
                     };
 
@@ -371,6 +388,19 @@ public class DataUploadService
                         ShippingLineId = shippingLine.Id,
                         Fcl20Count = I(ws, row, 34) ?? 0,
                         Fcl40Count = I(ws, row, 35) ?? 0,
+                        // Columns 84-92, appended at the end of Main (see
+                        // DataExportService) rather than alongside the rest
+                        // of the SHIP section above, to avoid shifting every
+                        // fixed column index after them.
+                        VesselName = S(ws, row, 84),
+                        Soc = B(ws, row, 85) ?? false,
+                        BlFreeDays = I(ws, row, 86),
+                        SobActualDate = Dt(ws, row, 87),
+                        IsDirectSales = B(ws, row, 88) ?? false,
+                        ConsigneeName = S(ws, row, 89),
+                        DirectSalesDocumentsHanded = B(ws, row, 90) ?? false,
+                        DirectSalesPaymentCollected = B(ws, row, 91) ?? false,
+                        DirectSalesClosedAt = DtTime(ws, row, 92),
                         CreatedAt = DateTime.UtcNow,
                         UpdatedAt = DateTime.UtcNow
                     };
@@ -1200,6 +1230,46 @@ public class DataUploadService
         await _db.SaveChangesAsync();
         await _db.SaveChangesAsync();
         return new SheetUploadResult("Bank_Collection_Records", created, updated, errors);
+    }
+
+    // ---------- Direct Sales — Customer Agreed Payment (ShipmentCustomerDue) ----------
+    // A separate table from Supplier_Payment_Due_Schedule (ShipmentPaymentDue)
+    // above — Direct Sales' own due schedule, owed by the end consignee
+    // rather than owed to the supplier. Customer Collected Payment needs no
+    // equivalent processor here — it reuses ShipmentCollectionRecord, the
+    // same table ProcessBankCollectionRecords above already restores.
+    private async Task<SheetUploadResult> ProcessDirectSalesCustomerDues(IXLWorksheet ws)
+    {
+        var errors = new List<string>(); int created = 0, updated = 0;
+        var lastRow = ws.LastRowUsed()?.RowNumber() ?? PaymentFirstDataRow - 1;
+        var currencies = await _db.Currencies.ToListAsync();
+
+        for (int row = PaymentFirstDataRow; row <= lastRow; row++)
+        {
+            if (RowIsBlank(ws, row, 4)) continue;
+            var blAwbNo = S(ws, row, 1); var dueDate = Dt(ws, row, 2); var value = D(ws, row, 3); var curCode = S(ws, row, 4);
+            if (blAwbNo is null || dueDate is null || value is null || curCode is null)
+            { errors.Add($"Row {row}: B/L NO, DUE DATE, VALUE, and CURRENCY are all required."); continue; }
+
+            var shipment = await _db.Shipments.FirstOrDefaultAsync(s => s.BlAwbNo == blAwbNo);
+            if (shipment is null) { errors.Add($"Row {row}: Shipment '{blAwbNo}' not found — upload Main first."); continue; }
+            var currency = currencies.FirstOrDefault(c => c.Code == curCode);
+            if (currency is null) { errors.Add($"Row {row}: Currency '{curCode}' not found."); continue; }
+
+            // Matched by (Shipment, Date, Currency, Value) — same convention
+            // as Bank_Collection_Records, so re-uploading an export doesn't
+            // duplicate the same due.
+            var existing = await _db.ShipmentCustomerDues.FirstOrDefaultAsync(d =>
+                d.ShipmentId == shipment.Id && d.DueDate == dueDate && d.CurrencyId == currency.Id && d.Value == value);
+            if (existing is null)
+            {
+                _db.ShipmentCustomerDues.Add(new ShipmentCustomerDue { ShipmentId = shipment.Id, DueDate = dueDate.Value, Value = value.Value, CurrencyId = currency.Id });
+                created++;
+            }
+            else updated++;
+        }
+        await _db.SaveChangesAsync();
+        return new SheetUploadResult("Direct_Sales_Customer_Dues", created, updated, errors);
     }
 
     // ---------- Clearance — Route 3 (Clear from FZ / Withdrawal) ----------

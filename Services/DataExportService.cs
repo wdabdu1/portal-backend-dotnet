@@ -35,6 +35,7 @@ public class DataExportService
         ("OFFSHORE", "LAST OFFSHORE DETAILS", XLColor.FromHtml("#5D4037")),
         ("CLR", "CLEARANCE", XLColor.FromHtml("#C62828")),
         ("SSMO", "SSMO", XLColor.FromHtml("#00695C")),
+        ("DIRECTSALES", "DIRECT SALES", XLColor.FromHtml("#3F51B5")),
     };
     // (section key, header text) pairs in exact column order — matches the Migration Workbook builder 1:1.
     private static readonly (string Section, string Header)[] MainColumns =
@@ -46,7 +47,7 @@ public class DataExportService
         ("PO","LATEST SHIPMENT DT"),("PO","INCOTERM"),("PO","ORIGIN"),("PO","SHIPMENT MODE (NEW)"),("PO","BU ESTIMATED SHIPPING COST"),
         ("POLINE","CAT"),("POLINE","MODEL"),("POLINE","TYPE"),("POLINE","UOM (NEW)"),("POLINE","ORDERED QTY"),("POLINE","UNIT PRICE"),
         ("POLINE","CURRENCY"),("POLINE","TOTAL VALUE (auto-computed, reference only)"),
-        ("SHIP","B/L NO"),("SHIP","BOL DATE"),("SHIP","ETD"),("SHIP","ETA"),("SHIP","STATUS (Draft/Confirmed/Cancelled)"),
+        ("SHIP","B/L NO"),("SHIP","BOL DATE"),("SHIP","ETD"),("SHIP","ETA"),("SHIP","STATUS (Draft/Confirmed/Cancelled/Closed)"),
         ("SHIP","SHIPPING LINE"),("SHIP","20 FT CNTR"),("SHIP","40 FT CNTR"),
         ("SHIPLINE","QTY SHIPPED"),("SHIPLINE","UNIT PRICE (reference only — see note)"),("SHIPLINE","TOTAL SHIPPED VALUE"),
         ("FWD","FORWARDER NAME"),("FWD","ACTUAL SHIPPING COST"),("FWD","CURRENCY"),("FWD","AMOUNT SAVED IN SHIPPING COST"),("FWD","MARINE INSURANCE (TRUE/FALSE)"),
@@ -67,6 +68,14 @@ public class DataExportService
         ("SSMO","COC REQUIRED (TRUE/FALSE)"),("SSMO","COC AVAILABLE (TRUE/FALSE)"),("SSMO","APPLICATION DATE"),
         ("SSMO","COST"),("SSMO","COST SETTLED DATE"),("SSMO","REF NUMBER"),("SSMO","APPROVAL DATE"),
         ("SHIPLINE","HS CODE"),
+        // Appended rather than inserted alongside the SHIP/SHIPLINE section
+        // above so every existing column's fixed position (and every
+        // already-downloaded blank template) stays valid — same convention
+        // the CBOS Tenor and HS CODE columns already followed.
+        ("SHIP","VESSEL NAME"),("SHIP","SOC (TRUE/FALSE)"),("SHIP","BL FREE DAYS"),("SHIP","SOB ACTUAL DATE"),
+        ("DIRECTSALES","IS DIRECT SALES (TRUE/FALSE)"),("DIRECTSALES","CONSIGNEE NAME (Direct Sales end-client)"),
+        ("DIRECTSALES","ORIGINAL DOCUMENTS HANDED (TRUE/FALSE)"),("DIRECTSALES","FULL PAYMENT COLLECTED (TRUE/FALSE)"),
+        ("DIRECTSALES","DEAL CLOSED AT (auto-set once both above are TRUE)"),
     };
     private static void SetCell(IXLWorksheet ws, int row, int col, object? value)
     {
@@ -74,6 +83,7 @@ public class DataExportService
         {
             bool b => b ? "TRUE" : "FALSE",
             DateOnly d => d.ToString("yyyy-MM-dd"),
+            DateTime dt => dt.ToString("yyyy-MM-dd HH:mm:ss"),
             null => "",
             var v => v.ToString() ?? ""
         };
@@ -102,6 +112,7 @@ public class DataExportService
         BuildWithdrawalCostEstimateSheet(wb);
         BuildWithdrawalEstimateLineItemsSheet(wb);
         BuildWithdrawalLineItemsSheet(wb);
+        BuildDirectSalesCustomerDuesSheet(wb);
         BuildSectionLocksSheet(wb);
 
         using var ms = new MemoryStream();
@@ -342,6 +353,50 @@ public class DataExportService
         SetCell(ws, row, c++, ssmo?.RefNumber);
         SetCell(ws, row, c++, ssmo?.ApprovalDate);
         SetCell(ws, row, c++, sl?.HsCode);
+
+        SetCell(ws, row, c++, ship?.VesselName);
+        SetCell(ws, row, c++, ship?.Soc);
+        SetCell(ws, row, c++, ship?.BlFreeDays);
+        SetCell(ws, row, c++, ship?.SobActualDate);
+        SetCell(ws, row, c++, ship?.IsDirectSales);
+        SetCell(ws, row, c++, ship?.ConsigneeName);
+        SetCell(ws, row, c++, ship?.DirectSalesDocumentsHanded);
+        SetCell(ws, row, c++, ship?.DirectSalesPaymentCollected);
+        SetCell(ws, row, c++, ship?.DirectSalesClosedAt);
+    }
+
+    // Direct Sales' "Customer Agreed Payment" schedule (ShipmentCustomerDue)
+    // — a separate table from the Supplier Payment Due Schedule above, and
+    // previously missing from this export entirely (Customer Collected
+    // Payment already round-trips via Bank_Collection_Records, since that
+    // reuses the same ShipmentCollectionRecord table Bank Dues collections
+    // use — see DirectSalesController's own comment on that reuse).
+    private void BuildDirectSalesCustomerDuesSheet(XLWorkbook wb)
+    {
+        var ws = wb.Worksheets.Add("Direct_Sales_Customer_Dues");
+        ws.Cell(1, 1).Value = "Direct Sales — Customer Agreed Payment (Planned)";
+        ws.Cell(1, 1).Style.Font.Bold = true; ws.Cell(1, 1).Style.Font.FontSize = 13; ws.Cell(1, 1).Style.Font.FontColor = Navy;
+        var headers = new[] { "B/L NO", "DUE DATE", "VALUE", "CURRENCY" };
+        for (int i = 0; i < headers.Length; i++)
+        {
+            var c = ws.Cell(4, i + 1);
+            c.Value = headers[i]; c.Style.Font.Bold = true; c.Style.Font.FontColor = XLColor.White; c.Style.Fill.BackgroundColor = Navy;
+        }
+        for (int i = 0; i < headers.Length; i++) ws.Cell(5, i + 1).Style.Fill.BackgroundColor = LegendFill;
+
+        var dues = _db.ShipmentCustomerDues.Include(d => d.Shipment).Include(d => d.Currency)
+            .OrderBy(d => d.Shipment!.BlAwbNo).ThenBy(d => d.DueDate).ToList();
+
+        int row = 6;
+        foreach (var d in dues)
+        {
+            SetCell(ws, row, 1, d.Shipment?.BlAwbNo);
+            SetCell(ws, row, 2, d.DueDate);
+            SetCell(ws, row, 3, d.Value);
+            SetCell(ws, row, 4, d.Currency?.Code);
+            row++;
+        }
+        ws.Columns().AdjustToContents();
     }
 
     private void BuildPaymentDueSheet(XLWorkbook wb)
