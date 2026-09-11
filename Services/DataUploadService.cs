@@ -192,13 +192,14 @@ public class DataUploadService
     private async Task<SheetUploadResult> ProcessMain(IXLWorksheet ws)
     {
         var errors = new List<string>();
-        int posCreated = 0, poLinesCreated = 0, shipmentsCreated = 0, shipmentLinesCreated = 0, sectionsUpdated = 0;
+        int posCreated = 0, poLinesCreated = 0, shipmentsCreated = 0, shipmentLinesCreated = 0, sectionsUpdated = 0, shipmentPoLinksCreated = 0;
         var lastRow = ws.LastRowUsed()?.RowNumber() ?? MainFirstDataRow - 1;
         var lk = await LoadLookups();
 
         var poCache = new Dictionary<string, PurchaseOrder>();
         var poLineCache = new Dictionary<(string Po, string Model), PurchaseOrderLineItem>();
         var shipmentCache = new Dictionary<string, Shipment>();
+        var shipmentPoLinksCache = new HashSet<(int ShipmentId, int PurchaseOrderId)>();
 
         for (int row = MainFirstDataRow; row <= lastRow; row++)
         {
@@ -411,6 +412,22 @@ public class DataUploadService
                 shipmentCache[blAwbNo] = shipment;
             }
 
+            // --- Shipment <-> PO link (every PO actually represented in this
+            // shipment's line items — not just the PO in effect when the
+            // shipment row was first created. A multi-PO shipment has later
+            // Main rows that share this BlAwbNo but reference a different
+            // PoNumber, and each of those needs its own link row here too.) ---
+            if (shipmentPoLinksCache.Add((shipment.Id, po.Id)))
+            {
+                var linkExists = await _db.ShipmentPurchaseOrders.AnyAsync(l => l.ShipmentId == shipment.Id && l.PurchaseOrderId == po.Id);
+                if (!linkExists)
+                {
+                    _db.ShipmentPurchaseOrders.Add(new ShipmentPurchaseOrder { ShipmentId = shipment.Id, PurchaseOrderId = po.Id });
+                    await _db.SaveChangesAsync();
+                    shipmentPoLinksCreated++;
+                }
+            }
+
             // --- Shipment Line Item (cols 36, 38; col 37 is reference-only, ignored) ---
             var existingShipLine = await _db.ShipmentLineItems.FirstOrDefaultAsync(sl => sl.ShipmentId == shipment.Id && sl.PurchaseOrderLineItemId == poLine.Id);
             if (existingShipLine is null)
@@ -466,7 +483,7 @@ public class DataUploadService
             sectionsUpdated++;
         }
 
-        var totalCreated = posCreated + poLinesCreated + shipmentsCreated + shipmentLinesCreated;
+        var totalCreated = posCreated + poLinesCreated + shipmentsCreated + shipmentLinesCreated + shipmentPoLinksCreated;
         return new SheetUploadResult("Main", totalCreated, sectionsUpdated, errors);
     }
 
@@ -582,7 +599,8 @@ public class DataUploadService
         var ssmoCostSettledDate = Dt(ws, row, 80);
         var ssmoRefNumber = S(ws, row, 81);
         var ssmoApprovalDate = Dt(ws, row, 82);
-        if (cocRequired is not null || cocAvailable is not null || ssmoApplicationDate is not null || ssmoRefNumber is not null)
+        if (cocRequired is not null || cocAvailable is not null || ssmoApplicationDate is not null || ssmoRefNumber is not null
+            || ssmoCost.HasValue || ssmoCostSettledDate.HasValue || ssmoApprovalDate.HasValue)
         {
             var ssmo = await _db.ShipmentSsmos.FirstOrDefaultAsync(s => s.ShipmentId == shipmentId) ?? new ShipmentSsmo { ShipmentId = shipmentId };
             if (ssmo.Id == 0) _db.ShipmentSsmos.Add(ssmo);
@@ -595,23 +613,37 @@ public class DataUploadService
             ssmo.ApprovalDate = ssmoApprovalDate;
         }
 
-        // ACD (col 52)
+        // ACD (col 52; cols 93-95 appended at the end of Main — see DataExportService)
         var acdCost = D(ws, row, 52);
-        if (acdCost.HasValue)
+        var acdProcessDate = Dt(ws, row, 93);
+        var acdCostSettledDate = Dt(ws, row, 94);
+        var acdRefNumber = S(ws, row, 95);
+        if (acdCost.HasValue || acdProcessDate.HasValue || acdCostSettledDate.HasValue || acdRefNumber is not null)
         {
             var acd = await _db.ShipmentAcds.FirstOrDefaultAsync(a => a.ShipmentId == shipmentId) ?? new ShipmentAcd { ShipmentId = shipmentId };
             if (acd.Id == 0) _db.ShipmentAcds.Add(acd);
             acd.CostUsd = acdCost;
+            acd.ProcessDate = acdProcessDate;
+            acd.CostSettledDate = acdCostSettledDate;
+            acd.RefNumber = acdRefNumber;
         }
 
-        // MOT (cols 53-54)
+        // MOT (cols 53-54; cols 96-99 appended at the end of Main — see DataExportService)
         var motPiNo = S(ws, row, 53);
-        if (motPiNo is not null)
+        var motProcessDate = Dt(ws, row, 96);
+        var motCost = D(ws, row, 97);
+        var motCostSettledDate = Dt(ws, row, 98);
+        var motRefNumber = S(ws, row, 99);
+        if (motPiNo is not null || motProcessDate.HasValue || motCost.HasValue || motCostSettledDate.HasValue || motRefNumber is not null)
         {
             var mot = await _db.ShipmentMots.FirstOrDefaultAsync(m => m.ShipmentId == shipmentId) ?? new ShipmentMot { ShipmentId = shipmentId };
             if (mot.Id == 0) _db.ShipmentMots.Add(mot);
             mot.OffshoreApprovedPiNumber = motPiNo;
             mot.ApprovalDate = Dt(ws, row, 54);
+            mot.ProcessDate = motProcessDate;
+            mot.Cost = motCost;
+            mot.CostSettledDate = motCostSettledDate;
+            mot.RefNumber = motRefNumber;
         }
 
         // Last Offshore Details header (cols 55-57; 58 and 61 handled per-line-item by the caller; 62 = Currency; 63 = Remarks)
@@ -1028,9 +1060,19 @@ public class DataUploadService
             var warehouse = warehouses.FirstOrDefault(w => w.Name == warehouseName);
             if (warehouse is null) { errors.Add($"Row {row}: Warehouse '{warehouseName}' not found."); continue; }
 
+            // Truck Plate No. is only present once this allocation has
+            // actually been trucked — a row with a Warehouse but no Plate
+            // No. is a valid "allocated, not yet trucked" state (see
+            // DataExportService's BuildTruckingSheet) and must still
+            // round-trip as a WarehouseAllocation, just without a
+            // TruckLoad/Drop/Item chain.
             var plateNo = S(ws, row, 5);
-            var truck = trucks.FirstOrDefault(t => t.PlateNo == plateNo);
-            if (truck is null) { errors.Add($"Row {row}: Truck with Plate No. '{plateNo}' not found."); continue; }
+            Truck? truck = null;
+            if (plateNo is not null)
+            {
+                truck = trucks.FirstOrDefault(t => t.PlateNo == plateNo);
+                if (truck is null) { errors.Add($"Row {row}: Truck with Plate No. '{plateNo}' not found."); continue; }
+            }
 
             var driverName = S(ws, row, 6);
             var driver = driverName is not null ? drivers.FirstOrDefault(d => d.Name == driverName) : null;
@@ -1044,22 +1086,48 @@ public class DataUploadService
             var existingAllocation = await _db.WarehouseAllocations.FirstOrDefaultAsync(a => a.ShipmentLineItemId == shipLine.Id);
             if (existingAllocation is not null)
             {
+                existingAllocation.WarehouseId = warehouse.Id;
+                existingAllocation.Qty = qty;
+
+                if (truck is null)
+                {
+                    // This row round-trips back to "allocated, not yet
+                    // trucked" — nothing here to update an existing truck
+                    // chain with, so leave any existing chain untouched.
+                    await _db.SaveChangesAsync();
+                    updated++;
+                    continue;
+                }
+
                 var existingItem = await _db.TruckLoadItems.FirstOrDefaultAsync(i => i.WarehouseAllocationId == existingAllocation.Id);
                 if (existingItem is not null)
                 {
                     var existingDrop = await _db.TruckLoadDrops.FirstOrDefaultAsync(d => d.Id == existingItem.TruckLoadDropId);
                     var existingLoad = existingDrop is not null ? await _db.TruckLoads.FirstOrDefaultAsync(l => l.Id == existingDrop.TruckLoadId) : null;
 
-                    existingAllocation.WarehouseId = warehouse.Id;
-                    existingAllocation.Qty = qty;
                     if (existingDrop is not null) { existingDrop.WarehouseId = warehouse.Id; existingDrop.ExpectedDeliveryDate = Dt(ws, row, 8); existingDrop.ActualDropOffDate = Dt(ws, row, 9); }
                     if (existingLoad is not null) { existingLoad.TruckId = truck.Id; existingLoad.DriverId = driver?.Id; existingLoad.LoadDate = loadDate; }
-                    if (existingItem is not null) { existingItem.Qty = qty; existingItem.InHousePrice = D(ws, row, 10); existingItem.ParallelMarketPrice = D(ws, row, 11); }
+                    existingItem.Qty = qty; existingItem.InHousePrice = D(ws, row, 10); existingItem.ParallelMarketPrice = D(ws, row, 11);
 
                     await _db.SaveChangesAsync();
                     updated++;
                     continue;
                 }
+
+                // Existing allocation had no truck chain yet, and this row
+                // now supplies one — create it against the existing allocation.
+                var newLoad = new TruckLoad { TruckId = truck.Id, DriverId = driver?.Id, LoadDate = loadDate, Notes = "Migration import" };
+                _db.TruckLoads.Add(newLoad);
+                await _db.SaveChangesAsync();
+
+                var newDrop = new TruckLoadDrop { TruckLoadId = newLoad.Id, WarehouseId = warehouse.Id, ExpectedDeliveryDate = Dt(ws, row, 8), ActualDropOffDate = Dt(ws, row, 9) };
+                _db.TruckLoadDrops.Add(newDrop);
+                await _db.SaveChangesAsync();
+
+                _db.TruckLoadItems.Add(new TruckLoadItem { TruckLoadDropId = newDrop.Id, WarehouseAllocationId = existingAllocation.Id, Qty = qty, InHousePrice = D(ws, row, 10), ParallelMarketPrice = D(ws, row, 11) });
+                await _db.SaveChangesAsync();
+                updated++;
+                continue;
             }
 
             var allocation = new WarehouseAllocation
@@ -1068,6 +1136,14 @@ public class DataUploadService
             };
             _db.WarehouseAllocations.Add(allocation);
             await _db.SaveChangesAsync();
+
+            if (truck is null)
+            {
+                // Allocated but not yet trucked — the allocation itself is
+                // the whole of what this row has to give.
+                created++;
+                continue;
+            }
 
             var load = new TruckLoad { TruckId = truck.Id, DriverId = driver?.Id, LoadDate = loadDate, Notes = "Migration import" };
             _db.TruckLoads.Add(load);

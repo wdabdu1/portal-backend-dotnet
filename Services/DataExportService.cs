@@ -76,6 +76,13 @@ public class DataExportService
         ("DIRECTSALES","IS DIRECT SALES (TRUE/FALSE)"),("DIRECTSALES","CONSIGNEE NAME (Direct Sales end-client)"),
         ("DIRECTSALES","ORIGINAL DOCUMENTS HANDED (TRUE/FALSE)"),("DIRECTSALES","FULL PAYMENT COLLECTED (TRUE/FALSE)"),
         ("DIRECTSALES","DEAL CLOSED AT (auto-set once both above are TRUE)"),
+        // Appended (cols 93-99) — same append-only convention as above.
+        // ACD/MOT process/settlement/ref fields existed on the model but were
+        // never exported or read back, so a wipe-and-restore silently lost
+        // them; adding them here (and reading them back in DataUploadService)
+        // closes that gap without moving any existing column.
+        ("ACD","ACD PROCESS DATE"),("ACD","ACD COST SETTLED DATE"),("ACD","ACD REF NUMBER"),
+        ("MOT","TECHUIP MOT PROCESS DATE"),("MOT","TECHUIP MOT COST"),("MOT","TECHUIP MOT COST SETTLED DATE"),("MOT","TECHUIP MOT REF NUMBER"),
     };
     private static void SetCell(IXLWorksheet ws, int row, int col, object? value)
     {
@@ -363,6 +370,15 @@ public class DataExportService
         SetCell(ws, row, c++, ship?.DirectSalesDocumentsHanded);
         SetCell(ws, row, c++, ship?.DirectSalesPaymentCollected);
         SetCell(ws, row, c++, ship?.DirectSalesClosedAt);
+
+        // Appended (cols 93-99) — see MainColumns comment above.
+        SetCell(ws, row, c++, acd?.ProcessDate);
+        SetCell(ws, row, c++, acd?.CostSettledDate);
+        SetCell(ws, row, c++, acd?.RefNumber);
+        SetCell(ws, row, c++, mot?.ProcessDate);
+        SetCell(ws, row, c++, mot?.Cost);
+        SetCell(ws, row, c++, mot?.CostSettledDate);
+        SetCell(ws, row, c++, mot?.RefNumber);
     }
 
     // Direct Sales' "Customer Agreed Payment" schedule (ShipmentCustomerDue)
@@ -723,37 +739,52 @@ public class DataExportService
         }
         for (int i = 0; i < headers.Length; i++) ws.Cell(5, i + 1).Style.Fill.BackgroundColor = LegendFill;
 
-        // TruckLoadItem is the leaf of the chain — walk back up through
-        // Drop → TruckLoad, and via WarehouseAllocation → ShipmentLineItem
-        // to get the B/L and Model needed to identify the row.
-        var items = _db.TruckLoadItems
-            .Include(i => i.TruckLoadDrop!).ThenInclude(d => d.TruckLoad!).ThenInclude(t => t.Truck)
-            .Include(i => i.TruckLoadDrop!).ThenInclude(d => d.TruckLoad!).ThenInclude(t => t.Driver)
-            .Include(i => i.TruckLoadDrop!).ThenInclude(d => d.Warehouse)
-            .Include(i => i.WarehouseAllocation!).ThenInclude(a => a.ShipmentLineItem!).ThenInclude(sl => sl.Shipment)
-            .Include(i => i.WarehouseAllocation!).ThenInclude(a => a.ShipmentLineItem!).ThenInclude(sl => sl.PurchaseOrderLineItem!).ThenInclude(pl => pl.ModelProduct)
-            .Where(i => i.WarehouseAllocation!.ShipmentLineItemId != null)
-            .ToList();
+        // Walk from WarehouseAllocation (Stage 1 — the allocation decision)
+        // rather than TruckLoadItem (the leaf of the truck chain), LEFT
+        // JOINing out to the TruckLoadItem/Drop/Load chain. An allocation
+        // that hasn't been trucked yet — a real, common state — previously
+        // had no TruckLoadItem at all and so was silently skipped by this
+        // export entirely; it now exports as one row with the truck-related
+        // columns blank. Route 3 (withdrawal-sourced) allocations are still
+        // out of scope here, same as before — only ShipmentLineItemId-sourced
+        // allocations (Route 1/3 port-cleared, not FZ-withdrawal-cleared) are covered.
+        var query =
+            from a in _db.WarehouseAllocations
+                .Include(wa => wa.ShipmentLineItem!).ThenInclude(sl => sl.Shipment)
+                .Include(wa => wa.ShipmentLineItem!).ThenInclude(sl => sl.PurchaseOrderLineItem!).ThenInclude(pl => pl.ModelProduct)
+                .Include(wa => wa.Warehouse)
+            where a.ShipmentLineItemId != null
+            join ti in _db.TruckLoadItems
+                .Include(i => i.TruckLoadDrop!).ThenInclude(d => d.TruckLoad!).ThenInclude(t => t.Truck)
+                .Include(i => i.TruckLoadDrop!).ThenInclude(d => d.TruckLoad!).ThenInclude(t => t.Driver)
+                .Include(i => i.TruckLoadDrop!).ThenInclude(d => d.Warehouse)
+                on a.Id equals ti.WarehouseAllocationId into truckItems
+            from item in truckItems.DefaultIfEmpty()
+            orderby a.ShipmentLineItem!.Shipment!.BlAwbNo
+            select new { Allocation = a, Item = item };
+        var rows = query.ToList();
 
         int row = 6;
-        foreach (var item in items)
+        foreach (var x in rows)
         {
-            var drop = item.TruckLoadDrop!;
-            var load = drop.TruckLoad!;
-            var shipLine = item.WarehouseAllocation!.ShipmentLineItem!;
+            var allocation = x.Allocation;
+            var item = x.Item;
+            var drop = item?.TruckLoadDrop;
+            var load = drop?.TruckLoad;
+            var shipLine = allocation.ShipmentLineItem!;
 
             int c2 = 1;
             SetCell(ws, row, c2++, shipLine.Shipment?.BlAwbNo);
             SetCell(ws, row, c2++, shipLine.PurchaseOrderLineItem?.ModelProduct?.Name);
-            SetCell(ws, row, c2++, item.Qty);
-            SetCell(ws, row, c2++, drop.Warehouse?.Name);
-            SetCell(ws, row, c2++, load.Truck?.PlateNo);
-            SetCell(ws, row, c2++, load.Driver?.Name);
-            SetCell(ws, row, c2++, load.LoadDate);
-            SetCell(ws, row, c2++, drop.ExpectedDeliveryDate);
-            SetCell(ws, row, c2++, drop.ActualDropOffDate);
-            SetCell(ws, row, c2++, item.InHousePrice);
-            SetCell(ws, row, c2++, item.ParallelMarketPrice);
+            SetCell(ws, row, c2++, item?.Qty ?? allocation.Qty);
+            SetCell(ws, row, c2++, drop?.Warehouse?.Name ?? allocation.Warehouse?.Name);
+            SetCell(ws, row, c2++, load?.Truck?.PlateNo);
+            SetCell(ws, row, c2++, load?.Driver?.Name);
+            SetCell(ws, row, c2++, load?.LoadDate);
+            SetCell(ws, row, c2++, drop?.ExpectedDeliveryDate);
+            SetCell(ws, row, c2++, drop?.ActualDropOffDate);
+            SetCell(ws, row, c2++, item?.InHousePrice);
+            SetCell(ws, row, c2++, item?.ParallelMarketPrice);
             row++;
         }
         ws.Columns().AdjustToContents();
