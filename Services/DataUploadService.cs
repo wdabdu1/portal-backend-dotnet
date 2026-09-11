@@ -144,6 +144,11 @@ public class DataUploadService
         var directSalesDuesWs = wb.Worksheets.FirstOrDefault(w => w.Name == "Direct_Sales_Customer_Dues");
         if (directSalesDuesWs is not null) results.Add(await ProcessDirectSalesCustomerDues(directSalesDuesWs));
 
+        // Must run after both Main (shipments + POs) and PO_Offshore_Chain
+        // (offshore partners) above — it resolves each row against both.
+        var erpInfoWs = wb.Worksheets.FirstOrDefault(w => w.Name == "Shipment_Offshore_Erp_Info");
+        if (erpInfoWs is not null) results.Add(await ProcessShipmentOffshoreErpInfo(erpInfoWs));
+
         return new UploadSummary(results);
     }
 
@@ -1346,6 +1351,58 @@ public class DataUploadService
         }
         await _db.SaveChangesAsync();
         return new SheetUploadResult("Direct_Sales_Customer_Dues", created, updated, errors);
+    }
+
+    // ---------- Shipment Offshore ERP Info (PR/PO/SA/Bill Reg/GRN/Invoice/Inspection/Remarks) ----------
+    // One row per (Shipment, offshore-chain hop) that has data — matches
+    // Build ShipmentOffshoreErpInfoSheet's own shape (see DataExportService).
+    // The hop is re-resolved via the shipment's own PO's offshore chain
+    // (PurchaseOrderOffshorePartners, by SequenceOrder) rather than by
+    // Offshore Partner Name, since the name column is reference-only here —
+    // requires both Main and PO_Offshore_Chain to already be uploaded first
+    // (dispatch order in ProcessAsync guarantees this).
+    private async Task<SheetUploadResult> ProcessShipmentOffshoreErpInfo(IXLWorksheet ws)
+    {
+        var errors = new List<string>(); int created = 0, updated = 0;
+        var lastRow = ws.LastRowUsed()?.RowNumber() ?? PaymentFirstDataRow - 1;
+
+        for (int row = PaymentFirstDataRow; row <= lastRow; row++)
+        {
+            if (RowIsBlank(ws, row, 11)) continue;
+            var blAwbNo = S(ws, row, 1);
+            var sequence = I(ws, row, 2);
+            if (blAwbNo is null || sequence is null)
+            { errors.Add($"Row {row}: B/L NO and SEQUENCE are both required."); continue; }
+
+            var shipment = await _db.Shipments.FirstOrDefaultAsync(s => s.BlAwbNo == blAwbNo);
+            if (shipment is null) { errors.Add($"Row {row}: Shipment '{blAwbNo}' not found — upload Main first."); continue; }
+
+            var partner = await _db.PurchaseOrderOffshorePartners
+                .FirstOrDefaultAsync(op => op.PurchaseOrderId == shipment.PurchaseOrderId && op.SequenceOrder == sequence);
+            if (partner is null)
+            { errors.Add($"Row {row}: No offshore partner at sequence {sequence} on shipment '{blAwbNo}''s PO — upload PO_Offshore_Chain first."); continue; }
+
+            var entity = await _db.ShipmentOffshoreErpInfos
+                .FirstOrDefaultAsync(e => e.ShipmentId == shipment.Id && e.PurchaseOrderOffshorePartnerId == partner.Id);
+            if (entity is null)
+            {
+                entity = new ShipmentOffshoreErpInfo { ShipmentId = shipment.Id, PurchaseOrderOffshorePartnerId = partner.Id };
+                _db.ShipmentOffshoreErpInfos.Add(entity);
+                created++;
+            }
+            else updated++;
+
+            entity.PrNo = S(ws, row, 4);
+            entity.PoNo = S(ws, row, 5);
+            entity.Sa = S(ws, row, 6);
+            entity.BillReg = S(ws, row, 7);
+            entity.Grn = S(ws, row, 8);
+            entity.InvoiceNo = S(ws, row, 9);
+            entity.InspectionNo = S(ws, row, 10);
+            entity.Remarks = S(ws, row, 11);
+        }
+        await _db.SaveChangesAsync();
+        return new SheetUploadResult("Shipment_Offshore_Erp_Info", created, updated, errors);
     }
 
     // ---------- Clearance — Route 3 (Clear from FZ / Withdrawal) ----------

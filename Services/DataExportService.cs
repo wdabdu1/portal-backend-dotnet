@@ -120,6 +120,7 @@ public class DataExportService
         BuildWithdrawalEstimateLineItemsSheet(wb);
         BuildWithdrawalLineItemsSheet(wb);
         BuildDirectSalesCustomerDuesSheet(wb);
+        BuildShipmentOffshoreErpInfoSheet(wb);
         BuildSectionLocksSheet(wb);
 
         using var ms = new MemoryStream();
@@ -410,6 +411,54 @@ public class DataExportService
             SetCell(ws, row, 2, d.DueDate);
             SetCell(ws, row, 3, d.Value);
             SetCell(ws, row, 4, d.Currency?.Code);
+            row++;
+        }
+        ws.Columns().AdjustToContents();
+    }
+
+    // ERP paperwork (PR/PO/SA/Bill Reg/GRN/Invoice/Inspection/Remarks) entered
+    // per (Shipment, offshore-chain hop) on the Additional page's "ERP Info"
+    // section. One row per hop that actually has data — a shipment with a
+    // 3-partner offshore chain can have up to 3 rows here, unlike everything
+    // else on Main which is exactly one row per shipment. SEQUENCE + OFFSHORE
+    // PARTNER NAME together identify which hop of the shipment's own PO's
+    // offshore chain (see PO_Offshore_Chain sheet above) this row belongs to;
+    // Partner Name is reference-only for a human reading the sheet — only
+    // SEQUENCE is used to re-link the row on upload (see DataUploadService).
+    private void BuildShipmentOffshoreErpInfoSheet(XLWorkbook wb)
+    {
+        var ws = wb.Worksheets.Add("Shipment_Offshore_Erp_Info");
+        ws.Cell(1, 1).Value = "Shipment Offshore ERP Info (one row per shipment + offshore-chain hop)";
+        ws.Cell(1, 1).Style.Font.Bold = true; ws.Cell(1, 1).Style.Font.FontSize = 13; ws.Cell(1, 1).Style.Font.FontColor = Navy;
+        var headers = new[] { "B/L NO", "SEQUENCE", "OFFSHORE PARTNER NAME (reference only)",
+            "PR NO", "PO NO", "SA", "BILL REG", "GRN", "INVOICE NO", "INSPECTION NO", "REMARKS" };
+        for (int i = 0; i < headers.Length; i++)
+        {
+            var c = ws.Cell(4, i + 1);
+            c.Value = headers[i]; c.Style.Font.Bold = true; c.Style.Font.FontColor = XLColor.White; c.Style.Fill.BackgroundColor = Navy;
+        }
+        for (int i = 0; i < headers.Length; i++) ws.Cell(5, i + 1).Style.Fill.BackgroundColor = LegendFill;
+
+        var rows = _db.ShipmentOffshoreErpInfos
+            .Include(e => e.Shipment)
+            .Include(e => e.PurchaseOrderOffshorePartner!).ThenInclude(op => op.BusinessPartner)
+            .OrderBy(e => e.Shipment!.BlAwbNo).ThenBy(e => e.PurchaseOrderOffshorePartner!.SequenceOrder)
+            .ToList();
+
+        int row = 6;
+        foreach (var e in rows)
+        {
+            SetCell(ws, row, 1, e.Shipment?.BlAwbNo);
+            SetCell(ws, row, 2, e.PurchaseOrderOffshorePartner?.SequenceOrder);
+            SetCell(ws, row, 3, e.PurchaseOrderOffshorePartner?.BusinessPartner?.Name);
+            SetCell(ws, row, 4, e.PrNo);
+            SetCell(ws, row, 5, e.PoNo);
+            SetCell(ws, row, 6, e.Sa);
+            SetCell(ws, row, 7, e.BillReg);
+            SetCell(ws, row, 8, e.Grn);
+            SetCell(ws, row, 9, e.InvoiceNo);
+            SetCell(ws, row, 10, e.InspectionNo);
+            SetCell(ws, row, 11, e.Remarks);
             row++;
         }
         ws.Columns().AdjustToContents();
