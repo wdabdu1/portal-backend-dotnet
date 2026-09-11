@@ -30,7 +30,7 @@ public record CreatePurchaseOrderRequest(
     List<LineItemRequest> LineItems, List<OffshorePartnerRequest> OffshorePartners);
 
 public record PurchaseOrderSummary(int Id, string PoNumber, string BusinessUnit, string Supplier, string Status, int LineItemCount, DateTime CreatedAt, decimal OrderValueUsd, decimal PercentShipped);
-public record ConfirmedOrderOption(int Id, string PoNumber, string BusinessUnit, string Supplier, decimal OrderValueUsd, int BusinessUnitId, int SupplierId, int DivisionId);
+public record ConfirmedOrderOption(int Id, string PoNumber, string BusinessUnit, string Supplier, decimal OrderValueUsd, int BusinessUnitId, int SupplierId, int DivisionId, string OpenCategories);
 
 public record LineItemResponse(int Id, string ProductCategory, string ModelProduct, string ProductType, decimal Qty, string UnitOfMeasure, decimal UnitPrice, string Currency, decimal Total, decimal TotalUsd);
 public record OffshorePartnerResponse(int Id, string BusinessPartnerName, int SequenceOrder);
@@ -87,19 +87,56 @@ public class PurchaseOrdersController : ControllerBase
     // shipment (same Supplier + BU + Division) — the actual enforcement
     // happens server-side in ShipmentsController.Create(), this is only
     // for not offering a combination that's guaranteed to be rejected.
+    //
+    // Only returns POs with at least one line item still open (ordered qty
+    // not yet fully placed on a non-Cancelled shipment) — a PO every line
+    // of which has already been fully shipped has nothing left to pull into
+    // a new shipment, so listing it here just adds noise to a picker that
+    // only grows over time. "Remaining" is the same ordered-minus-shipped
+    // definition GetLineItemsRemaining (below) and the Shipment Dashboard's
+    // Draft-PO rows (DashboardsController.GetShipments) already use.
+    // OpenCategories (the distinct Product Categories among that PO's still-
+    // open lines) is surfaced so the picker shows more than PO No. + Supplier
+    // — with the PO list only growing, those two alone stop being enough to
+    // tell orders apart at a glance.
     [HttpGet("confirmed")]
     public async Task<ActionResult<IEnumerable<ConfirmedOrderOption>>> GetConfirmed()
     {
-        return await _db.PurchaseOrders
+        var orders = await _db.PurchaseOrders
             .Where(p => p.Status == OrderStatus.Confirmed)
             .Include(p => p.BusinessUnit)
             .Include(p => p.Supplier)
-            .Include(p => p.LineItems)
+            .Include(p => p.LineItems).ThenInclude(li => li.ProductCategory)
             .OrderByDescending(p => p.CreatedAt)
-            .Select(p => new ConfirmedOrderOption(
-                p.Id, p.PoNumber, p.BusinessUnit!.Name, p.Supplier!.Name, p.LineItems.Sum(li => li.TotalUsd),
-                p.BusinessUnitId, p.SupplierId, p.DivisionId))
             .ToListAsync();
+
+        var lineItemIds = orders.SelectMany(p => p.LineItems).Select(li => li.Id).ToList();
+        var shippedByLineItem = await _db.ShipmentLineItems
+            .Where(sli => lineItemIds.Contains(sli.PurchaseOrderLineItemId) && sli.Shipment!.Status != ShipmentStatus.Cancelled)
+            .GroupBy(sli => sli.PurchaseOrderLineItemId)
+            .Select(g => new { PoLineItemId = g.Key, Shipped = g.Sum(x => x.QtyInBl) })
+            .ToDictionaryAsync(x => x.PoLineItemId, x => x.Shipped);
+
+        var result = new List<ConfirmedOrderOption>();
+        foreach (var p in orders)
+        {
+            var hasRemaining = false;
+            var openCategories = new List<string>();
+            foreach (var li in p.LineItems)
+            {
+                var shipped = shippedByLineItem.GetValueOrDefault(li.Id, 0m);
+                if (li.Qty - shipped <= 0) continue; // this line is fully shipped, not open
+                hasRemaining = true;
+                var catName = li.ProductCategory?.Name;
+                if (catName is not null && !openCategories.Contains(catName)) openCategories.Add(catName);
+            }
+            if (!hasRemaining) continue; // every line on this PO is fully shipped — hide it
+
+            result.Add(new ConfirmedOrderOption(
+                p.Id, p.PoNumber, p.BusinessUnit!.Name, p.Supplier!.Name, p.LineItems.Sum(li => li.TotalUsd),
+                p.BusinessUnitId, p.SupplierId, p.DivisionId, string.Join(", ", openCategories)));
+        }
+        return result;
     }
 
     [HttpGet("{id:int}/line-items-remaining")]
