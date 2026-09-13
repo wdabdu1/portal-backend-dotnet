@@ -55,8 +55,8 @@ public class DataExportService
         ("DOCS","ORIGINAL DOCUMENTS SENT DATE"),("DOCS","DHL AIRWAY BILL NO."),("DOCS","ORIGINAL DOCUMENTS RCVD DATE"),
         ("BANK","DHL No. (Bank dispatch tracking)"),
         ("ACD","ACD COST $"),
-        ("MOT","TECHUIP MOT APPROVED P.I. NO"),("MOT","TECHUIP MOT APPROVED P.I. DATE"),
-        ("OFFSHORE","TECHUIP INVOICE NO."),("OFFSHORE","INSPECTION NO."),("OFFSHORE","GRN NO."),("OFFSHORE","APPROVED MOT UNIT PRICE USD"),
+        ("MOT","MOT APPROVED P.I. NO"),("MOT","MOT APPROVED P.I. DATE"),
+        ("OFFSHORE","INVOICE NO."),("OFFSHORE","INSPECTION NO."),("OFFSHORE","GRN NO."),("OFFSHORE","APPROVED MOT UNIT PRICE USD"),
         ("OFFSHORE","APPROVED MOT TOTAL PRICE USD (auto-computed, reference only)"),
         ("CLR","REMARKS"),
         ("OFFSHORE","LAST OFFSHORE ITEM DESCRIPTION"),("OFFSHORE","LAST OFFSHORE CURRENCY"),
@@ -82,7 +82,7 @@ public class DataExportService
         // them; adding them here (and reading them back in DataUploadService)
         // closes that gap without moving any existing column.
         ("ACD","ACD PROCESS DATE"),("ACD","ACD COST SETTLED DATE"),("ACD","ACD REF NUMBER"),
-        ("MOT","TECHUIP MOT PROCESS DATE"),("MOT","TECHUIP MOT COST"),("MOT","TECHUIP MOT COST SETTLED DATE"),("MOT","TECHUIP MOT REF NUMBER"),
+        ("MOT","MOT PROCESS DATE"),("MOT","MOT COST"),("MOT","MOT COST SETTLED DATE"),("MOT","MOT REF NUMBER"),
     };
     private static void SetCell(IXLWorksheet ws, int row, int col, object? value)
     {

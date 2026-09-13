@@ -1501,7 +1501,13 @@ public class DataUploadService
             if (RowIsBlank(ws, row, 27)) continue;
             var depositBlAwbNo = S(ws, row, 1);
             var refNo = S(ws, row, 2);
-            if (depositBlAwbNo is null || refNo is null) { errors.Add($"Row {row}: DEPOSIT B/L NO and WITHDRAWAL REQUEST REF NO. are both required."); continue; }
+            // Ref No. is deliberately NOT required here — WithdrawalController.Create()
+            // creates a withdrawal with only DepositShipmentId set, and a real
+            // "draft" withdrawal (deposit identified, ref no. not yet known/entered)
+            // can sit in that state indefinitely in the live app. Requiring Ref No.
+            // here would make that normal pending state unrepresentable in this
+            // workbook and silently unrestorable on a wipe/restore.
+            if (depositBlAwbNo is null) { errors.Add($"Row {row}: DEPOSIT B/L NO is required."); continue; }
             if (refNo == "Opening Balance — Migration") { errors.Add($"Row {row}: '{refNo}' is a reserved Ref No. used by FZ_Stock_Opening_Balance — please use a different one."); continue; }
 
             var depositShip = await _db.Shipments.FirstOrDefaultAsync(s => s.BlAwbNo == depositBlAwbNo);
