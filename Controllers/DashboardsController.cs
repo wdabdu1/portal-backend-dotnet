@@ -60,7 +60,7 @@ public class DashboardsController : ControllerBase
     }
 
 [HttpGet("purchase-orders")]
-    [Authorize(Roles = AppRoles.Manager + "," + AppRoles.SuperUser + "," + AppRoles.Bu + "," + AppRoles.CorpFinance)]
+    [Authorize(Roles = AppRoles.PoShipmentDashboardViewers)]
     public async Task<ActionResult<IEnumerable<PoDashboardRow>>> GetPurchaseOrders(
         [FromServices] ShippingPortal.Api.Services.BuAccessService buAccess,
         [FromServices] ShippingPortal.Api.Services.ClearanceScheduleService scheduleService)
@@ -130,7 +130,7 @@ public class DashboardsController : ControllerBase
     }
 
     [HttpGet("shipments")]
-    [Authorize(Roles = AppRoles.Manager + "," + AppRoles.SuperUser + "," + AppRoles.Bu + "," + AppRoles.CorpFinance)]
+    [Authorize(Roles = AppRoles.PoShipmentDashboardViewers)]
     public async Task<ActionResult<IEnumerable<ShipmentDashboardRow>>> GetShipments(
         [FromServices] ShippingPortal.Api.Services.BuAccessService buAccess,
         [FromServices] ShippingPortal.Api.Services.ClearanceScheduleService scheduleService)
