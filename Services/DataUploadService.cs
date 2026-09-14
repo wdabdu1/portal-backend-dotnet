@@ -1366,6 +1366,18 @@ public class DataUploadService
         var errors = new List<string>(); int created = 0, updated = 0;
         var lastRow = ws.LastRowUsed()?.RowNumber() ?? PaymentFirstDataRow - 1;
 
+        // Keyed cache of rows already handled THIS upload — SaveChangesAsync
+        // only runs once, at the very end, so two rows in the same file that
+        // resolve to the same (Shipment, Offshore Partner) — e.g. an
+        // accidentally duplicated B/L No. + Sequence — would otherwise both
+        // query the database (neither finds the other, since nothing's been
+        // saved yet), both try to INSERT the same key, and the second one
+        // blows up the whole request with an unhandled unique-constraint
+        // exception instead of a normal row error. Checking this cache first
+        // means a duplicate row is simply treated as "update the same entry
+        // again" (last row in the file wins), same as a real re-upload would.
+        var entityCache = new Dictionary<(int ShipmentId, int PartnerId), ShipmentOffshoreErpInfo>();
+
         for (int row = PaymentFirstDataRow; row <= lastRow; row++)
         {
             if (RowIsBlank(ws, row, 11)) continue;
@@ -1382,15 +1394,24 @@ public class DataUploadService
             if (partner is null)
             { errors.Add($"Row {row}: No offshore partner at sequence {sequence} on shipment '{blAwbNo}''s PO — upload PO_Offshore_Chain first."); continue; }
 
-            var entity = await _db.ShipmentOffshoreErpInfos
-                .FirstOrDefaultAsync(e => e.ShipmentId == shipment.Id && e.PurchaseOrderOffshorePartnerId == partner.Id);
-            if (entity is null)
+            var cacheKey = (shipment.Id, partner.Id);
+            if (!entityCache.TryGetValue(cacheKey, out var entity))
             {
-                entity = new ShipmentOffshoreErpInfo { ShipmentId = shipment.Id, PurchaseOrderOffshorePartnerId = partner.Id };
-                _db.ShipmentOffshoreErpInfos.Add(entity);
-                created++;
+                entity = await _db.ShipmentOffshoreErpInfos
+                    .FirstOrDefaultAsync(e => e.ShipmentId == shipment.Id && e.PurchaseOrderOffshorePartnerId == partner.Id);
+                if (entity is null)
+                {
+                    entity = new ShipmentOffshoreErpInfo { ShipmentId = shipment.Id, PurchaseOrderOffshorePartnerId = partner.Id };
+                    _db.ShipmentOffshoreErpInfos.Add(entity);
+                    created++;
+                }
+                else updated++;
+                entityCache[cacheKey] = entity;
             }
-            else updated++;
+            else
+            {
+                errors.Add($"Row {row}: duplicate row for Shipment '{blAwbNo}' / Sequence {sequence} — an earlier row in this file already set this entry; this row's values overwrote it (last row wins).");
+            }
 
             entity.PrNo = S(ws, row, 4);
             entity.PoNo = S(ws, row, 5);
