@@ -71,6 +71,17 @@ public static class AppRoles
     public const string OrdersShipmentsEditors = IpUser + "," + IpSupervisor + "," + SuperUser;
     public const string OrdersShipmentsViewers = IpUser + "," + IpSupervisor + "," + SuperUser + "," + Bu + "," + Treasury + "," + Manager;
 
+    // The PO and Shipment status dashboards (DashboardsController.GetPurchaseOrders /
+    // GetShipments) — both already BU-scope their query for any BU-scoped role
+    // (BuAccessService), so IpUser/IpSupervisor seeing this list is safe and, per
+    // their day-to-day ops role, expected. Fixed 2026-09-14: these two endpoints
+    // had their own one-off inline role list that predated OrdersShipmentsViewers
+    // and never got IpUser/IpSupervisor added to it, unlike every other
+    // viewer-role group in this file — this constant intentionally keeps
+    // CorpFinance (already granted here) rather than switching to
+    // OrdersShipmentsViewers wholesale, which would have silently dropped it.
+    public const string PoShipmentDashboardViewers = IpUser + "," + IpSupervisor + "," + Manager + "," + SuperUser + "," + Bu + "," + CorpFinance;
+
     public const string ClearanceEditors = ClrUsr + "," + ClrSupervisor + "," + SuperUser;
     public const string ClearanceViewers = IpUser + "," + IpSupervisor + "," + ClrUsr + "," + ClrSupervisor + "," + Bu + "," + Treasury + "," + CorpFinance + "," + Manager + "," + SuperUser;
 
