@@ -83,7 +83,14 @@ public static class AppRoles
     public const string PoShipmentDashboardViewers = IpUser + "," + IpSupervisor + "," + Manager + "," + SuperUser + "," + Bu + "," + CorpFinance;
 
     public const string ClearanceEditors = ClrUsr + "," + ClrSupervisor + "," + SuperUser;
-    public const string ClearanceViewers = IpUser + "," + IpSupervisor + "," + ClrUsr + "," + ClrSupervisor + "," + Bu + "," + Treasury + "," + CorpFinance + "," + Manager + "," + SuperUser;
+    // CPricing added 2026-09-21: view-only access to the Clearance screen and
+    // Clearance Dashboard (DashboardsController.GetUnderClearance uses this
+    // same constant) — the menu already linked here unconditionally for every
+    // role, but CPricing-only users were bounced by a 403 underneath it, and
+    // separately by cPricingLockGuard on the frontend (see app.routes.ts).
+    // Deliberately not added to ClearanceEditors — CPricing stays a viewer
+    // here, same as Bu/Treasury/CorpFinance.
+    public const string ClearanceViewers = IpUser + "," + IpSupervisor + "," + ClrUsr + "," + ClrSupervisor + "," + Bu + "," + Treasury + "," + CorpFinance + "," + Manager + "," + SuperUser + "," + CPricing;
 
     public const string ShipmentDetailsViewers = IpUser + "," + IpSupervisor + "," + ClrUsr + "," + ClrSupervisor + "," + Bu + "," + Treasury + "," + Manager + "," + SuperUser;
 
