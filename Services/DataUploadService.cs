@@ -633,7 +633,10 @@ public class DataUploadService
             acd.RefNumber = acdRefNumber;
         }
 
-        // MOT (cols 53-54; cols 96-99 appended at the end of Main — see DataExportService)
+        // MOT (cols 53-54; cols 96-99 appended at the end of Main — see DataExportService).
+        // Col 100 (MOT CERTIFICATE EXPIRY DATE) is intentionally not read here: it's
+        // auto-computed on export from ApprovalDate + the global MotCertificateSettings.ExpiryDays,
+        // not stored per-shipment — same "reference only" treatment as APPROVED MOT TOTAL PRICE USD above.
         var motPiNo = S(ws, row, 53);
         var motProcessDate = Dt(ws, row, 96);
         var motCost = D(ws, row, 97);

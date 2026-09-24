@@ -83,6 +83,13 @@ public class DataExportService
         // closes that gap without moving any existing column.
         ("ACD","ACD PROCESS DATE"),("ACD","ACD COST SETTLED DATE"),("ACD","ACD REF NUMBER"),
         ("MOT","MOT PROCESS DATE"),("MOT","MOT COST"),("MOT","MOT COST SETTLED DATE"),("MOT","MOT REF NUMBER"),
+        // Appended (col 100) — same append-only convention as above.
+        // Auto-computed (MOT APPROVED P.I. DATE + the global MOT Certificates
+        // Settings expiry window, currently 90 days) rather than stored —
+        // same "(auto-computed, reference only)" treatment as APPROVED MOT
+        // TOTAL PRICE USD above, and likewise not read back by
+        // DataUploadService.
+        ("MOT","MOT CERTIFICATE EXPIRY DATE (auto-computed, reference only)"),
     };
     private static void SetCell(IXLWorksheet ws, int row, int col, object? value)
     {
@@ -211,6 +218,9 @@ public class DataExportService
         // Tenor), not per-shipment — the export column below just reflects
         // this same value on every row, reference-only.
         var cbosSetting = await _db.CbosTenorSettings.Include(s => s.Tenor).FirstOrDefaultAsync();
+        // Same "one global setting, same value every row, reference-only"
+        // treatment as cbosSetting above.
+        var motExpiryDays = (await _db.MotCertificateSettings.FirstOrDefaultAsync())?.ExpiryDays ?? 90;
         var ssmos = _db.ShipmentSsmos.ToDictionary(s => s.ShipmentId);
         var lastOffshores = _db.LastOffshoreDetails.Include(o => o.Currency).ToDictionary(o => o.ShipmentId);
         var lastOffshoreItems = _db.LastOffshoreItemDetails.ToDictionary(i => i.ShipmentLineItemId);
@@ -226,7 +236,7 @@ public class DataExportService
             // every shipment-related column left blank.
             if (shipLines is null || shipLines.Count == 0)
             {
-                    WriteMainRow(ws, row, po, poLine, null, null, null, null, null, null, null, null, null, null, cbosSetting);
+                    WriteMainRow(ws, row, po, poLine, null, null, null, null, null, null, null, null, null, null, cbosSetting, motExpiryDays: motExpiryDays);
                 row++;
                 continue;
             }
@@ -248,7 +258,7 @@ public class DataExportService
                 clearances.TryGetValue(ship.Id, out var clearance);
                 ssmos.TryGetValue(ship.Id, out var ssmo);
 
-                WriteMainRow(ws, row, po, poLine, ship, sl, fwd, docs, fullSet, banking, acd, mot, offshore, offshoreItem, cbosSetting, clearance, ssmo);
+                WriteMainRow(ws, row, po, poLine, ship, sl, fwd, docs, fullSet, banking, acd, mot, offshore, offshoreItem, cbosSetting, clearance, ssmo, motExpiryDays);
                 row++;
             }
         }
@@ -262,7 +272,7 @@ public class DataExportService
         ShipmentDraftDocuments? docs, ShipmentSupplierFullSet? fullSet, ShipmentBanking? banking,
         ShipmentAcd? acd, ShipmentMot? mot, LastOffshoreDetail? offshore,
         LastOffshoreItemDetail? offshoreItem, CbosTenorSetting? cbosSetting,
-        Clearance? clearance = null, ShipmentSsmo? ssmo = null)
+        Clearance? clearance = null, ShipmentSsmo? ssmo = null, int motExpiryDays = 90)
     {
         int c = 1;
         SetCell(ws, row, c++, po.PoNumber);
@@ -380,6 +390,9 @@ public class DataExportService
         SetCell(ws, row, c++, mot?.Cost);
         SetCell(ws, row, c++, mot?.CostSettledDate);
         SetCell(ws, row, c++, mot?.RefNumber);
+
+        // Appended (col 100) — see MainColumns comment above.
+        SetCell(ws, row, c++, mot?.ApprovalDate?.AddDays(motExpiryDays));
     }
 
     // Direct Sales' "Customer Agreed Payment" schedule (ShipmentCustomerDue)
