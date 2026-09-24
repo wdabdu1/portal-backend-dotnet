@@ -22,6 +22,10 @@ public record ClearanceDashboardRow(
     decimal Qty, int Fcl20Count, int Fcl40Count, DateOnly? Eta, DateOnly? ClearanceCompletionDate,
     int? DaysRemaining, string Route, string ClearanceFrom, string Status);
 
+public record MotCertificateRow(
+    string BusinessUnit, string Category, string BlAwbNo, string PiNo,
+    DateOnly? ApprovalDate, DateOnly ExpiryDate, int DaysRemaining, string UrgencyLevel, string Status);
+
 public record GoodsInTransitRow(
     string BusinessUnit, string Category, string ModelProduct, decimal Qty, string PickFrom,
     DateOnly PickupDate, string DropOffCity, string DropOffWarehouse, DateOnly? DropOffTargetDate,
@@ -408,7 +412,87 @@ public class DashboardsController : ControllerBase
         return forward ? count : -count;
     }
 
-[HttpGet("goods-in-transit")]
+    // MOT-approved PI numbers (ShipmentMot.OffshoreApprovedPiNumber) are only
+    // valid for a limited window after ApprovalDate (MotCertificateSettings.
+    // ExpiryDays, 90 by default, admin-editable) — this flags shipments whose
+    // certificate is approaching or past that expiry so IP/Clearance can chase
+    // renewal ahead of time, the same "early nudge" purpose as Supplier Delay
+    // Watch serves for undispatched PO lines.
+    [HttpGet("mot-certificates")]
+    [Authorize(Roles = AppRoles.MotCertificateViewers)]
+    public async Task<ActionResult<IEnumerable<MotCertificateRow>>> GetMotCertificates(
+        [FromServices] ShippingPortal.Api.Services.BuAccessService buAccess)
+    {
+        var settings = await _db.MotCertificateSettings.FirstOrDefaultAsync();
+        var expiryDays = settings?.ExpiryDays ?? 90;
+
+        var query = _db.ShipmentMots
+            .Where(m => m.ApprovalDate.HasValue)
+            .Include(m => m.Shipment).ThenInclude(s => s!.PurchaseOrder).ThenInclude(p => p!.BusinessUnit)
+            .Include(m => m.Shipment).ThenInclude(s => s!.LineItems).ThenInclude(li => li.PurchaseOrderLineItem).ThenInclude(pli => pli!.ProductCategory)
+            .AsQueryable();
+
+        if (!buAccess.SeesAllBus(User))
+        {
+            var allowedBus = buAccess.GetAllowedBusinessUnitIds(User);
+            query = query.Where(m => allowedBus.Contains(m.Shipment!.PurchaseOrder!.BusinessUnitId));
+        }
+
+        var mots = await query.Where(m => m.Shipment != null).ToListAsync();
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+
+        // "Open" vs "Completed" — same definition of a cleared shipment used
+        // by the Shipments list and Under Clearance Dashboard (route's own
+        // completion date set). Lets the frontend default to hiding rows
+        // whose clearance is already done, since a certificate on a
+        // finished shipment isn't something anyone needs to chase anymore.
+        var shipmentIds = mots.Select(m => m.ShipmentId).ToList();
+        var clearancesByShipment = await _db.Clearances.Where(c => shipmentIds.Contains(c.ShipmentId)).ToDictionaryAsync(c => c.ShipmentId);
+        var clearanceIds = clearancesByShipment.Values.Select(c => c.Id).ToList();
+        var route1Completions = await _db.ClearanceRoute1Details.Where(r => clearanceIds.Contains(r.ClearanceId)).ToDictionaryAsync(r => r.ClearanceId, r => r.ClearanceActualCompletedDate);
+        var route2Completions = await _db.ClearanceRoute2Details.Where(r => clearanceIds.Contains(r.ClearanceId)).ToDictionaryAsync(r => r.ClearanceId, r => r.ClearanceActualCompletedDate);
+        var route3Completions = await _db.ClearanceRoute3Details.Where(r => clearanceIds.Contains(r.ClearanceId)).ToDictionaryAsync(r => r.ClearanceId, r => r.ClearanceActualCompletedDate);
+
+        bool IsCompleted(int shipmentId)
+        {
+            if (!clearancesByShipment.TryGetValue(shipmentId, out var clearance)) return false;
+            return clearance.Route switch
+            {
+                ShippingPortal.Api.Models.Clearance.ClearanceRouteType.Route1ClearAtPort => route1Completions.GetValueOrDefault(clearance.Id).HasValue,
+                ShippingPortal.Api.Models.Clearance.ClearanceRouteType.Route2FzDeposit => route2Completions.GetValueOrDefault(clearance.Id).HasValue,
+                ShippingPortal.Api.Models.Clearance.ClearanceRouteType.Route3ClearFromFz => route3Completions.GetValueOrDefault(clearance.Id).HasValue,
+                _ => false
+            };
+        }
+
+        var result = mots.Select(m =>
+        {
+            var expiryDate = m.ApprovalDate!.Value.AddDays(expiryDays);
+            var daysRemaining = expiryDate.DayNumber - today.DayNumber;
+
+            // Traffic light: under 2 weeks out (including already expired,
+            // i.e. negative) = Red; over a month out = Green; the four-ish
+            // weeks in between = Yellow.
+            var urgency = daysRemaining < 14 ? "Red" : daysRemaining > 30 ? "Green" : "Yellow";
+
+            var firstLine = m.Shipment!.LineItems.FirstOrDefault()?.PurchaseOrderLineItem;
+
+            return new MotCertificateRow(
+                m.Shipment.PurchaseOrder?.BusinessUnit?.Name ?? "",
+                firstLine?.ProductCategory?.Name ?? "",
+                m.Shipment.BlAwbNo,
+                m.OffshoreApprovedPiNumber ?? "",
+                m.ApprovalDate,
+                expiryDate,
+                daysRemaining,
+                urgency,
+                IsCompleted(m.ShipmentId) ? "Completed" : "Open");
+        }).OrderBy(r => r.ExpiryDate).ToList();
+
+        return Ok(result);
+    }
+
+    [HttpGet("goods-in-transit")]
     [Authorize(Roles = AppRoles.ClearanceViewers)]
     public async Task<ActionResult<IEnumerable<GoodsInTransitRow>>> GetGoodsInTransit([FromServices] ShippingPortal.Api.Services.BuAccessService buAccess)
     {
