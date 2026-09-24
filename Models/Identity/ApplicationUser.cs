@@ -119,4 +119,11 @@ public static class AppRoles
     // deliberately excludes Treasury/CorpFinance: this feature moved out of
     // Finance's visibility entirely, not just added alongside it.
     public const string CPricingUsers = CPricing + "," + Manager + "," + SuperUser;
+
+    // MOT Certificates dashboard — monitors ShipmentMot.ApprovalDate /
+    // OffshoreApprovedPiNumber for upcoming expiry. Scoped to IP +
+    // Clearance roles as requested, plus Manager/SuperUser — every other
+    // viewer group in this file includes that admin escape hatch, so this
+    // one does too rather than being the one exception.
+    public const string MotCertificateViewers = IpUser + "," + IpSupervisor + "," + ClrUsr + "," + ClrSupervisor + "," + Manager + "," + SuperUser;
 }
