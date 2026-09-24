@@ -78,6 +78,7 @@ public class ShippingPortalDbContext : IdentityDbContext<ApplicationUser>
     public DbSet<ShipmentDraftDocuments> ShipmentDraftDocuments => Set<ShipmentDraftDocuments>();
     public DbSet<ShipmentSsmo> ShipmentSsmos => Set<ShipmentSsmo>();
     public DbSet<ShipmentMot> ShipmentMots => Set<ShipmentMot>();
+    public DbSet<MotCertificateSettings> MotCertificateSettings => Set<MotCertificateSettings>();
     public DbSet<ShipmentSupplierFullSet> ShipmentSupplierFullSets => Set<ShipmentSupplierFullSet>();
     public DbSet<ShipmentSupplierPaymentRecord> ShipmentSupplierPaymentRecords => Set<ShipmentSupplierPaymentRecord>();
     public DbSet<ShipmentPaymentDue> ShipmentPaymentDues => Set<ShipmentPaymentDue>();
