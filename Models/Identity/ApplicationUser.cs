@@ -126,4 +126,12 @@ public static class AppRoles
     // viewer group in this file includes that admin escape hatch, so this
     // one does too rather than being the one exception.
     public const string MotCertificateViewers = IpUser + "," + IpSupervisor + "," + ClrUsr + "," + ClrSupervisor + "," + Manager + "," + SuperUser;
+
+    // Marine Insurance dashboard — "Finance & IP Users" per the request:
+    // Finance = Treasury + CorpFinance, IP = IpUser + IpSupervisor, plus
+    // the usual Manager/SuperUser admin escape hatch every other viewer
+    // group in this file includes. Deliberately excludes Clearance/BU/
+    // Coordinator/CPricing/LogisticsOfficer — this dashboard is a
+    // Finance/IP-only view, not a general Shipments screen.
+    public const string MarineInsuranceViewers = IpUser + "," + IpSupervisor + "," + Treasury + "," + CorpFinance + "," + Manager + "," + SuperUser;
 }
