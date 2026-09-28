@@ -43,6 +43,14 @@ public record ShipmentDashboardRow(
 
 public record SupplierPaymentRow(string BusinessUnit, string SupplierName, string BlAwbNo, DateOnly DueDate, string Label, decimal AmountUsd);
 
+// One row per shipment line item (not per shipment) — a multi-item
+// shipment insures everything on the same BL together, but Finance wants
+// to see and total each line's own value separately.
+public record MarineInsuranceRow(
+    bool MarineInsurance, string BusinessUnit, string BlAwbNo, string? Supplier, string Consignee,
+    string Category, string ModelProduct, string Currency, decimal Value, decimal ValueUsd,
+    DateOnly? Etd, DateOnly? ActualSob, string? PortOfLoading, string? PortOfDischarge);
+
 [ApiController]
 [Route("api/dashboards")]
 [Authorize]
@@ -669,5 +677,74 @@ public class DashboardsController : ControllerBase
             ));
         }
         return Ok(result.OrderBy(r => r.DueDate).ToList());
+    }
+
+    // Marine Insurance is arranged across ALL shipments on a monthly
+    // basis (ShipmentForwarder.MarineInsurance), so this deliberately
+    // shows every non-cancelled shipment — not just Confirmed/Under
+    // Clearance ones — so Finance can see what's covered and what's
+    // fallen through the cracks regardless of where it is in the pipeline.
+    [HttpGet("marine-insurance")]
+    [Authorize(Roles = AppRoles.MarineInsuranceViewers)]
+    public async Task<ActionResult<IEnumerable<MarineInsuranceRow>>> GetMarineInsurance(
+        [FromServices] ShippingPortal.Api.Services.BuAccessService buAccess)
+    {
+        var query = _db.Shipments
+            .Where(s => s.Status != ShippingPortal.Api.Models.Shipments.ShipmentStatus.Cancelled)
+            .Include(s => s.PurchaseOrder).ThenInclude(p => p!.BusinessUnit)
+            .Include(s => s.PurchaseOrder).ThenInclude(p => p!.Supplier)
+            .Include(s => s.PurchaseOrder).ThenInclude(p => p!.Consignee)
+            .Include(s => s.PurchaseOrder).ThenInclude(p => p!.PortOfLoading)
+            .Include(s => s.PurchaseOrder).ThenInclude(p => p!.PortOfDischarge)
+            .Include(s => s.LineItems).ThenInclude(li => li.PurchaseOrderLineItem).ThenInclude(pli => pli!.ProductCategory)
+            .Include(s => s.LineItems).ThenInclude(li => li.PurchaseOrderLineItem).ThenInclude(pli => pli!.ModelProduct)
+            .Include(s => s.LineItems).ThenInclude(li => li.PurchaseOrderLineItem).ThenInclude(pli => pli!.Currency)
+            .AsQueryable();
+
+        if (!buAccess.SeesAllBus(User))
+        {
+            var allowedBus = buAccess.GetAllowedBusinessUnitIds(User);
+            query = query.Where(s => allowedBus.Contains(s.PurchaseOrder!.BusinessUnitId));
+        }
+
+        var shipments = await query.ToListAsync();
+        var shipmentIds = shipments.Select(s => s.Id).ToList();
+
+        var marineInsuranceByShipment = await _db.ShipmentForwarders
+            .Where(f => shipmentIds.Contains(f.ShipmentId))
+            .ToDictionaryAsync(f => f.ShipmentId, f => f.MarineInsurance);
+
+        var result = new List<MarineInsuranceRow>();
+        foreach (var s in shipments)
+        {
+            var marineInsurance = marineInsuranceByShipment.GetValueOrDefault(s.Id);
+            foreach (var li in s.LineItems)
+            {
+                var pli = li.PurchaseOrderLineItem;
+                var rate = await GetFxRateAsync(pli?.CurrencyId);
+                var valueUsd = rate == 0 ? li.ItemSubtotal : li.ItemSubtotal / rate;
+
+                result.Add(new MarineInsuranceRow(
+                    marineInsurance,
+                    s.PurchaseOrder?.BusinessUnit?.Name ?? "",
+                    s.BlAwbNo,
+                    s.PurchaseOrder?.Supplier?.Name,
+                    s.PurchaseOrder?.Consignee?.Name ?? "",
+                    pli?.ProductCategory?.Name ?? "",
+                    pli?.ModelProduct?.Name ?? "",
+                    pli?.Currency?.Code ?? "",
+                    li.ItemSubtotal,
+                    valueUsd,
+                    s.Etd,
+                    s.SobActualDate,
+                    s.PurchaseOrder?.PortOfLoading?.Name,
+                    s.PurchaseOrder?.PortOfDischarge?.Name));
+            }
+        }
+
+        // Default sort: ETD ascending, per the request — nulls (no ETD
+        // yet) sort last rather than first, since an undated shipment
+        // isn't "soonest."
+        return Ok(result.OrderBy(r => r.Etd ?? DateOnly.MaxValue).ToList());
     }
 }
