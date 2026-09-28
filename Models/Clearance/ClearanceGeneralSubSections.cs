@@ -13,6 +13,7 @@ public class ClearanceDeliveryOrder
     public decimal? DoActualFeesSdg { get; set; }
     public DateOnly? DoFeesSettledDate { get; set; }
     public DateOnly? DoReceivedDate { get; set; } // completion marker
+    public string? Comments { get; set; }
 }
 
 // EstimateValueSdg is intentionally NOT stored here — it's always the
@@ -27,6 +28,7 @@ public class ClearanceCostEstimate
     public DateOnly? EstimateDate { get; set; }
     public DateOnly? NotifyBuDate { get; set; }
     public DateOnly? AmountSettledDate { get; set; } // completion marker
+    public string? Comments { get; set; }
 }
 
 // One row per charge in the cost estimate breakdown (DO Charges, DO
@@ -58,4 +60,5 @@ public class ClearanceCertificateEntry
 
     public DateOnly? CertificateEntryDate { get; set; } // completion marker
     public string? ScudaDeclarationNo { get; set; }
+    public string? Comments { get; set; }
 }

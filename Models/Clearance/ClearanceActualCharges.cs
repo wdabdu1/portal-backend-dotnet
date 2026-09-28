@@ -31,4 +31,5 @@ public class ClearanceActualCharges
     // other actual-charges figures than under the completion step.
     public DateOnly? ShippingLineDepositReturnDate { get; set; }
     public decimal? AmountReturnedFromDeposit { get; set; }
+    public string? Comments { get; set; }
 }

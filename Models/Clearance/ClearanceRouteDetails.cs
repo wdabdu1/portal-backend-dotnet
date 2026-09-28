@@ -16,36 +16,43 @@ public class ClearanceRoute1Details
     public DateOnly? MoveRequestDate { get; set; }
     public decimal? BillAmountSdg { get; set; }
     public DateOnly? BillSettlementDate { get; set; }
+    public string? ContainersMoveProcessComments { get; set; }
 
     // SSMO File Process
     public DateOnly? SsmoFileRequestDate { get; set; }
     public decimal? SsmoInspectionAmountSdg { get; set; }
     public DateOnly? SsmoFeesSettlementDate { get; set; }
+    public string? SsmoFileProcessComments { get; set; }
 
     // Customs Examination (Form 48)
     public DateOnly? CustExamStartDate { get; set; }
     public DateOnly? CustExamCompletedDate { get; set; }
+    public string? CustomsExaminationComments { get; set; }
 
     // Customs Lab
     public bool CustomsLabRequired { get; set; }
     public decimal? CustomsLabFeesSdg { get; set; }
     public DateOnly? LabFeesPaymentDate { get; set; }
     public DateOnly? LabResultIssuanceDate { get; set; }
+    public string? CustomsLabComments { get; set; }
 
     // SSMO Examination
     public DateOnly? SsmoExamStartDate { get; set; }
     public DateOnly? SsmoCertIssuanceDate { get; set; }
+    public string? SsmoExaminationComments { get; set; }
 
     // Customs Evaluation
     public DateOnly? CustEvaluationDate { get; set; }
     public decimal? CustomsDutySdg { get; set; }
     public DateOnly? CustomsSettlementDate { get; set; }
     public DateOnly? ReleaseExitPassDate { get; set; }
+    public string? CustomsEvaluationComments { get; set; }
 
     // SPC Bill
     public DateOnly? SpcBillRequestDate { get; set; }
     public decimal? SpcBillValueSdg { get; set; }
     public DateOnly? SpcBillSettlementDate { get; set; }
+    public string? SpcBillComments { get; set; }
 
     // Truck & Containers
     public DateOnly? TruckPortEntryPermitDate { get; set; }
@@ -53,6 +60,7 @@ public class ClearanceRoute1Details
     public DateOnly? ShippingLineDepositReturnDate { get; set; }
     public decimal? DepositValue { get; set; }
     public DateOnly? ClearanceActualCompletedDate { get; set; }
+    public string? TruckContainersComments { get; set; }
 }
 
 public class ClearanceRoute2Details
@@ -68,15 +76,18 @@ public class ClearanceRoute2Details
     public string? FzInvoiceNo { get; set; }
     public int? DestinationId { get; set; }
     public ShipmentDestination? Destination { get; set; }
+    public string? FzDepositRequestComments { get; set; }
 
     // Customs Inspection
     public DateOnly? InspectionDate { get; set; }
+    public string? CustomsInspectionComments { get; set; }
 
     // SPC Bill
     public DateOnly? SpcBillRequestDate { get; set; }
     public decimal? SpcBillValueSdg { get; set; }
     public DateOnly? SpcBillSettlementDate { get; set; }
     public DateOnly? PoliceSecurityAppointedDate { get; set; }
+    public string? SpcBillComments { get; set; }
 
     // Truck & Containers
     public DateOnly? TruckPortEntryPermitDate { get; set; }
@@ -85,6 +96,7 @@ public class ClearanceRoute2Details
     public DateOnly? ShippingLineDepositReturnDate { get; set; }
     public decimal? DepositValue { get; set; }
     public DateOnly? ClearanceActualCompletedDate { get; set; }
+    public string? TruckContainersComments { get; set; }
 }
 
 public class ClearanceRoute3Details
@@ -102,33 +114,40 @@ public class ClearanceRoute3Details
     // Customs Certificate Entry
     public DateOnly? CertificateEntryDate { get; set; }
     public string? ScudaDeclarationNo { get; set; }
+    public string? CertificateEntryComments { get; set; }
 
     // SSMO File Process
     public DateOnly? SsmoFileRequestDate { get; set; }
     public decimal? SsmoInspectionAmountSdg { get; set; }
     public DateOnly? SsmoFeesSettlementDate { get; set; }
+    public string? SsmoFileProcessComments { get; set; }
 
     // Customs Examination (Form 48)
     public DateOnly? CustExamStartDate { get; set; }
     public DateOnly? CustExamCompletedDate { get; set; }
+    public string? CustomsExaminationComments { get; set; }
 
     // Customs Lab
     public bool CustomsLabRequired { get; set; }
     public decimal? CustomsLabFeesSdg { get; set; }
     public DateOnly? LabFeesPaymentDate { get; set; }
     public DateOnly? LabResultIssuanceDate { get; set; }
+    public string? CustomsLabComments { get; set; }
 
     // SSMO Examination
     public DateOnly? SsmoExamStartDate { get; set; }
     public DateOnly? SsmoCertIssuanceDate { get; set; }
+    public string? SsmoExaminationComments { get; set; }
 
     // Customs Evaluation
     public DateOnly? CustEvaluationDate { get; set; }
     public decimal? CustomsDutySdg { get; set; }
     public DateOnly? CustomsSettlementDate { get; set; }
     public DateOnly? ReleaseExitPassDate { get; set; }
+    public string? CustomsEvaluationComments { get; set; }
 
     // Truck & Containers
     public DateOnly? TruckPortEntryPermitDate { get; set; }
     public DateOnly? ClearanceActualCompletedDate { get; set; }
+    public string? TruckContainersComments { get; set; }
 }
