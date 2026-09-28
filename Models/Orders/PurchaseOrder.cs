@@ -39,6 +39,15 @@ public class PurchaseOrder
     public decimal? BuShippingBudget { get; set; }
     public int ShipmentModeId { get; set; }
     public ShipmentMode? ShipmentMode { get; set; }
+
+    // Added after Incoterm on New Supplier Order — optional (unlike
+    // Incoterm/Origin Country/Shipment Mode) since existing POs predate
+    // this field and shouldn't be forced to backfill it.
+    public int? PortOfLoadingId { get; set; }
+    public Port? PortOfLoading { get; set; }
+    public int? PortOfDischargeId { get; set; }
+    public Port? PortOfDischarge { get; set; }
+
     [MaxLength(60)] public string? OffshorePoNo { get; set; }
     public DateOnly? OffshorePoDate { get; set; }
 
