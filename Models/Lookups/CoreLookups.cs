@@ -88,6 +88,16 @@ public class OriginCountry
     public bool IsActive { get; set; } = true;
 }
 
+// Shared list for both directions — a port can be a Port of Loading on
+// one PO and a Port of Discharge on another, so this is one maintained
+// list rather than two separate ones.
+public class Port
+{
+    public int Id { get; set; }
+    [Required, MaxLength(120)] public string Name { get; set; } = "";
+    public bool IsActive { get; set; } = true;
+}
+
 public class UnitOfMeasure
 {
     public int Id { get; set; }
