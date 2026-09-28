@@ -28,6 +28,12 @@ public class OriginCountriesController : LookupCrudController<OriginCountry>
     public OriginCountriesController(ShippingPortalDbContext db) : base(db) { }
 }
 
+[Route("api/settings/ports")]
+public class PortsController : LookupCrudController<Port>
+{
+    public PortsController(ShippingPortalDbContext db) : base(db) { }
+}
+
 [Route("api/settings/units-of-measure")]
 public class UnitsOfMeasureController : LookupCrudController<UnitOfMeasure>
 {
