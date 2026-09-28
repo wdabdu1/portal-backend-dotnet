@@ -25,7 +25,7 @@ public record CreatePurchaseOrderRequest(
     int BusinessUnitId, int DivisionId, int SupplierId, int BrandManufacturerId, int ApprovalTypeId, int ConsigneeId,
     string? SupplierPiNo, DateOnly? SupplierPiDate, int SupplierPaymentTermId, int IncotermId, int OriginCountryId,
     [Range(typeof(decimal), "0", "79228162514264337593543950335", ErrorMessage = "BU Shipping Budget cannot be negative.")] decimal? BuShippingBudget,
-    int ShipmentModeId,
+    int ShipmentModeId, int? PortOfLoadingId, int? PortOfDischargeId,
     string? OffshorePoNo, DateOnly? OffshorePoDate, DateOnly? ReceivedSignedPiDate, DateOnly? SentSignedPiDate, DateOnly? BuPoDate, DateOnly? OrderExecutionDate, DateOnly? LatestShippingDate,
     List<LineItemRequest> LineItems, List<OffshorePartnerRequest> OffshorePartners);
 
@@ -207,6 +207,8 @@ public class PurchaseOrdersController : ControllerBase
             OriginCountryId = req.OriginCountryId,
             BuShippingBudget = req.BuShippingBudget,
             ShipmentModeId = req.ShipmentModeId,
+            PortOfLoadingId = req.PortOfLoadingId,
+            PortOfDischargeId = req.PortOfDischargeId,
             OffshorePoNo = req.OffshorePoNo,
             OffshorePoDate = req.OffshorePoDate,
             ReceivedSignedPiDate = req.ReceivedSignedPiDate,

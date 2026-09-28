@@ -18,7 +18,7 @@ public record PurchaseOrderDetailResponse(
     int Id, string PoNumber, string Status, DateTime CreatedAt,
     string BusinessUnit, string? Division,
     string? Supplier, string BrandManufacturer, string Consignee,
-    string Incoterm, string PaymentTerm, string ApprovalType,
+    string Incoterm, string? PortOfLoading, string? PortOfDischarge, string PaymentTerm, string ApprovalType,
     decimal? TotalOrderValueUsd,
     List<PoLineItemDetail> LineItems,
     List<PoOffshorePartnerDetail> OffshorePartners,
@@ -42,6 +42,8 @@ public class PurchaseOrderDetailController : ControllerBase
             .Include(p => p.BrandManufacturer)
             .Include(p => p.Consignee)
             .Include(p => p.Incoterm)
+            .Include(p => p.PortOfLoading)
+            .Include(p => p.PortOfDischarge)
             .Include(p => p.SupplierPaymentTerm)
             .Include(p => p.ApprovalType)
             .Include(p => p.LineItems).ThenInclude(li => li.ProductCategory)
@@ -79,7 +81,7 @@ public class PurchaseOrderDetailController : ControllerBase
             po.BusinessUnit!.Name, po.Division?.Name,
             isClearance ? null : po.Supplier?.Name,
             po.BrandManufacturer?.Name ?? "", po.Consignee?.Name ?? "",
-            po.Incoterm?.Name ?? "", po.SupplierPaymentTerm?.Name ?? "", po.ApprovalType?.Name ?? "",
+            po.Incoterm?.Name ?? "", po.PortOfLoading?.Name, po.PortOfDischarge?.Name, po.SupplierPaymentTerm?.Name ?? "", po.ApprovalType?.Name ?? "",
             totalOrderValueUsd, lineItems, offshorePartners,
             po.AdvancePaymentPercent, po.AdvancePaymentPlannedDate, po.AdvancePaymentExecutedDate);
     }
