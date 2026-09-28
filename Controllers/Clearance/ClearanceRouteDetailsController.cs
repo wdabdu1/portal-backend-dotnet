@@ -9,22 +9,22 @@ using ShippingPortal.Api.Models.Identity;
 namespace ShippingPortal.Api.Controllers.Clearance;
 
 public record Route1Request(
-    DateOnly? MoveRequestDate, decimal? BillAmountSdg, DateOnly? BillSettlementDate,
-    DateOnly? SsmoFileRequestDate, decimal? SsmoInspectionAmountSdg, DateOnly? SsmoFeesSettlementDate,
-    DateOnly? CustExamStartDate, DateOnly? CustExamCompletedDate,
-    bool CustomsLabRequired, decimal? CustomsLabFeesSdg, DateOnly? LabFeesPaymentDate, DateOnly? LabResultIssuanceDate,
-    DateOnly? SsmoExamStartDate, DateOnly? SsmoCertIssuanceDate,
-    DateOnly? CustEvaluationDate, decimal? CustomsDutySdg, DateOnly? CustomsSettlementDate, DateOnly? ReleaseExitPassDate,
-    DateOnly? SpcBillRequestDate, decimal? SpcBillValueSdg, DateOnly? SpcBillSettlementDate,
-    DateOnly? TruckPortEntryPermitDate, DateOnly? ContainersReturnedDate, DateOnly? ClearanceActualCompletedDate);
+    DateOnly? MoveRequestDate, decimal? BillAmountSdg, DateOnly? BillSettlementDate, string? ContainersMoveProcessComments,
+    DateOnly? SsmoFileRequestDate, decimal? SsmoInspectionAmountSdg, DateOnly? SsmoFeesSettlementDate, string? SsmoFileProcessComments,
+    DateOnly? CustExamStartDate, DateOnly? CustExamCompletedDate, string? CustomsExaminationComments,
+    bool CustomsLabRequired, decimal? CustomsLabFeesSdg, DateOnly? LabFeesPaymentDate, DateOnly? LabResultIssuanceDate, string? CustomsLabComments,
+    DateOnly? SsmoExamStartDate, DateOnly? SsmoCertIssuanceDate, string? SsmoExaminationComments,
+    DateOnly? CustEvaluationDate, decimal? CustomsDutySdg, DateOnly? CustomsSettlementDate, DateOnly? ReleaseExitPassDate, string? CustomsEvaluationComments,
+    DateOnly? SpcBillRequestDate, decimal? SpcBillValueSdg, DateOnly? SpcBillSettlementDate, string? SpcBillComments,
+    DateOnly? TruckPortEntryPermitDate, DateOnly? ContainersReturnedDate, DateOnly? ClearanceActualCompletedDate, string? TruckContainersComments);
 
 public record Route2Request(
     DateOnly? DepositRequestDate, DateOnly? RequestApprovalDate,
-    string? DepositRefNo, string? FzInvoiceNo, int? DestinationId,
-    DateOnly? InspectionDate,
-    DateOnly? SpcBillRequestDate, decimal? SpcBillValueSdg, DateOnly? SpcBillSettlementDate, DateOnly? PoliceSecurityAppointedDate,
+    string? DepositRefNo, string? FzInvoiceNo, int? DestinationId, string? FzDepositRequestComments,
+    DateOnly? InspectionDate, string? CustomsInspectionComments,
+    DateOnly? SpcBillRequestDate, decimal? SpcBillValueSdg, DateOnly? SpcBillSettlementDate, DateOnly? PoliceSecurityAppointedDate, string? SpcBillComments,
     DateOnly? TruckPortEntryPermitDate, DateOnly? ContainersReceivedAtFzDate, DateOnly? ContainersReturnedDate,
-    DateOnly? ClearanceActualCompletedDate);
+    DateOnly? ClearanceActualCompletedDate, string? TruckContainersComments);
 
 public record ActualChargesResponse(
     decimal? ForecastDemurrageSdg, decimal? ForecastStorageSdg, DateTime? ForecastCapturedAt,
@@ -35,22 +35,22 @@ public record ActualChargesResponse(
     // shown alongside Amount Returned from Deposit so a discrepancy
     // between what was paid and what's coming back is immediately
     // visible, not something to go hunting for in a different section.
-    decimal? DepositPaidSdg);
+    decimal? DepositPaidSdg, string? Comments);
 
 public record ActualChargesRequest(
     decimal? ActualDemurragePaidSdg, decimal? ActualStoragePaidSdg,
-    DateOnly? ShippingLineDepositReturnDate, decimal? AmountReturnedFromDeposit);
+    DateOnly? ShippingLineDepositReturnDate, decimal? AmountReturnedFromDeposit, string? Comments);
 public record WithdrawalLineInput(int ShipmentLineItemId, decimal Qty);
 
 public record Route3Request(
     int? DepositShipmentId, List<WithdrawalLineInput>? Withdrawals,
-    DateOnly? CertificateEntryDate, string? ScudaDeclarationNo,
-    DateOnly? SsmoFileRequestDate, decimal? SsmoInspectionAmountSdg, DateOnly? SsmoFeesSettlementDate,
-    DateOnly? CustExamStartDate, DateOnly? CustExamCompletedDate,
-    bool CustomsLabRequired, decimal? CustomsLabFeesSdg, DateOnly? LabFeesPaymentDate, DateOnly? LabResultIssuanceDate,
-    DateOnly? SsmoExamStartDate, DateOnly? SsmoCertIssuanceDate,
-    DateOnly? CustEvaluationDate, decimal? CustomsDutySdg, DateOnly? CustomsSettlementDate, DateOnly? ReleaseExitPassDate,
-    DateOnly? TruckPortEntryPermitDate, DateOnly? ClearanceActualCompletedDate);
+    DateOnly? CertificateEntryDate, string? ScudaDeclarationNo, string? CertificateEntryComments,
+    DateOnly? SsmoFileRequestDate, decimal? SsmoInspectionAmountSdg, DateOnly? SsmoFeesSettlementDate, string? SsmoFileProcessComments,
+    DateOnly? CustExamStartDate, DateOnly? CustExamCompletedDate, string? CustomsExaminationComments,
+    bool CustomsLabRequired, decimal? CustomsLabFeesSdg, DateOnly? LabFeesPaymentDate, DateOnly? LabResultIssuanceDate, string? CustomsLabComments,
+    DateOnly? SsmoExamStartDate, DateOnly? SsmoCertIssuanceDate, string? SsmoExaminationComments,
+    DateOnly? CustEvaluationDate, decimal? CustomsDutySdg, DateOnly? CustomsSettlementDate, DateOnly? ReleaseExitPassDate, string? CustomsEvaluationComments,
+    DateOnly? TruckPortEntryPermitDate, DateOnly? ClearanceActualCompletedDate, string? TruckContainersComments);
 
 [ApiController]
 [Authorize]
@@ -141,26 +141,34 @@ public class ClearanceRouteDetailsController : ControllerBase
         entity.MoveRequestDate = req.MoveRequestDate;
         entity.BillAmountSdg = req.BillAmountSdg;
         entity.BillSettlementDate = req.BillSettlementDate;
+        entity.ContainersMoveProcessComments = req.ContainersMoveProcessComments;
         entity.SsmoFileRequestDate = req.SsmoFileRequestDate;
         entity.SsmoInspectionAmountSdg = req.SsmoInspectionAmountSdg;
         entity.SsmoFeesSettlementDate = req.SsmoFeesSettlementDate;
+        entity.SsmoFileProcessComments = req.SsmoFileProcessComments;
         entity.CustExamStartDate = req.CustExamStartDate;
         entity.CustExamCompletedDate = req.CustExamCompletedDate;
+        entity.CustomsExaminationComments = req.CustomsExaminationComments;
         entity.CustomsLabRequired = req.CustomsLabRequired;
         entity.CustomsLabFeesSdg = req.CustomsLabFeesSdg;
         entity.LabFeesPaymentDate = req.LabFeesPaymentDate;
         entity.LabResultIssuanceDate = req.LabResultIssuanceDate;
+        entity.CustomsLabComments = req.CustomsLabComments;
         entity.SsmoExamStartDate = req.SsmoExamStartDate;
         entity.SsmoCertIssuanceDate = req.SsmoCertIssuanceDate;
+        entity.SsmoExaminationComments = req.SsmoExaminationComments;
         entity.CustEvaluationDate = req.CustEvaluationDate;
         entity.CustomsDutySdg = req.CustomsDutySdg;
         entity.CustomsSettlementDate = req.CustomsSettlementDate;
         entity.ReleaseExitPassDate = req.ReleaseExitPassDate;
+        entity.CustomsEvaluationComments = req.CustomsEvaluationComments;
         entity.SpcBillRequestDate = req.SpcBillRequestDate;
         entity.SpcBillValueSdg = req.SpcBillValueSdg;
         entity.SpcBillSettlementDate = req.SpcBillSettlementDate;
+        entity.SpcBillComments = req.SpcBillComments;
         entity.TruckPortEntryPermitDate = req.TruckPortEntryPermitDate;
         entity.ContainersReturnedDate = req.ContainersReturnedDate;
+        entity.TruckContainersComments = req.TruckContainersComments;
 
         await CaptureForecastIfNewlyCompletedAsync(shipmentId, clearance.Id, entity.ClearanceActualCompletedDate, req.ClearanceActualCompletedDate);
         entity.ClearanceActualCompletedDate = req.ClearanceActualCompletedDate;
@@ -196,14 +204,18 @@ public class ClearanceRouteDetailsController : ControllerBase
         entity.DepositRefNo = req.DepositRefNo;
         entity.FzInvoiceNo = req.FzInvoiceNo;
         entity.DestinationId = req.DestinationId;
+        entity.FzDepositRequestComments = req.FzDepositRequestComments;
         entity.InspectionDate = req.InspectionDate;
+        entity.CustomsInspectionComments = req.CustomsInspectionComments;
         entity.SpcBillRequestDate = req.SpcBillRequestDate;
         entity.SpcBillValueSdg = req.SpcBillValueSdg;
         entity.SpcBillSettlementDate = req.SpcBillSettlementDate;
         entity.PoliceSecurityAppointedDate = req.PoliceSecurityAppointedDate;
+        entity.SpcBillComments = req.SpcBillComments;
         entity.TruckPortEntryPermitDate = req.TruckPortEntryPermitDate;
         entity.ContainersReceivedAtFzDate = req.ContainersReceivedAtFzDate;
         entity.ContainersReturnedDate = req.ContainersReturnedDate;
+        entity.TruckContainersComments = req.TruckContainersComments;
 
         await CaptureForecastIfNewlyCompletedAsync(shipmentId, clearance.Id, entity.ClearanceActualCompletedDate, req.ClearanceActualCompletedDate);
         entity.ClearanceActualCompletedDate = req.ClearanceActualCompletedDate;
@@ -236,23 +248,30 @@ public class ClearanceRouteDetailsController : ControllerBase
 
         entity.CertificateEntryDate = req.CertificateEntryDate;
         entity.ScudaDeclarationNo = req.ScudaDeclarationNo;
+        entity.CertificateEntryComments = req.CertificateEntryComments;
         entity.SsmoFileRequestDate = req.SsmoFileRequestDate;
         entity.SsmoInspectionAmountSdg = req.SsmoInspectionAmountSdg;
         entity.SsmoFeesSettlementDate = req.SsmoFeesSettlementDate;
+        entity.SsmoFileProcessComments = req.SsmoFileProcessComments;
         entity.CustExamStartDate = req.CustExamStartDate;
         entity.CustExamCompletedDate = req.CustExamCompletedDate;
+        entity.CustomsExaminationComments = req.CustomsExaminationComments;
         entity.CustomsLabRequired = req.CustomsLabRequired;
         entity.CustomsLabFeesSdg = req.CustomsLabFeesSdg;
         entity.LabFeesPaymentDate = req.LabFeesPaymentDate;
         entity.LabResultIssuanceDate = req.LabResultIssuanceDate;
+        entity.CustomsLabComments = req.CustomsLabComments;
         entity.SsmoExamStartDate = req.SsmoExamStartDate;
         entity.SsmoCertIssuanceDate = req.SsmoCertIssuanceDate;
+        entity.SsmoExaminationComments = req.SsmoExaminationComments;
         entity.CustEvaluationDate = req.CustEvaluationDate;
         entity.CustomsDutySdg = req.CustomsDutySdg;
         entity.CustomsSettlementDate = req.CustomsSettlementDate;
         entity.ReleaseExitPassDate = req.ReleaseExitPassDate;
+        entity.CustomsEvaluationComments = req.CustomsEvaluationComments;
         entity.TruckPortEntryPermitDate = req.TruckPortEntryPermitDate;
         entity.ClearanceActualCompletedDate = req.ClearanceActualCompletedDate;
+        entity.TruckContainersComments = req.TruckContainersComments;
         entity.DepositShipmentId = req.DepositShipmentId;
 
         await _db.SaveChangesAsync();
@@ -297,7 +316,7 @@ public class ClearanceRouteDetailsController : ControllerBase
             charges.ForecastDemurrageSdg, charges.ForecastStorageSdg, charges.ForecastCapturedAt,
             charges.ActualDemurragePaidSdg, charges.ActualStoragePaidSdg,
             charges.ShippingLineDepositReturnDate, charges.AmountReturnedFromDeposit,
-            charges.PlannedCompletionDate, depositPaidSdg));
+            charges.PlannedCompletionDate, depositPaidSdg, charges.Comments));
     }
 
     // Sums the Cost Estimate's own "Ship. Line Deposit" charge type —
@@ -330,6 +349,7 @@ public class ClearanceRouteDetailsController : ControllerBase
         charges.ActualStoragePaidSdg = req.ActualStoragePaidSdg;
         charges.ShippingLineDepositReturnDate = req.ShippingLineDepositReturnDate;
         charges.AmountReturnedFromDeposit = req.AmountReturnedFromDeposit;
+        charges.Comments = req.Comments;
 
         await _db.SaveChangesAsync();
         return Ok(charges);
@@ -367,6 +387,6 @@ public class ClearanceRouteDetailsController : ControllerBase
             charges.ForecastDemurrageSdg, charges.ForecastStorageSdg, charges.ForecastCapturedAt,
             charges.ActualDemurragePaidSdg, charges.ActualStoragePaidSdg,
             charges.ShippingLineDepositReturnDate, charges.AmountReturnedFromDeposit,
-            charges.PlannedCompletionDate, depositPaidSdgForRecalc));
+            charges.PlannedCompletionDate, depositPaidSdgForRecalc, charges.Comments));
     }
 }

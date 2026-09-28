@@ -11,7 +11,12 @@ public record ClearanceShipmentSummary(
     int ShipmentId, string BlAwbNo, string BusinessUnit, string Category, DateOnly? Eta,
     int FclCount, string? DeclarationNo, string Product, decimal Qty, string Unit, string TrafficLight, string RouteStatus,
     string ShippingLine, decimal SlaPercent, bool IsCompleted, bool EtaHasArrived, int? DemurrageFreeDaysRemaining,
-    DateOnly? OriginalShipmentSetReceivedDate, string Type);
+    DateOnly? OriginalShipmentSetReceivedDate, string Type,
+    // Pulled straight from their respective sections so the table gives a
+    // preview without opening the shipment. SSMO Examination/Customs
+    // Evaluation come from whichever route is actually active (Route 2 has
+    // neither group, so both are null there).
+    string? DoComments, string? SsmoExaminationComments, string? CustomsEvaluationComments);
 
 public record ClearanceGeneralInfoRequest(
     DateOnly? CopyOfBlReceivedDate, DateOnly? OriginalShipmentSetReceivedDate, string? LcNo,
@@ -332,19 +337,22 @@ public class ClearanceController : ControllerBase
         // "Done" for the list means the shipment's OWN route has reached
         // Truck & Containers completion — not the rarely-used generic
         // Clearance.ClearanceCompleteDate field.
-        var route1Completions = await _db.ClearanceRoute1Details
+        // Kept as full entities (not just the completion date) so the
+        // SSMO Examination/Customs Evaluation comment columns below can
+        // read from the same lookup without a second round trip.
+        var route1Details = await _db.ClearanceRoute1Details
             .Where(r => clearanceIds.Contains(r.ClearanceId))
-            .ToDictionaryAsync(r => r.ClearanceId, r => r.ClearanceActualCompletedDate);
+            .ToDictionaryAsync(r => r.ClearanceId);
         var route2Completions = await _db.ClearanceRoute2Details
             .Where(r => clearanceIds.Contains(r.ClearanceId))
             .ToDictionaryAsync(r => r.ClearanceId, r => r.ClearanceActualCompletedDate);
-        var route3Completions = await _db.ClearanceRoute3Details
+        var route3Details = await _db.ClearanceRoute3Details
             .Where(r => clearanceIds.Contains(r.ClearanceId))
-            .ToDictionaryAsync(r => r.ClearanceId, r => r.ClearanceActualCompletedDate);
+            .ToDictionaryAsync(r => r.ClearanceId);
 
         var deliveryOrders = await _db.ClearanceDeliveryOrders
             .Where(d => clearanceIds.Contains(d.ClearanceId))
-            .ToDictionaryAsync(d => d.ClearanceId, d => d.ActualArrivalDate);
+            .ToDictionaryAsync(d => d.ClearanceId);
 
         // Shipping Line demurrage free-days — batched once for every
         // (Line, TariffGroup) combo this page actually needs, rather
@@ -390,9 +398,28 @@ public class ClearanceController : ControllerBase
 
             DateOnly? actualCompletedDate = (clearance is null || routeDivision is null) ? null : routeDivision switch
             {
-                ShippingPortal.Api.Models.Clearance.ClearanceDivision.Route1 => route1Completions.GetValueOrDefault(clearance.Id),
+                ShippingPortal.Api.Models.Clearance.ClearanceDivision.Route1 => route1Details.GetValueOrDefault(clearance.Id)?.ClearanceActualCompletedDate,
                 ShippingPortal.Api.Models.Clearance.ClearanceDivision.Route2 => route2Completions.GetValueOrDefault(clearance.Id),
-                ShippingPortal.Api.Models.Clearance.ClearanceDivision.Route3 => route3Completions.GetValueOrDefault(clearance.Id),
+                ShippingPortal.Api.Models.Clearance.ClearanceDivision.Route3 => route3Details.GetValueOrDefault(clearance.Id)?.ClearanceActualCompletedDate,
+                _ => null
+            };
+
+            // DO Comments / SSMO Examination Comments / Customs Clearance
+            // Comments for the Clearance table — sourced from Delivery
+            // Order (Route 1/2 only) and from whichever route (1 or 3) is
+            // actually active; Route 2 has neither SSMO Examination nor
+            // Customs Evaluation, so both stay null there.
+            string? doComments = clearance is not null ? deliveryOrders.GetValueOrDefault(clearance.Id)?.Comments : null;
+            string? ssmoExaminationComments = (clearance is null || routeDivision is null) ? null : routeDivision switch
+            {
+                ShippingPortal.Api.Models.Clearance.ClearanceDivision.Route1 => route1Details.GetValueOrDefault(clearance.Id)?.SsmoExaminationComments,
+                ShippingPortal.Api.Models.Clearance.ClearanceDivision.Route3 => route3Details.GetValueOrDefault(clearance.Id)?.SsmoExaminationComments,
+                _ => null
+            };
+            string? customsEvaluationComments = (clearance is null || routeDivision is null) ? null : routeDivision switch
+            {
+                ShippingPortal.Api.Models.Clearance.ClearanceDivision.Route1 => route1Details.GetValueOrDefault(clearance.Id)?.CustomsEvaluationComments,
+                ShippingPortal.Api.Models.Clearance.ClearanceDivision.Route3 => route3Details.GetValueOrDefault(clearance.Id)?.CustomsEvaluationComments,
                 _ => null
             };
 
@@ -429,7 +456,7 @@ public class ClearanceController : ControllerBase
                     t.ShippingLineId == s.ShippingLineId && t.TariffGroupId == tariffGroupId && t.ContainerSize == containerSize);
                 if (tariff is not null)
                 {
-                    var deliveryOrder = clearance is not null ? deliveryOrders.GetValueOrDefault(clearance.Id) : null;
+                    var deliveryOrder = clearance is not null ? deliveryOrders.GetValueOrDefault(clearance.Id)?.ActualArrivalDate : null;
                     var anchor = deliveryOrder ?? s.Eta;
                     if (anchor.HasValue)
                     {
@@ -444,7 +471,8 @@ public class ClearanceController : ControllerBase
                 s.Eta, s.Fcl20Count + s.Fcl40Count, declarationNo, firstLine?.ModelProduct?.Name ?? "", totalQty, firstLine?.UnitOfMeasure?.Code ?? "",
                 trafficLight, routeStatus, s.ShippingLine?.Name ?? "", slaPercent, actualCompletedDate.HasValue,
                 etaHasArrived, demurrageFreeDaysRemaining, clearance?.OriginalShipmentSetReceivedDate,
-                firstLine?.ProductType?.Name ?? ""));
+                firstLine?.ProductType?.Name ?? "",
+                doComments, ssmoExaminationComments, customsEvaluationComments));
         }
 
         var ordered = results.OrderBy(x => x.Eta ?? DateOnly.MaxValue).ToList();

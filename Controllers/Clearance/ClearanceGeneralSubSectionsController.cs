@@ -11,14 +11,15 @@ namespace ShippingPortal.Api.Controllers.Clearance;
 
 public record DeliveryOrderRequest(
     DateOnly? CopyOfDoCollectedDate, DateOnly? ReceiveDoDate, DateOnly? ActualArrivalDate,
-    bool DepositRequired, decimal? DoActualFeesSdg, DateOnly? DoFeesSettledDate, DateOnly? DoReceivedDate);
+    bool DepositRequired, decimal? DoActualFeesSdg, DateOnly? DoFeesSettledDate, DateOnly? DoReceivedDate,
+    string? Comments);
 
-public record CostEstimateRequest(DateOnly? EstimateDate, DateOnly? NotifyBuDate, DateOnly? AmountSettledDate);
+public record CostEstimateRequest(DateOnly? EstimateDate, DateOnly? NotifyBuDate, DateOnly? AmountSettledDate, string? Comments);
 
 public record EstimateLineItemRequest(int ChargeTypeId, [Range(typeof(decimal), "0", "79228162514264337593543950335", ErrorMessage = "Value cannot be negative.")] decimal ValueSdg, DateOnly? DueDate);
 public record EstimateLineItemResponse(int Id, int ChargeTypeId, string ChargeTypeName, decimal ValueSdg, DateOnly? DueDate);
 
-public record CertificateEntryRequest(DateOnly? CertificateEntryDate, string? ScudaDeclarationNo);
+public record CertificateEntryRequest(DateOnly? CertificateEntryDate, string? ScudaDeclarationNo, string? Comments);
 
 [ApiController]
 [Authorize]
@@ -76,6 +77,7 @@ public class ClearanceGeneralSubSectionsController : ControllerBase
         entity.DoActualFeesSdg = req.DoActualFeesSdg;
         entity.DoFeesSettledDate = req.DoFeesSettledDate;
         entity.DoReceivedDate = req.DoReceivedDate;
+        entity.Comments = req.Comments;
 
         await _db.SaveChangesAsync();
         return Ok(entity);
@@ -109,6 +111,7 @@ public class ClearanceGeneralSubSectionsController : ControllerBase
         entity.EstimateDate = req.EstimateDate;
         entity.NotifyBuDate = req.NotifyBuDate;
         entity.AmountSettledDate = req.AmountSettledDate;
+        entity.Comments = req.Comments;
 
         await _db.SaveChangesAsync();
         return Ok(entity);
@@ -191,6 +194,7 @@ public class ClearanceGeneralSubSectionsController : ControllerBase
 
         entity.CertificateEntryDate = req.CertificateEntryDate;
         entity.ScudaDeclarationNo = req.ScudaDeclarationNo;
+        entity.Comments = req.Comments;
 
         await _db.SaveChangesAsync();
         return Ok(entity);
