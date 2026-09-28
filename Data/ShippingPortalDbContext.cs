@@ -32,6 +32,7 @@ public class ShippingPortalDbContext : IdentityDbContext<ApplicationUser>
     public DbSet<PaymentTerm> PaymentTerms => Set<PaymentTerm>();
     public DbSet<Incoterm> Incoterms => Set<Incoterm>();
     public DbSet<OriginCountry> OriginCountries => Set<OriginCountry>();
+    public DbSet<Port> Ports => Set<Port>();
     public DbSet<UnitOfMeasure> UnitsOfMeasure => Set<UnitOfMeasure>();
     public DbSet<ShipmentMode> ShipmentModes => Set<ShipmentMode>();
     public DbSet<Currency> Currencies => Set<Currency>();
@@ -362,6 +363,8 @@ public class ShippingPortalDbContext : IdentityDbContext<ApplicationUser>
         builder.Entity<PurchaseOrder>().HasOne(p => p.Incoterm).WithMany().OnDelete(DeleteBehavior.Restrict);
         builder.Entity<PurchaseOrder>().HasOne(p => p.OriginCountry).WithMany().OnDelete(DeleteBehavior.Restrict);
         builder.Entity<PurchaseOrder>().HasOne(p => p.ShipmentMode).WithMany().OnDelete(DeleteBehavior.Restrict);
+        builder.Entity<PurchaseOrder>().HasOne(p => p.PortOfLoading).WithMany().OnDelete(DeleteBehavior.Restrict);
+        builder.Entity<PurchaseOrder>().HasOne(p => p.PortOfDischarge).WithMany().OnDelete(DeleteBehavior.Restrict);
 
         builder.Entity<PurchaseOrderLineItem>().HasOne(li => li.ProductCategory).WithMany().OnDelete(DeleteBehavior.Restrict);
         builder.Entity<PurchaseOrderLineItem>().HasOne(li => li.ModelProduct).WithMany().OnDelete(DeleteBehavior.Restrict);
