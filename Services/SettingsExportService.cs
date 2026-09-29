@@ -101,6 +101,11 @@ public class SettingsExportService
 
         await WriteSimpleNameActive(wb, "OriginCountries", "Origin Countries", "China", _db.OriginCountries.Select(x => new NameActive(x.Name, x.IsActive)));
 
+        // Added after this workbook was first built — see data-migration
+        // audit notes. Same lookup used for both Port of Loading and Port
+        // of Discharge on the New Supplier Order form.
+        await WriteSimpleNameActive(wb, "Ports", "Ports", "Jebel Ali", _db.Ports.Select(x => new NameActive(x.Name, x.IsActive)));
+
         var uoms = await _db.UnitsOfMeasure.ToListAsync();
         var wsUom = NewSheet(wb, "UnitsOfMeasure", "Units of Measure", "", new[] { "Code", "IsActive (TRUE/FALSE)" }, new[] { "PCS", "TRUE" });
         for (int i = 0; i < uoms.Count; i++) WriteRow(wsUom, 6 + i, uoms[i].Code, uoms[i].IsActive);

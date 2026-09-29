@@ -74,6 +74,10 @@ public class SettingsUploadService
             ("PaymentTerms", UploadSimpleNameActive<PaymentTerm>("PaymentTerms")),
             ("Incoterms", UploadSimpleCodeNameActive<Incoterm>("Incoterms", x => x.Code, (x, c) => x.Code = c, (x, n) => x.Name = n, (x, a) => x.IsActive = a)),
             ("OriginCountries", UploadSimpleNameActive<OriginCountry>("OriginCountries")),
+            // Added after this workbook was first built — see data-migration
+            // audit notes. No FK dependents among the sheets below, so its
+            // position here (matching the export's placement) is cosmetic.
+            ("Ports", UploadSimpleNameActive<Port>("Ports")),
             ("UnitsOfMeasure", UploadUnitsOfMeasure),
             ("ShipmentModes", UploadSimpleNameActive<ShipmentMode>("ShipmentModes")),
             ("TariffGroups", UploadSimpleNameActive<TariffGroup>("TariffGroups")),
