@@ -59,23 +59,19 @@ public record ProcessStepDetail(
     string StepName, string Category,
     DateOnly? ForecastStart, DateOnly? ForecastEnd,
     DateOnly? ActualStart, DateOnly? ActualEnd,
-    // Positive = faster/better throughout, matching how this
-    // dashboard's own audience thinks about it — the opposite sign
-    // convention from Demurrage Analysis's Gap column, which is
-    // deliberate: these are two different dashboards for two
-    // different audiences, not the same figure reused.
-    double? ExecutionSpeedDays, double? CompletionDateDeltaDays,
-    // Added per explicit user request: an Actual/Target/Gap view using
-    // Demurrage Analysis's OWN sign convention instead (Gap = Actual −
-    // Target; overrun = positive = Red, ahead = negative = Green) —
-    // deliberately the opposite sign from ExecutionSpeedDays above,
-    // kept alongside it rather than replacing it. ActualDaysTaken is
-    // the same business-day duration ExecutionSpeedDays is derived
-    // from; TargetDays is always known even before an actual exists;
-    // Gap is only set once an actual duration exists.
+    // Actual/Target/Gap using Demurrage Analysis's own sign convention
+    // (Gap = Actual − Target; overrun = positive = Red, ahead =
+    // negative = Green) — the page's only day-count figure now.
+    // ActualDaysTaken is the business-day duration between actualStart
+    // and actualEnd; TargetDays is always known even before an actual
+    // exists; Gap is only set once an actual duration exists.
+    // Previously this record also carried a second, oppositely-signed
+    // pair (ExecutionSpeedDays/CompletionDateDeltaDays) — removed per
+    // user feedback that having both conventions on one page read as
+    // more confusing than useful, now that Gap covers the same ground.
     int? ActualDaysTaken, decimal? TargetDays, decimal? Gap);
 
-public record CategoryRollup(string Category, double AvgExecutionSpeedDays, double AvgCompletionDateDeltaDays, int StepInstanceCount);
+public record CategoryRollup(string Category, double AvgActualDays, decimal AvgTargetDays, double AvgGapDays, int StepInstanceCount);
 
 public record ProcessPerformanceResult(
     bool IsSingleShipment, int ShipmentCount,
@@ -229,29 +225,28 @@ public class ProcessPerformanceController : ControllerBase
         var avgSteps = allStepNames.Select(name =>
         {
             var matching = perShipment.SelectMany(p => p.Steps).Where(s => s.StepName == name).ToList();
-            var speeds = matching.Where(s => s.ExecutionSpeedDays.HasValue).Select(s => s.ExecutionSpeedDays!.Value).ToList();
-            var deltas = matching.Where(s => s.CompletionDateDeltaDays.HasValue).Select(s => s.CompletionDateDeltaDays!.Value).ToList();
             var actualDaysList = matching.Where(s => s.ActualDaysTaken.HasValue).Select(s => s.ActualDaysTaken!.Value).ToList();
             var targetDaysList = matching.Where(s => s.TargetDays.HasValue).Select(s => s.TargetDays!.Value).ToList();
             var gapList = matching.Where(s => s.Gap.HasValue).Select(s => s.Gap!.Value).ToList();
             return new ProcessStepDetail(
                 name, matching.First().Category, null, null, null, null,
-                speeds.Count > 0 ? speeds.Average() : null,
-                deltas.Count > 0 ? deltas.Average() : null,
                 actualDaysList.Count > 0 ? (int?)Math.Round(actualDaysList.Average()) : null,
                 targetDaysList.Count > 0 ? targetDaysList.Average() : null,
                 gapList.Count > 0 ? gapList.Average() : null);
         }).ToList();
 
+        // Worst (most positive/overrun) average Gap first, so the
+        // category most responsible for delay leads the rollup.
         var rollups = avgSteps
-            .Where(s => s.ExecutionSpeedDays.HasValue || s.CompletionDateDeltaDays.HasValue)
+            .Where(s => s.Gap.HasValue)
             .GroupBy(s => s.Category)
             .Select(g => new CategoryRollup(
                 g.Key,
-                g.Where(s => s.ExecutionSpeedDays.HasValue).Select(s => s.ExecutionSpeedDays!.Value).DefaultIfEmpty(0).Average(),
-                g.Where(s => s.CompletionDateDeltaDays.HasValue).Select(s => s.CompletionDateDeltaDays!.Value).DefaultIfEmpty(0).Average(),
+                g.Where(s => s.ActualDaysTaken.HasValue).Select(s => (double)s.ActualDaysTaken!.Value).DefaultIfEmpty(0).Average(),
+                g.Where(s => s.TargetDays.HasValue).Select(s => s.TargetDays!.Value).DefaultIfEmpty(0).Average(),
+                g.Select(s => (double)s.Gap!.Value).DefaultIfEmpty(0).Average(),
                 g.Count()))
-            .OrderBy(r => r.AvgCompletionDateDeltaDays)
+            .OrderByDescending(r => r.AvgGapDays)
             .ToList();
 
         return Ok(new ProcessPerformanceResult(false, perShipment.Count, null, null, null, null, null, null, avgSteps, rollups, hitCount, hitAmountSdg));
@@ -600,21 +595,10 @@ public class ProcessPerformanceController : ControllerBase
         DateOnly? forecastStart, DateOnly? forecastEnd, DateOnly? actualStart, DateOnly? actualEnd,
         decimal targetDays, HashSet<DateOnly> holidaySet)
     {
-        double? executionSpeed = null;
         int? actualDaysTaken = null;
         if (actualStart.HasValue && actualEnd.HasValue)
         {
-            var actualDuration = BusinessDaysBetween(actualStart.Value, actualEnd.Value, holidaySet);
-            executionSpeed = (double)targetDays - actualDuration;
-            actualDaysTaken = actualDuration;
-        }
-
-        double? completionDelta = null;
-        if (forecastEnd.HasValue && actualEnd.HasValue)
-        {
-            completionDelta = actualEnd.Value <= forecastEnd.Value
-                ? BusinessDaysBetween(actualEnd.Value, forecastEnd.Value, holidaySet)
-                : -BusinessDaysBetween(forecastEnd.Value, actualEnd.Value, holidaySet);
+            actualDaysTaken = BusinessDaysBetween(actualStart.Value, actualEnd.Value, holidaySet);
         }
 
         // Demurrage-Analysis-style sign: Gap = Actual − Target, so an
@@ -623,6 +607,6 @@ public class ProcessPerformanceController : ControllerBase
         decimal? gap = actualDaysTaken.HasValue ? actualDaysTaken.Value - targetDays : null;
 
         var category = ProcessStepCategories.ByStep.GetValueOrDefault(name, "Internal");
-        steps.Add(new ProcessStepDetail(name, category, forecastStart, forecastEnd, actualStart, actualEnd, executionSpeed, completionDelta, actualDaysTaken, targetDays, gap));
+        steps.Add(new ProcessStepDetail(name, category, forecastStart, forecastEnd, actualStart, actualEnd, actualDaysTaken, targetDays, gap));
     }
 }
