@@ -141,6 +141,9 @@ public class DataUploadService
         var locksWs = wb.Worksheets.FirstOrDefault(w => w.Name == "Section_Locks");
         if (locksWs is not null) results.Add(await ProcessSectionLocks(locksWs, uploaderUserId));
 
+        var truckMovementsWs = wb.Worksheets.FirstOrDefault(w => w.Name == "Truck_Movements");
+        if (truckMovementsWs is not null) results.Add(await ProcessTruckMovements(truckMovementsWs, uploaderUserId));
+
         var directSalesDuesWs = wb.Worksheets.FirstOrDefault(w => w.Name == "Direct_Sales_Customer_Dues");
         if (directSalesDuesWs is not null) results.Add(await ProcessDirectSalesCustomerDues(directSalesDuesWs));
 
@@ -172,6 +175,9 @@ public class DataUploadService
         public List<SenderBank> SenderBanks = new();
         public List<ReceiverBank> ReceiverBanks = new();
         public List<Tenor> Tenors = new();
+        public List<Port> Ports = new();
+        public List<CPricingCategory> CPricingCategories = new();
+        public List<CPricingType> CPricingTypes = new();
     }
     private async Task<LookupCache> LoadLookups() => new LookupCache
     {
@@ -191,7 +197,10 @@ public class DataUploadService
         Couriers = await _db.Couriers.ToListAsync(),
         SenderBanks = await _db.SenderBanks.ToListAsync(),
         ReceiverBanks = await _db.ReceiverBanks.ToListAsync(),
-        Tenors = await _db.Tenors.ToListAsync()
+        Tenors = await _db.Tenors.ToListAsync(),
+        Ports = await _db.Ports.ToListAsync(),
+        CPricingCategories = await _db.CPricingCategories.ToListAsync(),
+        CPricingTypes = await _db.CPricingTypes.ToListAsync()
     };
 
     private async Task<SheetUploadResult> ProcessMain(IXLWorksheet ws)
@@ -267,6 +276,39 @@ public class DataUploadService
                     var shipmentMode = await _db.ShipmentModes.FirstOrDefaultAsync(m => m.Name == shipmentModeName);
                     if (shipmentMode is null) { errors.Add($"Row {row}: Shipment Mode '{shipmentModeName}' not found."); continue; }
 
+                    // Cols 101-108, appended at the end of Main (see
+                    // DataExportService) rather than alongside the rest of
+                    // the PO section above, to avoid shifting every fixed
+                    // column index after them. Port of Loading/Discharge are
+                    // optional, same as on the New Supplier Order form.
+                    var portOfLoadingName = S(ws, row, 101);
+                    int? portOfLoadingId = null;
+                    if (portOfLoadingName is not null)
+                    {
+                        var portOfLoading = lk.Ports.FirstOrDefault(p => p.Name == portOfLoadingName);
+                        if (portOfLoading is null) { errors.Add($"Row {row}: Port of Loading '{portOfLoadingName}' not found."); continue; }
+                        portOfLoadingId = portOfLoading.Id;
+                    }
+                    var portOfDischargeName = S(ws, row, 102);
+                    int? portOfDischargeId = null;
+                    if (portOfDischargeName is not null)
+                    {
+                        var portOfDischarge = lk.Ports.FirstOrDefault(p => p.Name == portOfDischargeName);
+                        if (portOfDischarge is null) { errors.Add($"Row {row}: Port of Discharge '{portOfDischargeName}' not found."); continue; }
+                        portOfDischargeId = portOfDischarge.Id;
+                    }
+                    // Blank/unrecognized falls back to Confirmed — same
+                    // default this importer always used before PO STATUS
+                    // existed as a column, so an older export without it
+                    // still behaves exactly as before.
+                    var poStatusText = S(ws, row, 108);
+                    var poStatus = poStatusText?.ToUpperInvariant() switch
+                    {
+                        "DRAFT" => OrderStatus.Draft,
+                        "CANCELLED" => OrderStatus.Cancelled,
+                        _ => OrderStatus.Confirmed
+                    };
+
                     po = new PurchaseOrder
                     {
                         PoNumber = poNumber,
@@ -288,7 +330,14 @@ public class DataUploadService
                         OriginCountryId = origin.Id,
                         ShipmentModeId = shipmentMode.Id,
                         BuShippingBudget = D(ws, row, 19),
-                        Status = OrderStatus.Confirmed,
+                        PortOfLoadingId = portOfLoadingId,
+                        PortOfDischargeId = portOfDischargeId,
+                        OffshorePoNo = S(ws, row, 103),
+                        OffshorePoDate = Dt(ws, row, 104),
+                        AdvancePaymentPercent = D(ws, row, 105),
+                        AdvancePaymentPlannedDate = Dt(ws, row, 106),
+                        AdvancePaymentExecutedDate = Dt(ws, row, 107),
+                        Status = poStatus,
                         CreatedAt = DateTime.UtcNow,
                         UpdatedAt = DateTime.UtcNow
                     };
@@ -452,20 +501,50 @@ public class DataUploadService
 
             await UpsertShipmentSections(shipment.Id, ws, row, lk);
 
-            // --- Last Offshore Item Detail (per line item; col 58 = Approved MOT Unit Price USD, col 61 = Description) ---
+            // --- Last Offshore Item Detail (per line item; col 58 = Approved MOT Unit Price USD, col 61 = Description;
+            // cols 111-112 appended at the end of Main — see DataExportService — for the C Pricing classification) ---
             var lastOffshoreUnitPrice = D(ws, row, 58);
             var lastOffshoreDescription = S(ws, row, 61);
-            if (lastOffshoreUnitPrice.HasValue || lastOffshoreDescription is not null)
+            var cPricingCategoryName = S(ws, row, 111);
+            var cPricingTypeName = S(ws, row, 112);
+            if (lastOffshoreUnitPrice.HasValue || lastOffshoreDescription is not null || cPricingCategoryName is not null || cPricingTypeName is not null)
             {
+                int? cPricingCategoryId = null;
+                if (cPricingCategoryName is not null)
+                {
+                    var category = lk.CPricingCategories.FirstOrDefault(c => c.Name == cPricingCategoryName);
+                    if (category is null) { errors.Add($"Row {row}: C Pricing Category '{cPricingCategoryName}' not found."); }
+                    else cPricingCategoryId = category.Id;
+                }
+                int? cPricingTypeId = null;
+                if (cPricingTypeName is not null)
+                {
+                    // A C_Type belongs to exactly one C_Cat — matched by
+                    // (Category, Name) when the category resolved above,
+                    // same relationship CPricingTypesController enforces,
+                    // falling back to Name alone if the category didn't.
+                    var type = cPricingCategoryId.HasValue
+                        ? lk.CPricingTypes.FirstOrDefault(t => t.Name == cPricingTypeName && t.CPricingCategoryId == cPricingCategoryId.Value)
+                        : lk.CPricingTypes.FirstOrDefault(t => t.Name == cPricingTypeName);
+                    if (type is null) { errors.Add($"Row {row}: C Pricing Type '{cPricingTypeName}' not found."); }
+                    else cPricingTypeId = type.Id;
+                }
+
                 var existingItemDetail = await _db.LastOffshoreItemDetails.FirstOrDefaultAsync(d => d.ShipmentLineItemId == existingShipLine.Id);
                 if (existingItemDetail is null)
                 {
-                    _db.LastOffshoreItemDetails.Add(new LastOffshoreItemDetail { ShipmentLineItemId = existingShipLine.Id, UnitPrice = lastOffshoreUnitPrice, Description = lastOffshoreDescription });
+                    _db.LastOffshoreItemDetails.Add(new LastOffshoreItemDetail
+                    {
+                        ShipmentLineItemId = existingShipLine.Id, UnitPrice = lastOffshoreUnitPrice, Description = lastOffshoreDescription,
+                        CPricingCategoryId = cPricingCategoryId, CPricingTypeId = cPricingTypeId
+                    });
                 }
                 else
                 {
                     existingItemDetail.UnitPrice = lastOffshoreUnitPrice;
                     existingItemDetail.Description = lastOffshoreDescription;
+                    existingItemDetail.CPricingCategoryId = cPricingCategoryId;
+                    existingItemDetail.CPricingTypeId = cPricingTypeId;
                 }
             }
 
@@ -517,14 +596,18 @@ public class DataUploadService
             fwd.MarineInsurance = B(ws, row, 43) ?? false;
         }
 
-        // Draft Documents (cols 44-45) + Supplier Full Set (cols 46-50)
+        // Draft Documents (cols 44-45; col 109 appended at the end of Main —
+        // see DataExportService) + Supplier Full Set (cols 46-50; col 110
+        // appended likewise)
         var draftDate = Dt(ws, row, 44);
         var finalConfirmedDate = Dt(ws, row, 45);
-        if (draftDate.HasValue || finalConfirmedDate.HasValue)
+        var finalReceivedDate = Dt(ws, row, 109);
+        if (draftDate.HasValue || finalConfirmedDate.HasValue || finalReceivedDate.HasValue)
         {
             var docs = await _db.ShipmentDraftDocuments.FirstOrDefaultAsync(d => d.ShipmentId == shipmentId) ?? new ShipmentDraftDocuments { ShipmentId = shipmentId };
             if (docs.Id == 0) _db.ShipmentDraftDocuments.Add(docs);
             docs.InitialDraftReceivedDate = draftDate;
+            docs.FinalDraftReceivedDate = finalReceivedDate;
             docs.FinalDraftConfirmedDate = finalConfirmedDate;
         }
 
@@ -538,6 +621,12 @@ public class DataUploadService
             fullSet.FsDispatchDate = Dt(ws, row, 48);
             fullSet.FsTrackingNumber = S(ws, row, 49);
             fullSet.FsReceivedDate = Dt(ws, row, 50);
+            var fsDispatchedViaName = S(ws, row, 110);
+            if (fsDispatchedViaName is not null)
+            {
+                var courier = lk.Couriers.FirstOrDefault(x => x.Name == fsDispatchedViaName);
+                if (courier is not null) fullSet.FsDispatchedViaId = courier.Id;
+            }
         }
 
         // Banking (col 51 = dispatch tracking number; cols 64-75 = full fields, appended at the end of the sheet)
@@ -697,15 +786,18 @@ public class DataUploadService
             if (currency is null) { errors.Add($"Row {row}: Currency '{curCode}' not found."); continue; }
 
             var label = S(ws, row, 5);
+            // Col 6, appended at the end of this sheet (see DataExportService)
+            // — see that method's comment for why this needs to round-trip.
+            var isFromPoAdvance = B(ws, row, 6) ?? false;
             var existing = await _db.ShipmentPaymentDues.FirstOrDefaultAsync(d => d.ShipmentId == shipment.Id && d.Label == label);
             if (existing is null)
             {
-                _db.ShipmentPaymentDues.Add(new ShipmentPaymentDue { ShipmentId = shipment.Id, DueDate = dueDate.Value, Amount = amount.Value, CurrencyId = currency.Id, Label = label });
+                _db.ShipmentPaymentDues.Add(new ShipmentPaymentDue { ShipmentId = shipment.Id, DueDate = dueDate.Value, Amount = amount.Value, CurrencyId = currency.Id, Label = label, IsFromPoAdvance = isFromPoAdvance });
                 created++;
             }
             else
             {
-                existing.DueDate = dueDate.Value; existing.Amount = amount.Value; existing.CurrencyId = currency.Id;
+                existing.DueDate = dueDate.Value; existing.Amount = amount.Value; existing.CurrencyId = currency.Id; existing.IsFromPoAdvance = isFromPoAdvance;
                 updated++;
             }
         }
@@ -824,7 +916,7 @@ public class DataUploadService
 
         for (int row = 6; row <= lastRow; row++)
         {
-            if (RowIsBlank(ws, row, 21)) continue;
+            if (RowIsBlank(ws, row, 27)) continue;
             var blAwbNo = S(ws, row, 1);
             var ship = await FindShipmentForRow(row, blAwbNo, errors);
             if (ship is null) continue;
@@ -844,6 +936,13 @@ public class DataUploadService
             clearance.ImFormNo = S(ws, row, 7);
             clearance.ImFormDate = Dt(ws, row, 8);
             clearance.Notes = S(ws, row, 9);
+            // Cols 22-24, appended at the end of this sheet (see
+            // DataExportService) — Route 3's own withdrawal-request anchor/
+            // ref (distinct from the standalone Withdrawals sheet) and the
+            // top-level clearance-complete marker.
+            clearance.WithdrawalRequestDate = Dt(ws, row, 22);
+            clearance.WithdrawalRequestRefNo = S(ws, row, 23);
+            clearance.ClearanceCompleteDate = Dt(ws, row, 24);
             if (isNewClearance) { _db.Clearances.Add(clearance); await _db.SaveChangesAsync(); created++; } else updated++;
 
             var deliveryOrder = await _db.ClearanceDeliveryOrders.FirstOrDefaultAsync(d => d.ClearanceId == clearance.Id) ?? new ClearanceDeliveryOrder { ClearanceId = clearance.Id };
@@ -855,21 +954,25 @@ public class DataUploadService
             deliveryOrder.DoActualFeesSdg = D(ws, row, 14);
             deliveryOrder.DoFeesSettledDate = Dt(ws, row, 15);
             deliveryOrder.DoReceivedDate = Dt(ws, row, 16);
+            deliveryOrder.Comments = S(ws, row, 25);
 
             var costEstimate = await _db.ClearanceCostEstimates.FirstOrDefaultAsync(c => c.ClearanceId == clearance.Id) ?? new ClearanceCostEstimate { ClearanceId = clearance.Id };
             if (costEstimate.Id == 0) _db.ClearanceCostEstimates.Add(costEstimate);
             costEstimate.EstimateDate = Dt(ws, row, 17);
             costEstimate.NotifyBuDate = Dt(ws, row, 18);
             costEstimate.AmountSettledDate = Dt(ws, row, 19);
+            costEstimate.Comments = S(ws, row, 26);
 
             var certEntryDate = Dt(ws, row, 20);
             var scudaNo = S(ws, row, 21);
-            if (certEntryDate.HasValue || scudaNo is not null)
+            var certEntryComments = S(ws, row, 27);
+            if (certEntryDate.HasValue || scudaNo is not null || certEntryComments is not null)
             {
                 var certEntry = await _db.ClearanceCertificateEntries.FirstOrDefaultAsync(c => c.ClearanceId == clearance.Id) ?? new ClearanceCertificateEntry { ClearanceId = clearance.Id };
                 if (certEntry.Id == 0) _db.ClearanceCertificateEntries.Add(certEntry);
                 certEntry.CertificateEntryDate = certEntryDate;
                 certEntry.ScudaDeclarationNo = scudaNo;
+                certEntry.Comments = certEntryComments;
             }
 
             await _db.SaveChangesAsync();
@@ -929,7 +1032,7 @@ public class DataUploadService
 
         for (int row = 6; row <= lastRow; row++)
         {
-            if (RowIsBlank(ws, row, 27)) continue;
+            if (RowIsBlank(ws, row, 35)) continue;
             var blAwbNo = S(ws, row, 1);
             var ship = await FindShipmentForRow(row, blAwbNo, errors);
             if (ship is null) continue;
@@ -953,6 +1056,11 @@ public class DataUploadService
             r.TruckPortEntryPermitDate = Dt(ws, row, 23); r.ContainersReturnedDate = Dt(ws, row, 24);
             r.ShippingLineDepositReturnDate = Dt(ws, row, 25); r.DepositValue = D(ws, row, 26);
             r.ClearanceActualCompletedDate = Dt(ws, row, 27);
+            // Cols 28-35, appended at the end of this sheet (see DataExportService).
+            r.ContainersMoveProcessComments = S(ws, row, 28); r.SsmoFileProcessComments = S(ws, row, 29);
+            r.CustomsExaminationComments = S(ws, row, 30); r.CustomsLabComments = S(ws, row, 31);
+            r.SsmoExaminationComments = S(ws, row, 32); r.CustomsEvaluationComments = S(ws, row, 33);
+            r.SpcBillComments = S(ws, row, 34); r.TruckContainersComments = S(ws, row, 35);
 
             if (isNew) { _db.ClearanceRoute1Details.Add(r); created++; } else updated++;
         }
@@ -969,7 +1077,7 @@ public class DataUploadService
 
         for (int row = 6; row <= lastRow; row++)
         {
-            if (RowIsBlank(ws, row, 17)) continue;
+            if (RowIsBlank(ws, row, 21)) continue;
             var blAwbNo = S(ws, row, 1);
             var ship = await FindShipmentForRow(row, blAwbNo, errors);
             if (ship is null) continue;
@@ -998,6 +1106,9 @@ public class DataUploadService
             r.TruckPortEntryPermitDate = Dt(ws, row, 12); r.ContainersReceivedAtFzDate = Dt(ws, row, 13);
             r.ContainersReturnedDate = Dt(ws, row, 14); r.ShippingLineDepositReturnDate = Dt(ws, row, 15);
             r.DepositValue = D(ws, row, 16); r.ClearanceActualCompletedDate = Dt(ws, row, 17);
+            // Cols 18-21, appended at the end of this sheet (see DataExportService).
+            r.FzDepositRequestComments = S(ws, row, 18); r.CustomsInspectionComments = S(ws, row, 19);
+            r.SpcBillComments = S(ws, row, 20); r.TruckContainersComments = S(ws, row, 21);
 
             if (isNew) { _db.ClearanceRoute2Details.Add(r); created++; } else updated++;
         }
@@ -1013,7 +1124,7 @@ public class DataUploadService
 
         for (int row = 6; row <= lastRow; row++)
         {
-            if (RowIsBlank(ws, row, 9)) continue;
+            if (RowIsBlank(ws, row, 10)) continue;
             var blAwbNo = S(ws, row, 1);
             var ship = await FindShipmentForRow(row, blAwbNo, errors);
             if (ship is null) continue;
@@ -1031,6 +1142,7 @@ public class DataUploadService
             r.PlannedCompletionDate = Dt(ws, row, 5);
             r.ActualDemurragePaidSdg = D(ws, row, 6); r.ActualStoragePaidSdg = D(ws, row, 7);
             r.ShippingLineDepositReturnDate = Dt(ws, row, 8); r.AmountReturnedFromDeposit = D(ws, row, 9);
+            r.Comments = S(ws, row, 10);
 
             if (isNew) { _db.ClearanceActualCharges.Add(r); created++; } else updated++;
         }
@@ -1052,7 +1164,7 @@ public class DataUploadService
 
         for (int row = 6; row <= lastRow; row++)
         {
-            if (RowIsBlank(ws, row, 9)) continue;
+            if (RowIsBlank(ws, row, 14)) continue;
             var blAwbNo = S(ws, row, 1);
             var modelName = S(ws, row, 2);
             var ship = await FindShipmentForRow(row, blAwbNo, errors);
@@ -1087,6 +1199,10 @@ public class DataUploadService
 
             var qty = D(ws, row, 3) ?? 0;
             var loadDate = Dt(ws, row, 7) ?? DateOnly.FromDateTime(DateTime.UtcNow);
+            // Cols 12-14, appended at the end of this sheet (see DataExportService).
+            var contactName = S(ws, row, 12);
+            var contactPhone = S(ws, row, 13);
+            var truckLoadNotes = S(ws, row, 14);
 
             // One allocation per shipment line item — re-uploading the same
             // export updates the existing chain in place instead of adding
@@ -1096,6 +1212,8 @@ public class DataUploadService
             {
                 existingAllocation.WarehouseId = warehouse.Id;
                 existingAllocation.Qty = qty;
+                existingAllocation.ContactName = contactName;
+                existingAllocation.ContactPhone = contactPhone;
 
                 if (truck is null)
                 {
@@ -1114,7 +1232,7 @@ public class DataUploadService
                     var existingLoad = existingDrop is not null ? await _db.TruckLoads.FirstOrDefaultAsync(l => l.Id == existingDrop.TruckLoadId) : null;
 
                     if (existingDrop is not null) { existingDrop.WarehouseId = warehouse.Id; existingDrop.ExpectedDeliveryDate = Dt(ws, row, 8); existingDrop.ActualDropOffDate = Dt(ws, row, 9); }
-                    if (existingLoad is not null) { existingLoad.TruckId = truck.Id; existingLoad.DriverId = driver?.Id; existingLoad.LoadDate = loadDate; }
+                    if (existingLoad is not null) { existingLoad.TruckId = truck.Id; existingLoad.DriverId = driver?.Id; existingLoad.LoadDate = loadDate; existingLoad.Notes = truckLoadNotes; }
                     existingItem.Qty = qty; existingItem.InHousePrice = D(ws, row, 10); existingItem.ParallelMarketPrice = D(ws, row, 11);
 
                     await _db.SaveChangesAsync();
@@ -1124,7 +1242,7 @@ public class DataUploadService
 
                 // Existing allocation had no truck chain yet, and this row
                 // now supplies one — create it against the existing allocation.
-                var newLoad = new TruckLoad { TruckId = truck.Id, DriverId = driver?.Id, LoadDate = loadDate, Notes = "Migration import" };
+                var newLoad = new TruckLoad { TruckId = truck.Id, DriverId = driver?.Id, LoadDate = loadDate, Notes = truckLoadNotes ?? "Migration import" };
                 _db.TruckLoads.Add(newLoad);
                 await _db.SaveChangesAsync();
 
@@ -1140,7 +1258,8 @@ public class DataUploadService
 
             var allocation = new WarehouseAllocation
             {
-                ShipmentLineItemId = shipLine.Id, WarehouseId = warehouse.Id, Qty = qty, AllocatedAt = DateTime.UtcNow
+                ShipmentLineItemId = shipLine.Id, WarehouseId = warehouse.Id, Qty = qty, AllocatedAt = DateTime.UtcNow,
+                ContactName = contactName, ContactPhone = contactPhone
             };
             _db.WarehouseAllocations.Add(allocation);
             await _db.SaveChangesAsync();
@@ -1153,7 +1272,7 @@ public class DataUploadService
                 continue;
             }
 
-            var load = new TruckLoad { TruckId = truck.Id, DriverId = driver?.Id, LoadDate = loadDate, Notes = "Migration import" };
+            var load = new TruckLoad { TruckId = truck.Id, DriverId = driver?.Id, LoadDate = loadDate, Notes = truckLoadNotes ?? "Migration import" };
             _db.TruckLoads.Add(load);
             await _db.SaveChangesAsync();
 
@@ -1437,7 +1556,7 @@ public class DataUploadService
 
         for (int row = PaymentFirstDataRow; row <= lastRow; row++)
         {
-            if (RowIsBlank(ws, row, 23)) continue;
+            if (RowIsBlank(ws, row, 28)) continue;
             var blAwbNo = S(ws, row, 1);
             var ship = await FindShipmentForRow(row, blAwbNo, errors);
             if (ship is null) continue;
@@ -1468,6 +1587,11 @@ public class DataUploadService
             r.CustEvaluationDate = Dt(ws, row, 16); r.CustomsDutySdg = D(ws, row, 17);
             r.CustomsSettlementDate = Dt(ws, row, 18); r.ReleaseExitPassDate = Dt(ws, row, 19);
             r.TruckPortEntryPermitDate = Dt(ws, row, 20); r.ClearanceActualCompletedDate = Dt(ws, row, 21);
+            // Cols 22-28, appended at the end of this sheet (see DataExportService).
+            r.CertificateEntryComments = S(ws, row, 22); r.SsmoFileProcessComments = S(ws, row, 23);
+            r.CustomsExaminationComments = S(ws, row, 24); r.CustomsLabComments = S(ws, row, 25);
+            r.SsmoExaminationComments = S(ws, row, 26); r.CustomsEvaluationComments = S(ws, row, 27);
+            r.TruckContainersComments = S(ws, row, 28);
 
             if (isNew) { _db.ClearanceRoute3Details.Add(r); created++; } else updated++;
         }
@@ -1654,6 +1778,64 @@ public class DataUploadService
         await _db.SaveChangesAsync();
         await _db.SaveChangesAsync();
         return new SheetUploadResult("Withdrawal_Line_Items", created, updated, errors);
+    }
+
+    // ---------- Truck Movements (repositioning log) ----------
+    private async Task<SheetUploadResult> ProcessTruckMovements(IXLWorksheet ws, string uploaderUserId)
+    {
+        var errors = new List<string>(); int created = 0, updated = 0;
+        var lastRow = ws.LastRowUsed()?.RowNumber() ?? PaymentFirstDataRow - 1;
+        var trucks = await _db.Trucks.ToListAsync();
+        var cities = await _db.LogisticsCities.ToListAsync();
+
+        for (int row = PaymentFirstDataRow; row <= lastRow; row++)
+        {
+            if (RowIsBlank(ws, row, 7)) continue;
+            var plateNo = S(ws, row, 1);
+            var toCityName = S(ws, row, 3);
+            var moveDate = Dt(ws, row, 4);
+            if (plateNo is null || toCityName is null || moveDate is null)
+            { errors.Add($"Row {row}: TRUCK PLATE NO., TO CITY, and MOVE DATE are all required."); continue; }
+
+            var truck = trucks.FirstOrDefault(t => t.PlateNo == plateNo);
+            if (truck is null) { errors.Add($"Row {row}: Truck with Plate No. '{plateNo}' not found."); continue; }
+
+            var toCity = cities.FirstOrDefault(c => c.Name == toCityName);
+            if (toCity is null) { errors.Add($"Row {row}: City '{toCityName}' not found."); continue; }
+
+            var fromCityName = S(ws, row, 2);
+            int? fromCityId = null;
+            if (fromCityName is not null)
+            {
+                var fromCity = cities.FirstOrDefault(c => c.Name == fromCityName);
+                if (fromCity is null) { errors.Add($"Row {row}: City '{fromCityName}' not found."); continue; }
+                fromCityId = fromCity.Id;
+            }
+
+            // Matched by (Truck, From City, To City, Move Date) — the same
+            // real movement described the same way twice (e.g. re-uploading
+            // an export) updates Reason/Value/Notes in place rather than
+            // duplicating the log entry.
+            var existing = await _db.TruckMovements.FirstOrDefaultAsync(m =>
+                m.TruckId == truck.Id && m.ToCityId == toCity.Id && m.FromCityId == fromCityId && m.MoveDate == moveDate);
+            if (existing is null)
+            {
+                _db.TruckMovements.Add(new TruckMovement
+                {
+                    TruckId = truck.Id, FromCityId = fromCityId, ToCityId = toCity.Id, MoveDate = moveDate.Value,
+                    Reason = S(ws, row, 5), Value = D(ws, row, 6), Notes = S(ws, row, 7),
+                    CreatedByUserId = uploaderUserId, CreatedAt = DateTime.UtcNow
+                });
+                created++;
+            }
+            else
+            {
+                existing.Reason = S(ws, row, 5); existing.Value = D(ws, row, 6); existing.Notes = S(ws, row, 7);
+                updated++;
+            }
+        }
+        await _db.SaveChangesAsync();
+        return new SheetUploadResult("Truck_Movements", created, updated, errors);
     }
 
     // ---------- Section Locks ----------

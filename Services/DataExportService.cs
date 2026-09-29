@@ -90,6 +90,21 @@ public class DataExportService
         // TOTAL PRICE USD above, and likewise not read back by
         // DataUploadService.
         ("MOT","MOT CERTIFICATE EXPIRY DATE (auto-computed, reference only)"),
+        // Appended (cols 101-112) — same append-only convention as above.
+        // A full-database audit against the current EF models turned up
+        // several more live, user-entered fields that existed on their
+        // entity but were never exported or read back — same silent-gap
+        // pattern the 24 Clearance Comments columns and Port of
+        // Loading/Discharge were already known examples of. Closing all of
+        // them here in one pass rather than one-at-a-time as each is
+        // separately noticed.
+        ("PO","PORT OF LOADING"),("PO","PORT OF DISCHARGE"),
+        ("PO","OFFSHORE PO NO."),("PO","OFFSHORE PO DATE"),
+        ("PO","ADVANCE PAYMENT PERCENT"),("PO","ADVANCE PAYMENT PLANNED DATE"),("PO","ADVANCE PAYMENT EXECUTED DATE"),
+        ("PO","PO STATUS (Draft/Confirmed/Cancelled)"),
+        ("DOCS","FINAL DRAFT RECEIVED DATE"),
+        ("DOCS","FULL SET DISPATCHED VIA (Courier Name)"),
+        ("OFFSHORE","C PRICING CATEGORY"),("OFFSHORE","C PRICING TYPE"),
     };
     private static void SetCell(IXLWorksheet ws, int row, int col, object? value)
     {
@@ -129,6 +144,7 @@ public class DataExportService
         BuildDirectSalesCustomerDuesSheet(wb);
         BuildShipmentOffshoreErpInfoSheet(wb);
         BuildSectionLocksSheet(wb);
+        BuildTruckMovementsSheet(wb);
 
         using var ms = new MemoryStream();
         wb.SaveAs(ms);
@@ -189,6 +205,8 @@ public class DataExportService
             .Include(li => li.PurchaseOrder!).ThenInclude(po => po.Incoterm)
             .Include(li => li.PurchaseOrder!).ThenInclude(po => po.OriginCountry)
             .Include(li => li.PurchaseOrder!).ThenInclude(po => po.ShipmentMode)
+            .Include(li => li.PurchaseOrder!).ThenInclude(po => po.PortOfLoading)
+            .Include(li => li.PurchaseOrder!).ThenInclude(po => po.PortOfDischarge)
             .Include(li => li.ProductCategory)
             .Include(li => li.ModelProduct)
             .Include(li => li.ProductType)
@@ -207,7 +225,7 @@ public class DataExportService
         // than deeply nested .Include chains) to keep the main query simple.
         var forwarders = _db.ShipmentForwarders.Include(f => f.ForwarderEntity).Include(f => f.Currency).ToDictionary(f => f.ShipmentId);
         var draftDocs = _db.ShipmentDraftDocuments.ToDictionary(d => d.ShipmentId);
-        var fullSets = _db.ShipmentSupplierFullSets.ToDictionary(f => f.ShipmentId);
+        var fullSets = _db.ShipmentSupplierFullSets.Include(f => f.FsDispatchedVia).ToDictionary(f => f.ShipmentId);
         var bankings = _db.ShipmentBankings
             .Include(b => b.SenderBank).Include(b => b.OsDocDispatchedVia).Include(b => b.ReceivingBank)
             .Include(b => b.CollectionCurrency).Include(b => b.Tenor)
@@ -223,7 +241,9 @@ public class DataExportService
         var motExpiryDays = (await _db.MotCertificateSettings.FirstOrDefaultAsync())?.ExpiryDays ?? 90;
         var ssmos = _db.ShipmentSsmos.ToDictionary(s => s.ShipmentId);
         var lastOffshores = _db.LastOffshoreDetails.Include(o => o.Currency).ToDictionary(o => o.ShipmentId);
-        var lastOffshoreItems = _db.LastOffshoreItemDetails.ToDictionary(i => i.ShipmentLineItemId);
+        var lastOffshoreItems = _db.LastOffshoreItemDetails
+            .Include(i => i.CPricingCategory).Include(i => i.CPricingType)
+            .ToDictionary(i => i.ShipmentLineItemId);
         var clearances = _db.Clearances.ToDictionary(c => c.ShipmentId);
 
         int row = 4;
@@ -393,6 +413,20 @@ public class DataExportService
 
         // Appended (col 100) — see MainColumns comment above.
         SetCell(ws, row, c++, mot?.ApprovalDate?.AddDays(motExpiryDays));
+
+        // Appended (cols 101-112) — see MainColumns comment above.
+        SetCell(ws, row, c++, po.PortOfLoading?.Name);
+        SetCell(ws, row, c++, po.PortOfDischarge?.Name);
+        SetCell(ws, row, c++, po.OffshorePoNo);
+        SetCell(ws, row, c++, po.OffshorePoDate);
+        SetCell(ws, row, c++, po.AdvancePaymentPercent);
+        SetCell(ws, row, c++, po.AdvancePaymentPlannedDate);
+        SetCell(ws, row, c++, po.AdvancePaymentExecutedDate);
+        SetCell(ws, row, c++, po.Status.ToString());
+        SetCell(ws, row, c++, docs?.FinalDraftReceivedDate);
+        SetCell(ws, row, c++, fullSet?.FsDispatchedVia?.Name);
+        SetCell(ws, row, c++, offshoreItem?.CPricingCategory?.Name);
+        SetCell(ws, row, c++, offshoreItem?.CPricingType?.Name);
     }
 
     // Direct Sales' "Customer Agreed Payment" schedule (ShipmentCustomerDue)
@@ -485,7 +519,13 @@ public class DataExportService
         ws.Cell(1, 1).Style.Font.FontSize = 13;
         ws.Cell(1, 1).Style.Font.FontColor = Navy;
 
-        var headers = new[] { "B/L NO", "DUE DATE", "DUE AMOUNT", "CURRENCY", "LABEL" };
+        // IS FROM PO ADVANCE appended — PoAdvancePaymentService re-locates
+        // "the" advance-payment due row per shipment by this flag (not by
+        // Label alone) whenever the PO's own Advance Payment % is edited
+        // again; without it round-tripping, a restored advance-payment due
+        // row would look like an ordinary manual one and a later edit would
+        // create a second, duplicate due row instead of updating this one.
+        var headers = new[] { "B/L NO", "DUE DATE", "DUE AMOUNT", "CURRENCY", "LABEL", "IS FROM PO ADVANCE (TRUE/FALSE)" };
         for (int i = 0; i < headers.Length; i++)
         {
             var c = ws.Cell(4, i + 1);
@@ -507,6 +547,7 @@ public class DataExportService
             SetCell(ws, row, 3, d.Amount);
             SetCell(ws, row, 4, d.Currency?.Code);
             SetCell(ws, row, 5, d.Label);
+            SetCell(ws, row, 6, d.IsFromPoAdvance);
             row++;
         }
         ws.Columns().AdjustToContents();
@@ -587,7 +628,15 @@ public class DataExportService
             "ACTUAL ARRIVAL DATE", "RECEIVE DO DATE", "COPY OF DO COLLECTED DATE", "DEPOSIT REQUIRED (TRUE/FALSE)",
             "DO ACTUAL FEES SDG", "DO FEES SETTLED DATE", "DO RECEIVED DATE",
             "COST ESTIMATE — ESTIMATE DATE", "COST ESTIMATE — NOTIFY BU DATE", "COST ESTIMATE — AMOUNT SETTLED DATE",
-            "CERTIFICATE ENTRY DATE", "SCUDA DECLARATION NO." };
+            "CERTIFICATE ENTRY DATE", "SCUDA DECLARATION NO.",
+            // Appended — a full-database audit found these live fields
+            // (Clearance's own Route 3 withdrawal-request anchor/ref, the
+            // top-level clearance-complete marker LogisticsController reads,
+            // and the 3 Comments fields the shared General-info sub-sections
+            // carry) were never exported or read back, same class of gap as
+            // the 24 Comments columns elsewhere in this workbook.
+            "WITHDRAWAL REQUEST DATE", "WITHDRAWAL REQUEST REF NO.", "CLEARANCE COMPLETE DATE",
+            "DELIVERY ORDER COMMENTS", "COST ESTIMATE COMMENTS", "CERTIFICATE ENTRY COMMENTS" };
         for (int i = 0; i < headers.Length; i++)
         {
             var c = ws.Cell(4, i + 1);
@@ -629,6 +678,12 @@ public class DataExportService
             SetCell(ws, row, c2++, ce?.AmountSettledDate);
             SetCell(ws, row, c2++, cert?.CertificateEntryDate);
             SetCell(ws, row, c2++, cert?.ScudaDeclarationNo);
+            SetCell(ws, row, c2++, clr.WithdrawalRequestDate);
+            SetCell(ws, row, c2++, clr.WithdrawalRequestRefNo);
+            SetCell(ws, row, c2++, clr.ClearanceCompleteDate);
+            SetCell(ws, row, c2++, d?.Comments);
+            SetCell(ws, row, c2++, ce?.Comments);
+            SetCell(ws, row, c2++, cert?.Comments);
             row++;
         }
         ws.Columns().AdjustToContents();
@@ -680,7 +735,10 @@ public class DataExportService
             "CUST EVALUATION DATE", "CUSTOMS DUTY SDG", "CUSTOMS SETTLEMENT DATE", "RELEASE EXIT PASS DATE",
             "SPC BILL REQUEST DATE", "SPC BILL VALUE SDG", "SPC BILL SETTLEMENT DATE",
             "TRUCK PORT ENTRY PERMIT DATE", "CONTAINERS RETURNED DATE", "SHIPPING LINE DEPOSIT RETURN DATE",
-            "DEPOSIT VALUE", "CLEARANCE ACTUAL COMPLETED DATE" };
+            "DEPOSIT VALUE", "CLEARANCE ACTUAL COMPLETED DATE",
+            "CONTAINERS MOVE PROCESS COMMENTS", "SSMO FILE PROCESS COMMENTS", "CUSTOMS EXAMINATION COMMENTS",
+            "CUSTOMS LAB COMMENTS", "SSMO EXAMINATION COMMENTS", "CUSTOMS EVALUATION COMMENTS",
+            "SPC BILL COMMENTS", "TRUCK & CONTAINERS COMMENTS" };
         for (int i = 0; i < headers.Length; i++)
         {
             var c = ws.Cell(4, i + 1);
@@ -708,6 +766,10 @@ public class DataExportService
             SetCell(ws, row, c2++, r.TruckPortEntryPermitDate); SetCell(ws, row, c2++, r.ContainersReturnedDate);
             SetCell(ws, row, c2++, r.ShippingLineDepositReturnDate); SetCell(ws, row, c2++, r.DepositValue);
             SetCell(ws, row, c2++, r.ClearanceActualCompletedDate);
+            SetCell(ws, row, c2++, r.ContainersMoveProcessComments); SetCell(ws, row, c2++, r.SsmoFileProcessComments);
+            SetCell(ws, row, c2++, r.CustomsExaminationComments); SetCell(ws, row, c2++, r.CustomsLabComments);
+            SetCell(ws, row, c2++, r.SsmoExaminationComments); SetCell(ws, row, c2++, r.CustomsEvaluationComments);
+            SetCell(ws, row, c2++, r.SpcBillComments); SetCell(ws, row, c2++, r.TruckContainersComments);
             row++;
         }
         ws.Columns().AdjustToContents();
@@ -723,7 +785,8 @@ public class DataExportService
             "INSPECTION DATE",
             "SPC BILL REQUEST DATE", "SPC BILL VALUE SDG", "SPC BILL SETTLEMENT DATE", "POLICE SECURITY APPOINTED DATE",
             "TRUCK PORT ENTRY PERMIT DATE", "CONTAINERS RECEIVED AT FZ DATE", "CONTAINERS RETURNED DATE",
-            "SHIPPING LINE DEPOSIT RETURN DATE", "DEPOSIT VALUE", "CLEARANCE ACTUAL COMPLETED DATE" };
+            "SHIPPING LINE DEPOSIT RETURN DATE", "DEPOSIT VALUE", "CLEARANCE ACTUAL COMPLETED DATE",
+            "FZ DEPOSIT REQUEST COMMENTS", "CUSTOMS INSPECTION COMMENTS", "SPC BILL COMMENTS", "TRUCK & CONTAINERS COMMENTS" };
         for (int i = 0; i < headers.Length; i++)
         {
             var c = ws.Cell(4, i + 1);
@@ -749,6 +812,8 @@ public class DataExportService
             SetCell(ws, row, c2++, r.TruckPortEntryPermitDate); SetCell(ws, row, c2++, r.ContainersReceivedAtFzDate);
             SetCell(ws, row, c2++, r.ContainersReturnedDate); SetCell(ws, row, c2++, r.ShippingLineDepositReturnDate);
             SetCell(ws, row, c2++, r.DepositValue); SetCell(ws, row, c2++, r.ClearanceActualCompletedDate);
+            SetCell(ws, row, c2++, r.FzDepositRequestComments); SetCell(ws, row, c2++, r.CustomsInspectionComments);
+            SetCell(ws, row, c2++, r.SpcBillComments); SetCell(ws, row, c2++, r.TruckContainersComments);
             row++;
         }
         ws.Columns().AdjustToContents();
@@ -761,7 +826,7 @@ public class DataExportService
         ws.Cell(1, 1).Style.Font.Bold = true; ws.Cell(1, 1).Style.Font.FontSize = 13; ws.Cell(1, 1).Style.Font.FontColor = Navy;
         var headers = new[] { "B/L NO", "FORECAST DEMURRAGE SDG", "FORECAST STORAGE SDG", "FORECAST CAPTURED AT (date)",
             "PLANNED COMPLETION DATE", "ACTUAL DEMURRAGE PAID SDG", "ACTUAL STORAGE PAID SDG",
-            "SHIPPING LINE DEPOSIT RETURN DATE", "AMOUNT RETURNED FROM DEPOSIT" };
+            "SHIPPING LINE DEPOSIT RETURN DATE", "AMOUNT RETURNED FROM DEPOSIT", "COMMENTS" };
         for (int i = 0; i < headers.Length; i++)
         {
             var c = ws.Cell(4, i + 1);
@@ -782,6 +847,7 @@ public class DataExportService
             SetCell(ws, row, c2++, r.PlannedCompletionDate);
             SetCell(ws, row, c2++, r.ActualDemurragePaidSdg); SetCell(ws, row, c2++, r.ActualStoragePaidSdg);
             SetCell(ws, row, c2++, r.ShippingLineDepositReturnDate); SetCell(ws, row, c2++, r.AmountReturnedFromDeposit);
+            SetCell(ws, row, c2++, r.Comments);
             row++;
         }
         ws.Columns().AdjustToContents();
@@ -793,7 +859,8 @@ public class DataExportService
         ws.Cell(1, 1).Value = "Trucking — Warehouse Allocation & Delivery";
         ws.Cell(1, 1).Style.Font.Bold = true; ws.Cell(1, 1).Style.Font.FontSize = 13; ws.Cell(1, 1).Style.Font.FontColor = Navy;
         var headers = new[] { "B/L NO", "MODEL/PRODUCT", "QTY ALLOCATED", "WAREHOUSE NAME", "TRUCK PLATE NO.", "DRIVER NAME (optional)",
-            "LOAD DATE", "EXPECTED DELIVERY DATE", "ACTUAL DROP OFF DATE", "IN-HOUSE PRICE", "PARALLEL MARKET PRICE" };
+            "LOAD DATE", "EXPECTED DELIVERY DATE", "ACTUAL DROP OFF DATE", "IN-HOUSE PRICE", "PARALLEL MARKET PRICE",
+            "CONTACT NAME", "CONTACT PHONE", "TRUCK LOAD NOTES" };
         for (int i = 0; i < headers.Length; i++)
         {
             var c = ws.Cell(4, i + 1);
@@ -847,6 +914,9 @@ public class DataExportService
             SetCell(ws, row, c2++, drop?.ActualDropOffDate);
             SetCell(ws, row, c2++, item?.InHousePrice);
             SetCell(ws, row, c2++, item?.ParallelMarketPrice);
+            SetCell(ws, row, c2++, allocation.ContactName);
+            SetCell(ws, row, c2++, allocation.ContactPhone);
+            SetCell(ws, row, c2++, load?.Notes);
             row++;
         }
         ws.Columns().AdjustToContents();
@@ -972,7 +1042,10 @@ public class DataExportService
             "CUSTOMS LAB REQUIRED (TRUE/FALSE)", "CUSTOMS LAB FEES SDG", "LAB FEES PAYMENT DATE", "LAB RESULT ISSUANCE DATE",
             "SSMO EXAM START DATE", "SSMO CERT ISSUANCE DATE",
             "CUST EVALUATION DATE", "CUSTOMS DUTY SDG", "CUSTOMS SETTLEMENT DATE", "RELEASE EXIT PASS DATE",
-            "TRUCK PORT ENTRY PERMIT DATE", "CLEARANCE ACTUAL COMPLETED DATE" };
+            "TRUCK PORT ENTRY PERMIT DATE", "CLEARANCE ACTUAL COMPLETED DATE",
+            "CERTIFICATE ENTRY COMMENTS", "SSMO FILE PROCESS COMMENTS", "CUSTOMS EXAMINATION COMMENTS",
+            "CUSTOMS LAB COMMENTS", "SSMO EXAMINATION COMMENTS", "CUSTOMS EVALUATION COMMENTS",
+            "TRUCK & CONTAINERS COMMENTS" };
         for (int i = 0; i < headers.Length; i++)
         {
             var c = ws.Cell(4, i + 1);
@@ -1000,6 +1073,10 @@ public class DataExportService
             SetCell(ws, row, c2++, r.CustEvaluationDate); SetCell(ws, row, c2++, r.CustomsDutySdg);
             SetCell(ws, row, c2++, r.CustomsSettlementDate); SetCell(ws, row, c2++, r.ReleaseExitPassDate);
             SetCell(ws, row, c2++, r.TruckPortEntryPermitDate); SetCell(ws, row, c2++, r.ClearanceActualCompletedDate);
+            SetCell(ws, row, c2++, r.CertificateEntryComments); SetCell(ws, row, c2++, r.SsmoFileProcessComments);
+            SetCell(ws, row, c2++, r.CustomsExaminationComments); SetCell(ws, row, c2++, r.CustomsLabComments);
+            SetCell(ws, row, c2++, r.SsmoExaminationComments); SetCell(ws, row, c2++, r.CustomsEvaluationComments);
+            SetCell(ws, row, c2++, r.TruckContainersComments);
             row++;
         }
         ws.Columns().AdjustToContents();
@@ -1208,6 +1285,44 @@ public class DataExportService
             SetCell(ws, row, 2, r.BlAwbNo);
             SetCell(ws, row, 3, r.SectionKey);
             SetCell(ws, row, 4, DateOnly.FromDateTime(r.ConfirmedAt));
+            row++;
+        }
+        ws.Columns().AdjustToContents();
+    }
+
+    // Truck repositioning log (Logistics — Truck Availability page) — found
+    // via the full-database audit to have zero coverage anywhere in this
+    // workbook (not a missing-column case like Comments/Ports above, a
+    // whole table). Value/Reason/Notes are genuine user-entered data, not
+    // derivable from anything else exported, so a wipe/restore today would
+    // silently lose every recorded truck movement.
+    private void BuildTruckMovementsSheet(XLWorkbook wb)
+    {
+        var ws = wb.Worksheets.Add("Truck_Movements");
+        ws.Cell(1, 1).Value = "Truck Movements (Repositioning Log)";
+        ws.Cell(1, 1).Style.Font.Bold = true; ws.Cell(1, 1).Style.Font.FontSize = 13; ws.Cell(1, 1).Style.Font.FontColor = Navy;
+        var headers = new[] { "TRUCK PLATE NO.", "FROM CITY (optional)", "TO CITY", "MOVE DATE", "REASON", "VALUE", "NOTES" };
+        for (int i = 0; i < headers.Length; i++)
+        {
+            var c = ws.Cell(4, i + 1);
+            c.Value = headers[i]; c.Style.Font.Bold = true; c.Style.Font.FontColor = XLColor.White; c.Style.Fill.BackgroundColor = Navy;
+        }
+        for (int i = 0; i < headers.Length; i++) ws.Cell(5, i + 1).Style.Fill.BackgroundColor = LegendFill;
+
+        var rows = _db.TruckMovements
+            .Include(m => m.Truck).Include(m => m.FromCity).Include(m => m.ToCity)
+            .OrderBy(m => m.Truck!.PlateNo).ThenBy(m => m.MoveDate).ToList();
+
+        int row = 6;
+        foreach (var m in rows)
+        {
+            SetCell(ws, row, 1, m.Truck?.PlateNo);
+            SetCell(ws, row, 2, m.FromCity?.Name);
+            SetCell(ws, row, 3, m.ToCity?.Name);
+            SetCell(ws, row, 4, m.MoveDate);
+            SetCell(ws, row, 5, m.Reason);
+            SetCell(ws, row, 6, m.Value);
+            SetCell(ws, row, 7, m.Notes);
             row++;
         }
         ws.Columns().AdjustToContents();
