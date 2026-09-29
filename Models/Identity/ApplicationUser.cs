@@ -109,11 +109,15 @@ public static class AppRoles
     public const string LogisticsEditors = LogisticsOfficer + "," + SuperUser;
     public const string LogisticsViewers = LogisticsOfficer + "," + Coordinator + "," + Manager + "," + SuperUser;
 
-    // The Logistics visibility-settings screen: Logistics/Coordinator/Manager/
-    // SuperUser can all view current values (LogisticsViewers, above); only
-    // Coordinator (plus Manager/SuperUser, who already edit every other
-    // Settings screen) can change them — Logistics stays read-only.
-    public const string LogisticsRevealEditors = Coordinator + "," + Manager + "," + SuperUser;
+    // NOTE: LogisticsRevealEditors (Coordinator + Manager + SuperUser) used
+    // to gate the Logistics visibility-settings screen (arrival lead time /
+    // pre-clearance Cat-Qty reveal / post-delivery re-hide days). Removed —
+    // that screen moved out of the Logistics box into the general Settings
+    // module, since giving Coordinator edit access to it was the actual bug:
+    // it let Coordinator widen their own reveal window and see shipments
+    // earlier than the visibility design intends. It now uses the same
+    // Manager+SuperUser-only rule as every other Settings edit endpoint
+    // (see LogisticsVisibilitySettingsController).
 
     // C Pricing pages (working table, history, C_Cat/C_Type mini-settings) —
     // deliberately excludes Treasury/CorpFinance: this feature moved out of
