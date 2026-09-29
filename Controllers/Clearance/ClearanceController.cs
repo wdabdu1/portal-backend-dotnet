@@ -13,10 +13,13 @@ public record ClearanceShipmentSummary(
     string ShippingLine, decimal SlaPercent, bool IsCompleted, bool EtaHasArrived, int? DemurrageFreeDaysRemaining,
     DateOnly? OriginalShipmentSetReceivedDate, string Type,
     // Pulled straight from their respective sections so the table gives a
-    // preview without opening the shipment. SSMO Examination/Customs
-    // Evaluation come from whichever route is actually active (Route 2 has
-    // neither group, so both are null there).
-    string? DoComments, string? SsmoExaminationComments, string? CustomsEvaluationComments);
+    // preview without opening the shipment, in the same order the actual
+    // clearance process runs: Customs Examination (Form 48) happens before
+    // SSMO Examination on both Route 1 and Route 3, so it's listed first.
+    // Truck & Containers is the one group every route has, so it's
+    // populated for all three; Customs Examination/SSMO Examination stay
+    // null on Route 2 (neither group exists there).
+    string? DoComments, string? CustomsExaminationComments, string? SsmoExaminationComments, string? TruckContainersComments);
 
 public record ClearanceGeneralInfoRequest(
     DateOnly? CopyOfBlReceivedDate, DateOnly? OriginalShipmentSetReceivedDate, string? LcNo,
@@ -338,14 +341,16 @@ public class ClearanceController : ControllerBase
         // Truck & Containers completion — not the rarely-used generic
         // Clearance.ClearanceCompleteDate field.
         // Kept as full entities (not just the completion date) so the
-        // SSMO Examination/Customs Evaluation comment columns below can
-        // read from the same lookup without a second round trip.
+        // Customs Examination/SSMO Examination/Truck & Containers comment
+        // columns below can read from the same lookups without a second
+        // round trip. Route2 was date-only before Truck & Containers
+        // Comments needed it too.
         var route1Details = await _db.ClearanceRoute1Details
             .Where(r => clearanceIds.Contains(r.ClearanceId))
             .ToDictionaryAsync(r => r.ClearanceId);
-        var route2Completions = await _db.ClearanceRoute2Details
+        var route2Details = await _db.ClearanceRoute2Details
             .Where(r => clearanceIds.Contains(r.ClearanceId))
-            .ToDictionaryAsync(r => r.ClearanceId, r => r.ClearanceActualCompletedDate);
+            .ToDictionaryAsync(r => r.ClearanceId);
         var route3Details = await _db.ClearanceRoute3Details
             .Where(r => clearanceIds.Contains(r.ClearanceId))
             .ToDictionaryAsync(r => r.ClearanceId);
@@ -399,27 +404,35 @@ public class ClearanceController : ControllerBase
             DateOnly? actualCompletedDate = (clearance is null || routeDivision is null) ? null : routeDivision switch
             {
                 ShippingPortal.Api.Models.Clearance.ClearanceDivision.Route1 => route1Details.GetValueOrDefault(clearance.Id)?.ClearanceActualCompletedDate,
-                ShippingPortal.Api.Models.Clearance.ClearanceDivision.Route2 => route2Completions.GetValueOrDefault(clearance.Id),
+                ShippingPortal.Api.Models.Clearance.ClearanceDivision.Route2 => route2Details.GetValueOrDefault(clearance.Id)?.ClearanceActualCompletedDate,
                 ShippingPortal.Api.Models.Clearance.ClearanceDivision.Route3 => route3Details.GetValueOrDefault(clearance.Id)?.ClearanceActualCompletedDate,
                 _ => null
             };
 
-            // DO Comments / SSMO Examination Comments / Customs Clearance
-            // Comments for the Clearance table — sourced from Delivery
-            // Order (Route 1/2 only) and from whichever route (1 or 3) is
-            // actually active; Route 2 has neither SSMO Examination nor
-            // Customs Evaluation, so both stay null there.
+            // DO Comments / Customs Examination Comments / SSMO Examination
+            // Comments / Truck & Containers Comments for the Clearance
+            // table — sourced from Delivery Order (Route 1/2 only) and
+            // from whichever route is actually active. Customs
+            // Examination/SSMO Examination only exist on Route 1/3; Truck
+            // & Containers exists on all three routes.
             string? doComments = clearance is not null ? deliveryOrders.GetValueOrDefault(clearance.Id)?.Comments : null;
+            string? customsExaminationComments = (clearance is null || routeDivision is null) ? null : routeDivision switch
+            {
+                ShippingPortal.Api.Models.Clearance.ClearanceDivision.Route1 => route1Details.GetValueOrDefault(clearance.Id)?.CustomsExaminationComments,
+                ShippingPortal.Api.Models.Clearance.ClearanceDivision.Route3 => route3Details.GetValueOrDefault(clearance.Id)?.CustomsExaminationComments,
+                _ => null
+            };
             string? ssmoExaminationComments = (clearance is null || routeDivision is null) ? null : routeDivision switch
             {
                 ShippingPortal.Api.Models.Clearance.ClearanceDivision.Route1 => route1Details.GetValueOrDefault(clearance.Id)?.SsmoExaminationComments,
                 ShippingPortal.Api.Models.Clearance.ClearanceDivision.Route3 => route3Details.GetValueOrDefault(clearance.Id)?.SsmoExaminationComments,
                 _ => null
             };
-            string? customsEvaluationComments = (clearance is null || routeDivision is null) ? null : routeDivision switch
+            string? truckContainersComments = (clearance is null || routeDivision is null) ? null : routeDivision switch
             {
-                ShippingPortal.Api.Models.Clearance.ClearanceDivision.Route1 => route1Details.GetValueOrDefault(clearance.Id)?.CustomsEvaluationComments,
-                ShippingPortal.Api.Models.Clearance.ClearanceDivision.Route3 => route3Details.GetValueOrDefault(clearance.Id)?.CustomsEvaluationComments,
+                ShippingPortal.Api.Models.Clearance.ClearanceDivision.Route1 => route1Details.GetValueOrDefault(clearance.Id)?.TruckContainersComments,
+                ShippingPortal.Api.Models.Clearance.ClearanceDivision.Route2 => route2Details.GetValueOrDefault(clearance.Id)?.TruckContainersComments,
+                ShippingPortal.Api.Models.Clearance.ClearanceDivision.Route3 => route3Details.GetValueOrDefault(clearance.Id)?.TruckContainersComments,
                 _ => null
             };
 
@@ -472,7 +485,7 @@ public class ClearanceController : ControllerBase
                 trafficLight, routeStatus, s.ShippingLine?.Name ?? "", slaPercent, actualCompletedDate.HasValue,
                 etaHasArrived, demurrageFreeDaysRemaining, clearance?.OriginalShipmentSetReceivedDate,
                 firstLine?.ProductType?.Name ?? "",
-                doComments, ssmoExaminationComments, customsEvaluationComments));
+                doComments, customsExaminationComments, ssmoExaminationComments, truckContainersComments));
         }
 
         var ordered = results.OrderBy(x => x.Eta ?? DateOnly.MaxValue).ToList();
