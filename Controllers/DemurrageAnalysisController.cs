@@ -17,7 +17,13 @@ public record ShipmentWithHitOption(int ShipmentId, string BlAwbNo);
 // take" figure. Category is the accountable party — see
 // ProcessStepCategories.ByStep (shared with the Process Performance
 // dashboard, extended there with the entries this dashboard needs).
-public record ClearanceStepGap(string GroupItem, int? ActualDaysTaken, decimal? TargetDays, decimal? Gap, string Category);
+// Comment is the matching Clearance accordion group's Comments field
+// (e.g. "SSMO Examination" here pulls from ClearanceRoute1/3Details
+// .SsmoExaminationComments) — single-shipment mode only. Group mode
+// (AverageStepGaps) never sets it: free text can't be meaningfully
+// averaged across multiple shipments, so it stays null there and the
+// frontend only renders the column when IsSingleShipment.
+public record ClearanceStepGap(string GroupItem, int? ActualDaysTaken, decimal? TargetDays, decimal? Gap, string Category, string? Comment = null);
 
 // Rolled up across BOTH the pre-arrival Document Chain (informational)
 // and the post-arrival Step Gaps (the reconciling total) — the "who's
@@ -421,6 +427,72 @@ public class DemurrageAnalysisController : ControllerBase
             _ => true
         };
 
+        // --- Per-step Comments, single-shipment mode only ---
+        // Keyed by the same GroupItem strings ClearanceScheduleService
+        // uses, sourced from whichever route's accordion group actually
+        // backs that step (mirrors the Clearance list's own DO/Customs
+        // Examination/SSMO Examination/Truck & Containers columns, plus
+        // the two General-division groups — Delivery Order, Clearance
+        // Cost Estimate — and Customs Certificate Entry, which is a
+        // shared table for Route 1/2 but its own field on Route 3).
+        var stepComments = new Dictionary<string, string?>();
+        if (clearance is not null)
+        {
+            var deliveryOrderRow = await _db.ClearanceDeliveryOrders.FirstOrDefaultAsync(d => d.ClearanceId == clearance.Id);
+            stepComments["Delivery Order"] = deliveryOrderRow?.Comments;
+
+            var costEstimateRow = await _db.ClearanceCostEstimates.FirstOrDefaultAsync(c => c.ClearanceId == clearance.Id);
+            stepComments["Clearance Cost Estimate"] = costEstimateRow?.Comments;
+
+            if (clearance.Route == ShippingPortal.Api.Models.Clearance.ClearanceRouteType.Route1ClearAtPort
+                || clearance.Route == ShippingPortal.Api.Models.Clearance.ClearanceRouteType.Route2FzDeposit)
+            {
+                var certEntryRow = await _db.ClearanceCertificateEntries.FirstOrDefaultAsync(e => e.ClearanceId == clearance.Id);
+                stepComments["Customs Certificate Entry"] = certEntryRow?.Comments;
+            }
+
+            if (clearance.Route == ShippingPortal.Api.Models.Clearance.ClearanceRouteType.Route1ClearAtPort)
+            {
+                var r1c = await _db.ClearanceRoute1Details.FirstOrDefaultAsync(r => r.ClearanceId == clearance.Id);
+                stepComments["Containers Move Process"] = r1c?.ContainersMoveProcessComments;
+                stepComments["SSMO File Process"] = r1c?.SsmoFileProcessComments;
+                stepComments["Customs Examination (Form 48)"] = r1c?.CustomsExaminationComments;
+                stepComments["Customs Lab"] = r1c?.CustomsLabComments;
+                stepComments["SSMO Examination"] = r1c?.SsmoExaminationComments;
+                stepComments["Customs Evaluation"] = r1c?.CustomsEvaluationComments;
+                stepComments["SPC Bill"] = r1c?.SpcBillComments;
+                stepComments["Truck & Containers"] = r1c?.TruckContainersComments;
+            }
+            else if (clearance.Route == ShippingPortal.Api.Models.Clearance.ClearanceRouteType.Route2FzDeposit)
+            {
+                var r2c = await _db.ClearanceRoute2Details.FirstOrDefaultAsync(r => r.ClearanceId == clearance.Id);
+                stepComments["FZ Deposit Request"] = r2c?.FzDepositRequestComments;
+                stepComments["Customs Inspection"] = r2c?.CustomsInspectionComments;
+                stepComments["SPC Bill"] = r2c?.SpcBillComments;
+                stepComments["Truck & Containers"] = r2c?.TruckContainersComments;
+            }
+            else if (clearance.Route == ShippingPortal.Api.Models.Clearance.ClearanceRouteType.Route3ClearFromFz)
+            {
+                var r3c = await _db.ClearanceRoute3Details.FirstOrDefaultAsync(r => r.ClearanceId == clearance.Id);
+                stepComments["Customs Certificate Entry"] = r3c?.CertificateEntryComments;
+                stepComments["SSMO File Process"] = r3c?.SsmoFileProcessComments;
+                stepComments["Customs Examination (Form 48)"] = r3c?.CustomsExaminationComments;
+                stepComments["Customs Lab"] = r3c?.CustomsLabComments;
+                stepComments["SSMO Examination"] = r3c?.SsmoExaminationComments;
+                stepComments["Customs Evaluation"] = r3c?.CustomsEvaluationComments;
+                stepComments["Truck & Containers"] = r3c?.TruckContainersComments;
+            }
+        }
+
+        // Strips the " (ongoing)" suffix used for the currently-in-progress
+        // step so its comment still resolves to the same underlying group.
+        string? CommentFor(string groupItem)
+        {
+            const string suffix = " (ongoing)";
+            var key = groupItem.EndsWith(suffix) ? groupItem[..^suffix.Length] : groupItem;
+            return stepComments.GetValueOrDefault(key);
+        }
+
         var foundCurrentStep = false;
         foreach (var i in schedule.Items)
         {
@@ -443,7 +515,7 @@ public class DemurrageAnalysisController : ControllerBase
 
             if (i.ActualDaysTaken.HasValue)
             {
-                stepGaps.Add(new ClearanceStepGap(i.GroupItem, i.ActualDaysTaken, i.TargetDays, i.ActualDaysTaken.Value - i.TargetDays, category));
+                stepGaps.Add(new ClearanceStepGap(i.GroupItem, i.ActualDaysTaken, i.TargetDays, i.ActualDaysTaken.Value - i.TargetDays, category, CommentFor(i.GroupItem)));
             }
             else if (!foundCurrentStep)
             {
@@ -451,11 +523,11 @@ public class DemurrageAnalysisController : ControllerBase
                 var wholeDays = (int)Math.Ceiling(i.TargetDays);
                 var stepStart = ClearanceScheduleService.SubtractBusinessDays(i.TargetDate, wholeDays, holidaySet);
                 var elapsedSoFar = ClearanceScheduleService.BusinessDaysBetween(stepStart, today, holidaySet);
-                stepGaps.Add(new ClearanceStepGap($"{i.GroupItem} (ongoing)", elapsedSoFar, i.TargetDays, elapsedSoFar - i.TargetDays, category));
+                stepGaps.Add(new ClearanceStepGap($"{i.GroupItem} (ongoing)", elapsedSoFar, i.TargetDays, elapsedSoFar - i.TargetDays, category, CommentFor(i.GroupItem)));
             }
             else
             {
-                stepGaps.Add(new ClearanceStepGap(i.GroupItem, null, i.TargetDays, null, category));
+                stepGaps.Add(new ClearanceStepGap(i.GroupItem, null, i.TargetDays, null, category, CommentFor(i.GroupItem)));
             }
 
             // SSMO COC is checked right before its own File Process step —
