@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -47,23 +48,99 @@ public class BusinessPartnersController : LookupCrudController<BusinessPartner>
         => await Db.BusinessPartners.Where(p => p.IsOffshoreEntity && p.IsActive).ToListAsync();
 }
 
+// Standalone rather than a LookupCrudController<ModelProduct> subclass
+// (unlike every other simple lookup in this file) because its management
+// screen moved out of Settings into Update Order and widened who can
+// edit it to Manager + IP_Supervisor, not just Manager + SuperUser.
+// Overriding LookupCrudController's virtual Create/Update/Delete with a
+// different [Authorize(Roles=...)] risks the base method's attribute
+// still applying too (AuthorizeAttribute is inherited across overrides),
+// which would AND the two role sets together instead of widening them —
+// a standalone controller avoids that ambiguity entirely, same pattern
+// already used by ReceiverBanksControllerCustom. GetAll/GetById/Search
+// stay open to any authenticated user — IP_User and other order-entry
+// roles still need these to populate the Model/Product dropdown when
+// creating a Supplier Order; only the management screen itself moved.
 [ApiController]
 [Authorize]
 [Route("api/settings/model-products")]
-public class ModelProductsController : LookupCrudController<ModelProduct>
+public class ModelProductsController : ControllerBase
 {
-    public ModelProductsController(ShippingPortalDbContext db) : base(db) { }
+    private readonly ShippingPortalDbContext _db;
+    public ModelProductsController(ShippingPortalDbContext db) => _db = db;
+
+    [HttpGet]
+    public async Task<ActionResult<IEnumerable<ModelProduct>>> GetAll() => await _db.ModelProducts.ToListAsync();
+
+    [HttpGet("{id:int}")]
+    public async Task<ActionResult<ModelProduct>> GetById(int id)
+    {
+        var entity = await _db.ModelProducts.FindAsync(id);
+        return entity is null ? NotFound() : entity;
+    }
 
     [HttpGet("search")]
     public async Task<ActionResult<IEnumerable<ModelProduct>>> Search([FromQuery] string q)
     {
         if (string.IsNullOrWhiteSpace(q) || q.Length < 3) return Ok(Array.Empty<ModelProduct>());
-        return await Db.ModelProducts
+        return await _db.ModelProducts
             .Where(m => m.IsActive && EF.Functions.Like(m.Name, $"%{q}%"))
             .Include(m => m.ProductCategory)
             .Include(m => m.ProductType)
             .Take(20)
             .ToListAsync();
+    }
+
+    [HttpPost]
+    [Authorize(Roles = AppRoles.Manager + "," + AppRoles.IpSupervisor + "," + AppRoles.SuperUser)]
+    public async Task<ActionResult<ModelProduct>> Create(ModelProduct entity)
+    {
+        _db.ModelProducts.Add(entity);
+        await _db.SaveChangesAsync();
+        return Ok(entity);
+    }
+
+    [HttpPut("{id:int}")]
+    [Authorize(Roles = AppRoles.Manager + "," + AppRoles.IpSupervisor + "," + AppRoles.SuperUser)]
+    public async Task<IActionResult> Update(int id, [FromBody] JsonElement raw)
+    {
+        var existing = await _db.ModelProducts.FindAsync(id);
+        if (existing is null) return NotFound();
+
+        var entity = JsonSerializer.Deserialize<ModelProduct>(raw.GetRawText(), new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+        if (entity is null) return BadRequest();
+
+        // Same partial-payload handling as LookupCrudController.Update —
+        // the request body only ever carries the fields actually being
+        // edited, never Id, and often not IsActive either.
+        var isActiveSupplied = raw.TryGetProperty("isActive", out _);
+        var originalIsActive = existing.IsActive;
+
+        entity.Id = id;
+        _db.Entry(existing).CurrentValues.SetValues(entity);
+        if (!isActiveSupplied) existing.IsActive = originalIsActive;
+
+        await _db.SaveChangesAsync();
+        return NoContent();
+    }
+
+    [HttpDelete("{id:int}")]
+    [Authorize(Roles = AppRoles.Manager + "," + AppRoles.IpSupervisor + "," + AppRoles.SuperUser)]
+    public async Task<IActionResult> Delete(int id)
+    {
+        var entity = await _db.ModelProducts.FindAsync(id);
+        if (entity is null) return NotFound();
+
+        _db.ModelProducts.Remove(entity);
+        try
+        {
+            await _db.SaveChangesAsync();
+        }
+        catch (DbUpdateException)
+        {
+            return Conflict(new { message = "This entry is in use and can't be deleted." });
+        }
+        return NoContent();
     }
 }
 
