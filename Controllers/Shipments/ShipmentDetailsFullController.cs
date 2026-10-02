@@ -129,12 +129,15 @@ public class ShipmentDetailsFullController : ControllerBase
                 var courierName = bank.OsDocDispatchedViaId.HasValue ? (await _db.Couriers.FindAsync(bank.OsDocDispatchedViaId))?.Name : null;
                 var currencyCode = bank.CollectionCurrencyId.HasValue ? (await _db.Currencies.FindAsync(bank.CollectionCurrencyId))?.Code : null;
                 var tenorDays = bank.TenorId.HasValue ? (await _db.Tenors.FindAsync(bank.TenorId))?.Days : (int?)null;
+                var senderToReceiverCourierName = bank.SenderToReceiverDispatchViaId.HasValue ? (await _db.Couriers.FindAsync(bank.SenderToReceiverDispatchViaId))?.Name : null;
 
                 banking = new
                 {
                     SenderBank = senderBankName, bank.OsDocDispatchDate, DispatchedVia = courierName, bank.OsDocTrackingNumber,
                     bank.SenderBankCharges, ReceivingBank = receiverBankName, bank.NecessaryGoodType, bank.CollectionRefNo,
-                    bank.CollectionValue, Currency = currencyCode, TenorDays = tenorDays, bank.ReceiverBankCharges
+                    bank.CollectionValue, Currency = currencyCode, TenorDays = tenorDays,
+                    SenderToReceiverDispatchVia = senderToReceiverCourierName, bank.SenderToReceiverTrackingNumber,
+                    bank.ReceiverBankCharges
                 };
             }
         }
