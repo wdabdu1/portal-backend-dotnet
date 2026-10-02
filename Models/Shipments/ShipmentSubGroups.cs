@@ -165,6 +165,14 @@ public class ShipmentBanking
     public Currency? CollectionCurrency { get; set; }
     public int? TenorId { get; set; }
     public Tenor? Tenor { get; set; }
+
+    // Added to track the documents dispatched between Sender and Receiver
+    // bank (distinct from OsDocDispatchedVia/OsDocTrackingNumber above,
+    // which track the earlier dispatch from Offshore to the Sender Bank).
+    public int? SenderToReceiverDispatchViaId { get; set; }
+    public Courier? SenderToReceiverDispatchVia { get; set; }
+    public string? SenderToReceiverTrackingNumber { get; set; }
+
     public decimal? ReceiverBankCharges { get; set; }
 }
 public class ShipmentCollectionRecord
