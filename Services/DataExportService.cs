@@ -53,7 +53,21 @@ public class DataExportService
         ("FWD","FORWARDER NAME"),("FWD","ACTUAL SHIPPING COST"),("FWD","CURRENCY"),("FWD","AMOUNT SAVED IN SHIPPING COST"),("FWD","MARINE INSURANCE (TRUE/FALSE)"),
         ("DOCS","DRAFT DOC RECV DATE"),("DOCS","FINAL DRAFT CONFIRMED DATE"),("DOCS","SUPPLIER INVOICE NO"),("DOCS","SUPPLIER INVOICE DATE"),
         ("DOCS","ORIGINAL DOCUMENTS SENT DATE"),("DOCS","DHL AIRWAY BILL NO."),("DOCS","ORIGINAL DOCUMENTS RCVD DATE"),
-        ("BANK","DHL No. (Bank dispatch tracking)"),
+        // BANKING — merged into one contiguous section here (previously
+        // split: a single stray "DHL No." column sat here while the rest
+        // of the ShipmentBanking fields lived much further down, after
+        // LAST OFFSHORE REMARKS). Moved per explicit request — this is a
+        // deliberate, one-time exception to the append-only convention
+        // used everywhere else in this sheet. A Main-sheet template
+        // downloaded before this change will NOT align with this version;
+        // download a fresh template before the next upload.
+        ("BANK","SENDER BANK NAME"),("BANK","OS DOC DISPATCH DATE"),("BANK","OS DOC DISPATCHED VIA (Courier Name)"),
+        ("BANK","OS DOC TRACKING NUMBER"),
+        ("BANK","SENDER BANK CHARGES"),("BANK","RECEIVING BANK NAME"),("BANK","NECESSARY GOOD TYPE (TRUE/FALSE)"),
+        ("BANK","COLLECTION REF NO."),("BANK","COLLECTION VALUE"),("BANK","COLLECTION CURRENCY"),
+        ("BANK","TENOR DAYS"),
+        ("BANK","SENDER->RECEIVER DISPATCH VIA (Courier Name)"),("BANK","SENDER->RECEIVER TRACKING NUMBER"),
+        ("BANK","CBOS TENOR DAYS (global setting, reference only)"),("BANK","RECEIVER BANK CHARGES"),
         ("ACD","ACD COST $"),
         ("MOT","MOT APPROVED P.I. NO"),("MOT","MOT APPROVED P.I. DATE"),
         ("OFFSHORE","INVOICE NO."),("OFFSHORE","INSPECTION NO."),("OFFSHORE","GRN NO."),("OFFSHORE","APPROVED MOT UNIT PRICE USD"),
@@ -61,10 +75,6 @@ public class DataExportService
         ("CLR","REMARKS"),
         ("OFFSHORE","LAST OFFSHORE ITEM DESCRIPTION"),("OFFSHORE","LAST OFFSHORE CURRENCY"),
         ("OFFSHORE","LAST OFFSHORE REMARKS"),
-        ("BANK","SENDER BANK NAME"),("BANK","OS DOC DISPATCH DATE"),("BANK","OS DOC DISPATCHED VIA (Courier Name)"),
-        ("BANK","SENDER BANK CHARGES"),("BANK","RECEIVING BANK NAME"),("BANK","NECESSARY GOOD TYPE (TRUE/FALSE)"),
-        ("BANK","COLLECTION REF NO."),("BANK","COLLECTION VALUE"),("BANK","COLLECTION CURRENCY"),
-        ("BANK","TENOR DAYS"),("BANK","CBOS TENOR DAYS (global setting, reference only)"),("BANK","RECEIVER BANK CHARGES"),
         ("SSMO","COC REQUIRED (TRUE/FALSE)"),("SSMO","COC AVAILABLE (TRUE/FALSE)"),("SSMO","APPLICATION DATE"),
         ("SSMO","COST"),("SSMO","COST SETTLED DATE"),("SSMO","REF NUMBER"),("SSMO","APPROVAL DATE"),
         ("SHIPLINE","HS CODE"),
@@ -76,21 +86,21 @@ public class DataExportService
         ("DIRECTSALES","IS DIRECT SALES (TRUE/FALSE)"),("DIRECTSALES","CONSIGNEE NAME (Direct Sales end-client)"),
         ("DIRECTSALES","ORIGINAL DOCUMENTS HANDED (TRUE/FALSE)"),("DIRECTSALES","FULL PAYMENT COLLECTED (TRUE/FALSE)"),
         ("DIRECTSALES","DEAL CLOSED AT (auto-set once both above are TRUE)"),
-        // Appended (cols 93-99) — same append-only convention as above.
+        // Appended (cols 95-101) — same append-only convention as above.
         // ACD/MOT process/settlement/ref fields existed on the model but were
         // never exported or read back, so a wipe-and-restore silently lost
         // them; adding them here (and reading them back in DataUploadService)
         // closes that gap without moving any existing column.
         ("ACD","ACD PROCESS DATE"),("ACD","ACD COST SETTLED DATE"),("ACD","ACD REF NUMBER"),
         ("MOT","MOT PROCESS DATE"),("MOT","MOT COST"),("MOT","MOT COST SETTLED DATE"),("MOT","MOT REF NUMBER"),
-        // Appended (col 100) — same append-only convention as above.
+        // Appended (col 102) — same append-only convention as above.
         // Auto-computed (MOT APPROVED P.I. DATE + the global MOT Certificates
         // Settings expiry window, currently 90 days) rather than stored —
         // same "(auto-computed, reference only)" treatment as APPROVED MOT
         // TOTAL PRICE USD above, and likewise not read back by
         // DataUploadService.
         ("MOT","MOT CERTIFICATE EXPIRY DATE (auto-computed, reference only)"),
-        // Appended (cols 101-112) — same append-only convention as above.
+        // Appended (cols 103-114) — same append-only convention as above.
         // A full-database audit against the current EF models turned up
         // several more live, user-entered fields that existed on their
         // entity but were never exported or read back — same silent-gap
@@ -228,7 +238,7 @@ public class DataExportService
         var fullSets = _db.ShipmentSupplierFullSets.Include(f => f.FsDispatchedVia).ToDictionary(f => f.ShipmentId);
         var bankings = _db.ShipmentBankings
             .Include(b => b.SenderBank).Include(b => b.OsDocDispatchedVia).Include(b => b.ReceivingBank)
-            .Include(b => b.CollectionCurrency).Include(b => b.Tenor)
+            .Include(b => b.CollectionCurrency).Include(b => b.Tenor).Include(b => b.SenderToReceiverDispatchVia)
             .ToDictionary(b => b.ShipmentId);
         var acds = _db.ShipmentAcds.ToDictionary(a => a.ShipmentId);
         var mots = _db.ShipmentMots.ToDictionary(m => m.ShipmentId);
@@ -351,7 +361,27 @@ public class DataExportService
         SetCell(ws, row, c++, fullSet?.FsTrackingNumber);
         SetCell(ws, row, c++, fullSet?.FsReceivedDate);
 
+        // BANKING — merged into one contiguous section here (see the
+        // MainColumns comment above for why: this used to be split
+        // between a lone column here and the rest much further down,
+        // after LAST OFFSHORE REMARKS).
+        SetCell(ws, row, c++, banking?.SenderBank?.Name);
+        SetCell(ws, row, c++, banking?.OsDocDispatchDate);
+        SetCell(ws, row, c++, banking?.OsDocDispatchedVia?.Name);
         SetCell(ws, row, c++, banking?.OsDocTrackingNumber);
+        SetCell(ws, row, c++, banking?.SenderBankCharges);
+        SetCell(ws, row, c++, banking?.ReceivingBank?.Name);
+        SetCell(ws, row, c++, banking?.NecessaryGoodType);
+        SetCell(ws, row, c++, banking?.CollectionRefNo);
+        SetCell(ws, row, c++, banking?.CollectionValue);
+        SetCell(ws, row, c++, banking?.CollectionCurrency?.Code);
+        SetCell(ws, row, c++, banking?.Tenor?.Days);
+        SetCell(ws, row, c++, banking?.SenderToReceiverDispatchVia?.Name);
+        SetCell(ws, row, c++, banking?.SenderToReceiverTrackingNumber);
+        // CBOS Tenor is one global setting (Settings -> Tenors -> CBOS
+        // Tenor), not per-shipment — reference-only, same value every row.
+        SetCell(ws, row, c++, cbosSetting?.Tenor?.Days);
+        SetCell(ws, row, c++, banking?.ReceiverBankCharges);
 
         SetCell(ws, row, c++, acd?.CostUsd);
 
@@ -368,21 +398,6 @@ public class DataExportService
         SetCell(ws, row, c++, offshoreItem?.Description);
         SetCell(ws, row, c++, offshore?.Currency?.Code);
         SetCell(ws, row, c++, offshore?.Remarks);
-        SetCell(ws, row, c++, banking?.SenderBank?.Name);
-        SetCell(ws, row, c++, banking?.OsDocDispatchDate);
-        SetCell(ws, row, c++, banking?.OsDocDispatchedVia?.Name);
-        SetCell(ws, row, c++, banking?.SenderBankCharges);
-        SetCell(ws, row, c++, banking?.ReceivingBank?.Name);
-        SetCell(ws, row, c++, banking?.NecessaryGoodType);
-        SetCell(ws, row, c++, banking?.CollectionRefNo);
-        SetCell(ws, row, c++, banking?.CollectionValue);
-        SetCell(ws, row, c++, banking?.CollectionCurrency?.Code);
-        SetCell(ws, row, c++, banking?.Tenor?.Days);
-        // CBOS Tenor is now one global setting (Settings -> Tenors -> CBOS
-        // Tenor), not per-shipment — reference-only, same value every row,
-        // kept in place purely so columns after it don't shift position.
-        SetCell(ws, row, c++, cbosSetting?.Tenor?.Days);
-        SetCell(ws, row, c++, banking?.ReceiverBankCharges);
         SetCell(ws, row, c++, ssmo?.CocRequired);
         SetCell(ws, row, c++, ssmo?.CocAvailable);
         SetCell(ws, row, c++, ssmo?.ApplicationDate);
@@ -402,7 +417,7 @@ public class DataExportService
         SetCell(ws, row, c++, ship?.DirectSalesPaymentCollected);
         SetCell(ws, row, c++, ship?.DirectSalesClosedAt);
 
-        // Appended (cols 93-99) — see MainColumns comment above.
+        // Appended (cols 95-101) — see MainColumns comment above.
         SetCell(ws, row, c++, acd?.ProcessDate);
         SetCell(ws, row, c++, acd?.CostSettledDate);
         SetCell(ws, row, c++, acd?.RefNumber);
@@ -411,10 +426,10 @@ public class DataExportService
         SetCell(ws, row, c++, mot?.CostSettledDate);
         SetCell(ws, row, c++, mot?.RefNumber);
 
-        // Appended (col 100) — see MainColumns comment above.
+        // Appended (col 102) — see MainColumns comment above.
         SetCell(ws, row, c++, mot?.ApprovalDate?.AddDays(motExpiryDays));
 
-        // Appended (cols 101-112) — see MainColumns comment above.
+        // Appended (cols 103-114) — see MainColumns comment above.
         SetCell(ws, row, c++, po.PortOfLoading?.Name);
         SetCell(ws, row, c++, po.PortOfDischarge?.Name);
         SetCell(ws, row, c++, po.OffshorePoNo);

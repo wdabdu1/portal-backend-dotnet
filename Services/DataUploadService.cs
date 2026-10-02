@@ -217,7 +217,7 @@ public class DataUploadService
 
         for (int row = MainFirstDataRow; row <= lastRow; row++)
         {
-            if (RowIsBlank(ws, row, 70)) continue;
+            if (RowIsBlank(ws, row, 58)) continue;
 
             // --- PO section (cols 1-19) ---
             var poNumber = S(ws, row, 1);
@@ -281,7 +281,7 @@ public class DataUploadService
                     // the PO section above, to avoid shifting every fixed
                     // column index after them. Port of Loading/Discharge are
                     // optional, same as on the New Supplier Order form.
-                    var portOfLoadingName = S(ws, row, 101);
+                    var portOfLoadingName = S(ws, row, 103);
                     int? portOfLoadingId = null;
                     if (portOfLoadingName is not null)
                     {
@@ -289,7 +289,7 @@ public class DataUploadService
                         if (portOfLoading is null) { errors.Add($"Row {row}: Port of Loading '{portOfLoadingName}' not found."); continue; }
                         portOfLoadingId = portOfLoading.Id;
                     }
-                    var portOfDischargeName = S(ws, row, 102);
+                    var portOfDischargeName = S(ws, row, 104);
                     int? portOfDischargeId = null;
                     if (portOfDischargeName is not null)
                     {
@@ -301,7 +301,7 @@ public class DataUploadService
                     // default this importer always used before PO STATUS
                     // existed as a column, so an older export without it
                     // still behaves exactly as before.
-                    var poStatusText = S(ws, row, 108);
+                    var poStatusText = S(ws, row, 110);
                     var poStatus = poStatusText?.ToUpperInvariant() switch
                     {
                         "DRAFT" => OrderStatus.Draft,
@@ -332,11 +332,11 @@ public class DataUploadService
                         BuShippingBudget = D(ws, row, 19),
                         PortOfLoadingId = portOfLoadingId,
                         PortOfDischargeId = portOfDischargeId,
-                        OffshorePoNo = S(ws, row, 103),
-                        OffshorePoDate = Dt(ws, row, 104),
-                        AdvancePaymentPercent = D(ws, row, 105),
-                        AdvancePaymentPlannedDate = Dt(ws, row, 106),
-                        AdvancePaymentExecutedDate = Dt(ws, row, 107),
+                        OffshorePoNo = S(ws, row, 105),
+                        OffshorePoDate = Dt(ws, row, 106),
+                        AdvancePaymentPercent = D(ws, row, 107),
+                        AdvancePaymentPlannedDate = Dt(ws, row, 108),
+                        AdvancePaymentExecutedDate = Dt(ws, row, 109),
                         Status = poStatus,
                         CreatedAt = DateTime.UtcNow,
                         UpdatedAt = DateTime.UtcNow
@@ -447,15 +447,15 @@ public class DataUploadService
                         // DataExportService) rather than alongside the rest
                         // of the SHIP section above, to avoid shifting every
                         // fixed column index after them.
-                        VesselName = S(ws, row, 84),
-                        Soc = B(ws, row, 85) ?? false,
-                        BlFreeDays = I(ws, row, 86),
-                        SobActualDate = Dt(ws, row, 87),
-                        IsDirectSales = B(ws, row, 88) ?? false,
-                        ConsigneeName = S(ws, row, 89),
-                        DirectSalesDocumentsHanded = B(ws, row, 90) ?? false,
-                        DirectSalesPaymentCollected = B(ws, row, 91) ?? false,
-                        DirectSalesClosedAt = DtTime(ws, row, 92),
+                        VesselName = S(ws, row, 86),
+                        Soc = B(ws, row, 87) ?? false,
+                        BlFreeDays = I(ws, row, 88),
+                        SobActualDate = Dt(ws, row, 89),
+                        IsDirectSales = B(ws, row, 90) ?? false,
+                        ConsigneeName = S(ws, row, 91),
+                        DirectSalesDocumentsHanded = B(ws, row, 92) ?? false,
+                        DirectSalesPaymentCollected = B(ws, row, 93) ?? false,
+                        DirectSalesClosedAt = DtTime(ws, row, 94),
                         CreatedAt = DateTime.UtcNow,
                         UpdatedAt = DateTime.UtcNow
                     };
@@ -497,16 +497,16 @@ public class DataUploadService
                 await _db.SaveChangesAsync();
                 shipmentLinesCreated++;
             }
-            existingShipLine.HsCode = S(ws, row, 83);
+            existingShipLine.HsCode = S(ws, row, 85);
 
             await UpsertShipmentSections(shipment.Id, ws, row, lk);
 
-            // --- Last Offshore Item Detail (per line item; col 58 = Approved MOT Unit Price USD, col 61 = Description;
-            // cols 111-112 appended at the end of Main — see DataExportService — for the C Pricing classification) ---
-            var lastOffshoreUnitPrice = D(ws, row, 58);
-            var lastOffshoreDescription = S(ws, row, 61);
-            var cPricingCategoryName = S(ws, row, 111);
-            var cPricingTypeName = S(ws, row, 112);
+            // --- Last Offshore Item Detail (per line item; col 72 = Approved MOT Unit Price USD, col 75 = Description;
+            // cols 113-114 appended at the end of Main — see DataExportService — for the C Pricing classification) ---
+            var lastOffshoreUnitPrice = D(ws, row, 72);
+            var lastOffshoreDescription = S(ws, row, 75);
+            var cPricingCategoryName = S(ws, row, 113);
+            var cPricingTypeName = S(ws, row, 114);
             if (lastOffshoreUnitPrice.HasValue || lastOffshoreDescription is not null || cPricingCategoryName is not null || cPricingTypeName is not null)
             {
                 int? cPricingCategoryId = null;
@@ -548,8 +548,8 @@ public class DataUploadService
                 }
             }
 
-            // --- Clearance Remarks (col 60) ---
-            var remarks = S(ws, row, 60);
+            // --- Clearance Remarks (col 74) ---
+            var remarks = S(ws, row, 74);
             if (remarks is not null)
             {
                 var clearance = await _db.Clearances.FirstOrDefaultAsync(c => c.ShipmentId == shipment.Id);
@@ -596,12 +596,12 @@ public class DataUploadService
             fwd.MarineInsurance = B(ws, row, 43) ?? false;
         }
 
-        // Draft Documents (cols 44-45; col 109 appended at the end of Main —
-        // see DataExportService) + Supplier Full Set (cols 46-50; col 110
+        // Draft Documents (cols 44-45; col 111 appended at the end of Main —
+        // see DataExportService) + Supplier Full Set (cols 46-50; col 112
         // appended likewise)
         var draftDate = Dt(ws, row, 44);
         var finalConfirmedDate = Dt(ws, row, 45);
-        var finalReceivedDate = Dt(ws, row, 109);
+        var finalReceivedDate = Dt(ws, row, 111);
         if (draftDate.HasValue || finalConfirmedDate.HasValue || finalReceivedDate.HasValue)
         {
             var docs = await _db.ShipmentDraftDocuments.FirstOrDefaultAsync(d => d.ShipmentId == shipmentId) ?? new ShipmentDraftDocuments { ShipmentId = shipmentId };
@@ -621,7 +621,7 @@ public class DataUploadService
             fullSet.FsDispatchDate = Dt(ws, row, 48);
             fullSet.FsTrackingNumber = S(ws, row, 49);
             fullSet.FsReceivedDate = Dt(ws, row, 50);
-            var fsDispatchedViaName = S(ws, row, 110);
+            var fsDispatchedViaName = S(ws, row, 112);
             if (fsDispatchedViaName is not null)
             {
                 var courier = lk.Couriers.FirstOrDefault(x => x.Name == fsDispatchedViaName);
@@ -629,25 +629,34 @@ public class DataUploadService
             }
         }
 
-        // Banking (col 51 = dispatch tracking number; cols 64-75 = full fields, appended at the end of the sheet)
-        var bankTrackingNo = S(ws, row, 51);
-        var senderBankName = S(ws, row, 64);
-        var osDocDispatchDate = Dt(ws, row, 65);
-        var osDocDispatchedViaName = S(ws, row, 66);
-        var senderBankCharges = D(ws, row, 67);
-        var receivingBankName = S(ws, row, 68);
-        var necessaryGoodType = B(ws, row, 69);
-        var collectionRefNo = S(ws, row, 70);
-        var collectionValue = D(ws, row, 71);
-        var collectionCurrencyCode = S(ws, row, 72);
-        var tenorDays = I(ws, row, 73);
-        // Column 74 ("CBOS Tenor Days") is no longer per-shipment data —
+        // Banking (cols 51-65, merged into one contiguous block directly
+        // after Draft Docs/Supplier Full Set — previously split between a
+        // lone tracking-number column here and the rest of the fields
+        // appended at the end of the sheet; see DataExportService's
+        // MainColumns comment for why they moved here. A Main-sheet
+        // template downloaded before this change will NOT align with this
+        // version — a fresh download is required.)
+        var senderBankName = S(ws, row, 51);
+        var osDocDispatchDate = Dt(ws, row, 52);
+        var osDocDispatchedViaName = S(ws, row, 53);
+        var bankTrackingNo = S(ws, row, 54);
+        var senderBankCharges = D(ws, row, 55);
+        var receivingBankName = S(ws, row, 56);
+        var necessaryGoodType = B(ws, row, 57);
+        var collectionRefNo = S(ws, row, 58);
+        var collectionValue = D(ws, row, 59);
+        var collectionCurrencyCode = S(ws, row, 60);
+        var tenorDays = I(ws, row, 61);
+        var senderToReceiverDispatchViaName = S(ws, row, 62);
+        var senderToReceiverTrackingNo = S(ws, row, 63);
+        // Column 64 ("CBOS Tenor Days") is no longer per-shipment data —
         // CBOS Tenor is one global setting now (Settings -> Tenors -> CBOS
         // Tenor). Still read (and ignored) here so every column after it
         // keeps its position in this sheet.
-        _ = I(ws, row, 74);
-        var receiverBankCharges = D(ws, row, 75);
-        if (bankTrackingNo is not null || senderBankName is not null || receivingBankName is not null || collectionRefNo is not null || collectionValue is not null)
+        _ = I(ws, row, 64);
+        var receiverBankCharges = D(ws, row, 65);
+        if (bankTrackingNo is not null || senderBankName is not null || receivingBankName is not null || collectionRefNo is not null || collectionValue is not null
+            || senderToReceiverDispatchViaName is not null || senderToReceiverTrackingNo is not null)
         {
             var banking = await _db.ShipmentBankings.FirstOrDefaultAsync(b => b.ShipmentId == shipmentId) ?? new ShipmentBanking { ShipmentId = shipmentId };
             if (banking.Id == 0) _db.ShipmentBankings.Add(banking);
@@ -657,6 +666,7 @@ public class DataUploadService
             banking.NecessaryGoodType = necessaryGoodType ?? banking.NecessaryGoodType;
             banking.CollectionRefNo = collectionRefNo;
             banking.CollectionValue = collectionValue;
+            banking.SenderToReceiverTrackingNumber = senderToReceiverTrackingNo;
             banking.ReceiverBankCharges = receiverBankCharges;
             if (senderBankName is not null)
             {
@@ -667,6 +677,11 @@ public class DataUploadService
             {
                 var courier = lk.Couriers.FirstOrDefault(x => x.Name == osDocDispatchedViaName);
                 if (courier is not null) banking.OsDocDispatchedViaId = courier.Id;
+            }
+            if (senderToReceiverDispatchViaName is not null)
+            {
+                var srCourier = lk.Couriers.FirstOrDefault(x => x.Name == senderToReceiverDispatchViaName);
+                if (srCourier is not null) banking.SenderToReceiverDispatchViaId = srCourier.Id;
             }
             if (receivingBankName is not null)
             {
@@ -685,14 +700,14 @@ public class DataUploadService
             }
         }
 
-        // SSMO (cols 76-82)
-        var cocRequired = B(ws, row, 76);
-        var cocAvailable = B(ws, row, 77);
-        var ssmoApplicationDate = Dt(ws, row, 78);
-        var ssmoCost = D(ws, row, 79);
-        var ssmoCostSettledDate = Dt(ws, row, 80);
-        var ssmoRefNumber = S(ws, row, 81);
-        var ssmoApprovalDate = Dt(ws, row, 82);
+        // SSMO (cols 78-84)
+        var cocRequired = B(ws, row, 78);
+        var cocAvailable = B(ws, row, 79);
+        var ssmoApplicationDate = Dt(ws, row, 80);
+        var ssmoCost = D(ws, row, 81);
+        var ssmoCostSettledDate = Dt(ws, row, 82);
+        var ssmoRefNumber = S(ws, row, 83);
+        var ssmoApprovalDate = Dt(ws, row, 84);
         if (cocRequired is not null || cocAvailable is not null || ssmoApplicationDate is not null || ssmoRefNumber is not null
             || ssmoCost.HasValue || ssmoCostSettledDate.HasValue || ssmoApprovalDate.HasValue)
         {
@@ -707,11 +722,11 @@ public class DataUploadService
             ssmo.ApprovalDate = ssmoApprovalDate;
         }
 
-        // ACD (col 52; cols 93-95 appended at the end of Main — see DataExportService)
-        var acdCost = D(ws, row, 52);
-        var acdProcessDate = Dt(ws, row, 93);
-        var acdCostSettledDate = Dt(ws, row, 94);
-        var acdRefNumber = S(ws, row, 95);
+        // ACD (col 66; cols 95-97 appended at the end of Main — see DataExportService)
+        var acdCost = D(ws, row, 66);
+        var acdProcessDate = Dt(ws, row, 95);
+        var acdCostSettledDate = Dt(ws, row, 96);
+        var acdRefNumber = S(ws, row, 97);
         if (acdCost.HasValue || acdProcessDate.HasValue || acdCostSettledDate.HasValue || acdRefNumber is not null)
         {
             var acd = await _db.ShipmentAcds.FirstOrDefaultAsync(a => a.ShipmentId == shipmentId) ?? new ShipmentAcd { ShipmentId = shipmentId };
@@ -722,33 +737,33 @@ public class DataUploadService
             acd.RefNumber = acdRefNumber;
         }
 
-        // MOT (cols 53-54; cols 96-99 appended at the end of Main — see DataExportService).
-        // Col 100 (MOT CERTIFICATE EXPIRY DATE) is intentionally not read here: it's
+        // MOT (cols 67-68; cols 98-101 appended at the end of Main — see DataExportService).
+        // Col 102 (MOT CERTIFICATE EXPIRY DATE) is intentionally not read here: it's
         // auto-computed on export from ApprovalDate + the global MotCertificateSettings.ExpiryDays,
         // not stored per-shipment — same "reference only" treatment as APPROVED MOT TOTAL PRICE USD above.
-        var motPiNo = S(ws, row, 53);
-        var motProcessDate = Dt(ws, row, 96);
-        var motCost = D(ws, row, 97);
-        var motCostSettledDate = Dt(ws, row, 98);
-        var motRefNumber = S(ws, row, 99);
+        var motPiNo = S(ws, row, 67);
+        var motProcessDate = Dt(ws, row, 98);
+        var motCost = D(ws, row, 99);
+        var motCostSettledDate = Dt(ws, row, 100);
+        var motRefNumber = S(ws, row, 101);
         if (motPiNo is not null || motProcessDate.HasValue || motCost.HasValue || motCostSettledDate.HasValue || motRefNumber is not null)
         {
             var mot = await _db.ShipmentMots.FirstOrDefaultAsync(m => m.ShipmentId == shipmentId) ?? new ShipmentMot { ShipmentId = shipmentId };
             if (mot.Id == 0) _db.ShipmentMots.Add(mot);
             mot.OffshoreApprovedPiNumber = motPiNo;
-            mot.ApprovalDate = Dt(ws, row, 54);
+            mot.ApprovalDate = Dt(ws, row, 68);
             mot.ProcessDate = motProcessDate;
             mot.Cost = motCost;
             mot.CostSettledDate = motCostSettledDate;
             mot.RefNumber = motRefNumber;
         }
 
-        // Last Offshore Details header (cols 55-57; 58 and 61 handled per-line-item by the caller; 62 = Currency; 63 = Remarks)
-        var offshoreInvoiceNo = S(ws, row, 55);
-        var inspectionNo = S(ws, row, 56);
-        var grn = S(ws, row, 57);
-        var offshoreCurrencyCode = S(ws, row, 62);
-        var offshoreRemarks = S(ws, row, 63);
+        // Last Offshore Details header (cols 69-71; 72 and 75 handled per-line-item by the caller; 76 = Currency; 77 = Remarks)
+        var offshoreInvoiceNo = S(ws, row, 69);
+        var inspectionNo = S(ws, row, 70);
+        var grn = S(ws, row, 71);
+        var offshoreCurrencyCode = S(ws, row, 76);
+        var offshoreRemarks = S(ws, row, 77);
         if (offshoreInvoiceNo is not null || inspectionNo is not null || grn is not null || offshoreCurrencyCode is not null || offshoreRemarks is not null)
         {
             var offshore = await _db.LastOffshoreDetails.FirstOrDefaultAsync(o => o.ShipmentId == shipmentId) ?? new LastOffshoreDetail { ShipmentId = shipmentId };
