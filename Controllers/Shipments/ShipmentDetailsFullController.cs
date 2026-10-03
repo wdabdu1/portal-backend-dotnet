@@ -136,6 +136,7 @@ public class ShipmentDetailsFullController : ControllerBase
                     SenderBank = senderBankName, bank.OsDocDispatchDate, DispatchedVia = courierName, bank.OsDocTrackingNumber,
                     bank.SenderBankCharges, ReceivingBank = receiverBankName, bank.NecessaryGoodType, bank.CollectionRefNo,
                     bank.CollectionValue, Currency = currencyCode, TenorDays = tenorDays,
+                    bank.SenderToReceiverDispatchDate,
                     SenderToReceiverDispatchVia = senderToReceiverCourierName, bank.SenderToReceiverTrackingNumber,
                     bank.ReceiverBankCharges
                 };

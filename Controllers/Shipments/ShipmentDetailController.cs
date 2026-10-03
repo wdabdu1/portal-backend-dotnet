@@ -30,7 +30,8 @@ public record SupplierInvoiceSummary(
 public record ShipmentBankingRequest(
     int? SenderBankId, DateOnly? OsDocDispatchDate, int? OsDocDispatchedViaId, string? OsDocTrackingNumber,
     int? ReceivingBankId, bool NecessaryGoodType, string? CollectionRefNo, decimal? CollectionValue, int? CollectionCurrencyId,
-    int? TenorId, int? SenderToReceiverDispatchViaId = null, string? SenderToReceiverTrackingNumber = null);
+    int? TenorId, int? SenderToReceiverDispatchViaId = null, string? SenderToReceiverTrackingNumber = null,
+    DateOnly? SenderToReceiverDispatchDate = null);
 
 public record ShipmentLineItemHsCode(int LineItemId, string ModelProduct, string? HsCode);
 
@@ -515,6 +516,7 @@ public class ShipmentDetailController : ControllerBase
         entity.TenorId = req.TenorId;
         entity.SenderToReceiverDispatchViaId = req.SenderToReceiverDispatchViaId;
         entity.SenderToReceiverTrackingNumber = req.SenderToReceiverTrackingNumber;
+        entity.SenderToReceiverDispatchDate = req.SenderToReceiverDispatchDate;
 
         if (req.CollectionValue.HasValue && req.SenderBankId.HasValue)
         {
