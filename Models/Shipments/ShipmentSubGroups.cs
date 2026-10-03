@@ -169,6 +169,9 @@ public class ShipmentBanking
     // Added to track the documents dispatched between Sender and Receiver
     // bank (distinct from OsDocDispatchedVia/OsDocTrackingNumber above,
     // which track the earlier dispatch from Offshore to the Sender Bank).
+    // Date/Via/TrackingNumber ordering deliberately mirrors the
+    // OsDocDispatchDate/OsDocDispatchedVia/OsDocTrackingNumber trio above.
+    public DateOnly? SenderToReceiverDispatchDate { get; set; }
     public int? SenderToReceiverDispatchViaId { get; set; }
     public Courier? SenderToReceiverDispatchVia { get; set; }
     public string? SenderToReceiverTrackingNumber { get; set; }
