@@ -66,6 +66,14 @@ public class DataExportService
         ("BANK","SENDER BANK CHARGES"),("BANK","RECEIVING BANK NAME"),("BANK","NECESSARY GOOD TYPE (TRUE/FALSE)"),
         ("BANK","COLLECTION REF NO."),("BANK","COLLECTION VALUE"),("BANK","COLLECTION CURRENCY"),
         ("BANK","TENOR DAYS"),
+        // SENDER->RECEIVER DOC SENDING DATE added in a follow-up round,
+        // right before DISPATCH VIA — mirrors the OS DOC DISPATCH
+        // DATE/VIA/TRACKING NUMBER ordering above. Inserted here (not
+        // appended) since it belongs with its own Via/Tracking Number
+        // pair; every column after it shifts by one more position. A
+        // Main-sheet template downloaded before this change will NOT
+        // align with this version — download a fresh template.
+        ("BANK","SENDER->RECEIVER DOC SENDING DATE"),
         ("BANK","SENDER->RECEIVER DISPATCH VIA (Courier Name)"),("BANK","SENDER->RECEIVER TRACKING NUMBER"),
         ("BANK","CBOS TENOR DAYS (global setting, reference only)"),("BANK","RECEIVER BANK CHARGES"),
         ("ACD","ACD COST $"),
@@ -376,6 +384,7 @@ public class DataExportService
         SetCell(ws, row, c++, banking?.CollectionValue);
         SetCell(ws, row, c++, banking?.CollectionCurrency?.Code);
         SetCell(ws, row, c++, banking?.Tenor?.Days);
+        SetCell(ws, row, c++, banking?.SenderToReceiverDispatchDate);
         SetCell(ws, row, c++, banking?.SenderToReceiverDispatchVia?.Name);
         SetCell(ws, row, c++, banking?.SenderToReceiverTrackingNumber);
         // CBOS Tenor is one global setting (Settings -> Tenors -> CBOS
