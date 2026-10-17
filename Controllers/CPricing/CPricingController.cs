@@ -19,16 +19,26 @@ public record CPricingItemRow(
     DateOnly? Eta, int? CPricingCategoryId, string? CPricingCategoryName, int? CPricingTypeId, string? CPricingTypeName,
     string? HsCode, string? Description, int? CurrencyId, string? CurrencyCode, decimal? Cp, decimal? PoUnitPriceUsd, bool IsConfirmed);
 
-// HsCode is intentionally absent here — it's entered once, on the Update
-// Shipment page, and shown read-only everywhere else (including here and
-// on Additional/ERP Info) via ShipmentLineItem.HsCode directly.
-public record SaveCPricingItemRequest(int? CPricingCategoryId, int? CPricingTypeId, string? Description, int? CurrencyId, decimal? Cp);
+// HsCode lives on ShipmentLineItem (captured at New Shipment time). It is
+// ALSO editable from this page for now — added so the backlog of lines that
+// were created without one can be cleared from the C Pricing list instead
+// of staying stuck in Pending. Semantics: null = field not sent, leave the
+// stored value alone (so an older cached frontend can never wipe codes);
+// "" / whitespace = clear it; anything else = set it (trimmed).
+// To switch this back off later, set AllowHsCodeEditFromCPricing below to
+// false (and CPRICING_HS_CODE_EDITABLE in c-pricing-list.ts) — nothing else
+// needs to change.
+public record SaveCPricingItemRequest(int? CPricingCategoryId, int? CPricingTypeId, string? Description, int? CurrencyId, decimal? Cp, string? HsCode = null);
 
 [ApiController]
 [Authorize(Roles = AppRoles.CPricingUsers)]
 [Route("api/c-pricing")]
 public class CPricingController : ControllerBase
 {
+    // Temporary: lets C Pricing users enter/correct ShipmentLineItem.HsCode
+    // from this page. Flip to false to make HS Code read-only here again.
+    private const bool AllowHsCodeEditFromCPricing = true;
+
     private readonly ShippingPortalDbContext _db;
     private readonly BuAccessService _buAccess;
 
@@ -133,6 +143,9 @@ public class CPricingController : ControllerBase
         extra.CPricingTypeId = req.CPricingTypeId;
         extra.CurrencyId = req.CurrencyId;
         extra.CPricingSavedAt = DateTime.UtcNow;
+
+        if (AllowHsCodeEditFromCPricing && req.HsCode is not null)
+            li.HsCode = string.IsNullOrWhiteSpace(req.HsCode) ? null : req.HsCode.Trim();
 
         await _db.SaveChangesAsync();
         return NoContent();
