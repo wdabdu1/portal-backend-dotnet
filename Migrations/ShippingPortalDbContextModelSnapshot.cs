@@ -2231,7 +2231,8 @@ namespace portal_backend_dotnet.Migrations
 
                     b.HasIndex("BusinessPartnerId");
 
-                    b.HasIndex("PurchaseOrderId");
+                    b.HasIndex("PurchaseOrderId", "SequenceOrder")
+                        .IsUnique();
 
                     b.ToTable("PurchaseOrderOffshorePartners");
                 });
