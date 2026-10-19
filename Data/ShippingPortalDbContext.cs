@@ -151,6 +151,13 @@ public class ShippingPortalDbContext : IdentityDbContext<ApplicationUser>
             .WithMany(p => p.OffshorePartners)
             .OnDelete(DeleteBehavior.Cascade);
 
+        // One partner per step: a PO can't have the same chain sequence twice.
+        // (Data Migration uploads used to be able to insert repeats.) The
+        // composite index also serves as the FK index for PurchaseOrderId.
+        builder.Entity<PurchaseOrderOffshorePartner>()
+            .HasIndex(o => new { o.PurchaseOrderId, o.SequenceOrder })
+            .IsUnique();
+
         builder.Entity<ShipmentLineItem>()
             .HasOne(li => li.Shipment)
             .WithMany(s => s.LineItems)
