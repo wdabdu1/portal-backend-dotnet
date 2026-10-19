@@ -884,6 +884,7 @@ public class DataUploadService
         var errors = new List<string>(); int created = 0, updated = 0;
         var lastRow = ws.LastRowUsed()?.RowNumber() ?? 5;
         var partners = await _db.BusinessPartners.ToListAsync();
+        var seenInThisUpload = new HashSet<(int PoId, int Sequence)>();
 
         for (int row = 6; row <= lastRow; row++)
         {
@@ -897,6 +898,14 @@ public class DataUploadService
 
             var partner = partners.FirstOrDefault(p => p.Name == partnerName);
             if (partner is null) { errors.Add($"Row {row}: Business Partner '{partnerName}' not found."); continue; }
+
+            // Same (PO, Sequence) twice in one upload used to create TWO chain
+            // rows: the first one is only Added (not yet saved), so the DB
+            // lookup below can't see it. Track what this upload has already
+            // touched and reject the repeat instead of duplicating it.
+            var key = (po.Id, sequence.Value);
+            if (!seenInThisUpload.Add(key))
+            { errors.Add($"Row {row}: duplicate row for PO '{poNumber}' / Sequence {sequence} — skipped (an earlier row in this sheet already set it)."); continue; }
 
             var existing = await _db.PurchaseOrderOffshorePartners.FirstOrDefaultAsync(o => o.PurchaseOrderId == po.Id && o.SequenceOrder == sequence);
             if (existing is null)
