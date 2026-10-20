@@ -20,7 +20,7 @@ public record SupplierDelayLine(
 // dispatched line simply isn't a risk anymore, regardless of date.
 [ApiController]
 [Route("api/dashboards/supplier-delay")]
-[Authorize(Roles = AppRoles.Manager + "," + AppRoles.SuperUser + "," + AppRoles.Bu)]
+[Authorize(Roles = AppRoles.Manager + "," + AppRoles.SuperUser + "," + AppRoles.Bu + "," + AppRoles.Treasury)]
 public class SupplierDelayController : ControllerBase
 {
     private readonly ShippingPortalDbContext _db;
