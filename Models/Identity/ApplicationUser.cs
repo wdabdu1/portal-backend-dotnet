@@ -96,6 +96,12 @@ public static class AppRoles
 
     public const string SettingsViewers = Manager + "," + SuperUser;
 
+    // Correcting descriptive fields on an existing PO / Shipment (Origin,
+    // Incoterm, ETA, vessel, HS codes ...) — deliberately narrower than
+    // OrdersShipmentsEditors: day-to-day IP users can create and update, but
+    // only Manager/SuperUser may rewrite what was originally registered.
+    public const string RecordCorrectors = Manager + "," + SuperUser;
+
     public const string SupplierDuesEditors = IpUser + "," + IpSupervisor + "," + SuperUser;
     public const string SupplierDuesViewers = IpUser + "," + IpSupervisor + "," + SuperUser + "," + Bu + "," + Treasury + "," + CorpFinance + "," + Manager;
 
