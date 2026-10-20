@@ -77,10 +77,11 @@ public static class AppRoles
     // their day-to-day ops role, expected. Fixed 2026-09-14: these two endpoints
     // had their own one-off inline role list that predated OrdersShipmentsViewers
     // and never got IpUser/IpSupervisor added to it, unlike every other
-    // viewer-role group in this file — this constant intentionally keeps
+    // viewer-role group in this file — Treasury added 2026-10-20 (view-only, sees all BUs, same as its
+    // access to the Shipments/Orders lists). This constant intentionally keeps
     // CorpFinance (already granted here) rather than switching to
     // OrdersShipmentsViewers wholesale, which would have silently dropped it.
-    public const string PoShipmentDashboardViewers = IpUser + "," + IpSupervisor + "," + Manager + "," + SuperUser + "," + Bu + "," + CorpFinance;
+    public const string PoShipmentDashboardViewers = IpUser + "," + IpSupervisor + "," + Manager + "," + SuperUser + "," + Bu + "," + CorpFinance + "," + Treasury;
 
     public const string ClearanceEditors = ClrUsr + "," + ClrSupervisor + "," + SuperUser;
     // CPricing added 2026-09-21: view-only access to the Clearance screen and
