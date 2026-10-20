@@ -20,6 +20,7 @@ public class ShippingPortalDbContext : IdentityDbContext<ApplicationUser>
     public DbSet<ShippingPortal.Api.Models.SectionLock> SectionLocks => Set<ShippingPortal.Api.Models.SectionLock>();
     public DbSet<ShippingPortal.Api.Models.UserTablePreference> UserTablePreferences => Set<ShippingPortal.Api.Models.UserTablePreference>();
     public DbSet<ShippingPortal.Api.Models.UserFavorite> UserFavorites => Set<ShippingPortal.Api.Models.UserFavorite>();
+    public DbSet<ShippingPortal.Api.Models.DataChangeLog> DataChangeLogs => Set<ShippingPortal.Api.Models.DataChangeLog>();
 
     // Settings / master data
     public DbSet<BusinessUnit> BusinessUnits => Set<BusinessUnit>();
@@ -157,6 +158,9 @@ public class ShippingPortalDbContext : IdentityDbContext<ApplicationUser>
         builder.Entity<PurchaseOrderOffshorePartner>()
             .HasIndex(o => new { o.PurchaseOrderId, o.SequenceOrder })
             .IsUnique();
+
+        builder.Entity<ShippingPortal.Api.Models.DataChangeLog>()
+            .HasIndex(x => new { x.EntityType, x.EntityId });
 
         builder.Entity<ShipmentLineItem>()
             .HasOne(li => li.Shipment)
