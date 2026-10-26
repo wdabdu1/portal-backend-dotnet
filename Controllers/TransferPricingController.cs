@@ -173,7 +173,12 @@ public class TransferPricingController : ControllerBase
                 {
                     lastOffshoreItems.TryGetValue(li.Id, out var extra);
                     decimal? lastTotal = extra?.UnitPrice.HasValue == true ? li.QtyInBl * extra.UnitPrice.Value : null;
-                    var lastCurrencyId = lastOffshoreDetail?.CurrencyId;
+                    // C Pricing saves the currency PER ITEM (LastOffshoreItemDetail.CurrencyId);
+                    // the shipment-level Last Offshore Details currency is only a fallback
+                    // (same precedence as the C Pricing list and Price History). Reading only
+                    // the shipment-level one left this stage blank ("-") for any shipment
+                    // priced through C Pricing.
+                    var lastCurrencyId = extra?.CurrencyId ?? lastOffshoreDetail?.CurrencyId;
 
                     if (lastTotal.HasValue && lastCurrencyId.HasValue)
                     {
