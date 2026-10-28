@@ -142,6 +142,7 @@ public class DataExportService
         using var wb = new XLWorkbook();
         await BuildMainSheet(wb);
         BuildPaymentDueSheet(wb);
+        BuildPoPaymentsSheet(wb);
         BuildPaymentRecordsSheet(wb);
         BuildPoOffshoreChainSheet(wb);
         BuildClearanceGeneralSheet(wb);
@@ -572,6 +573,50 @@ public class DataExportService
             SetCell(ws, row, 4, d.Currency?.Code);
             SetCell(ws, row, 5, d.Label);
             SetCell(ws, row, 6, d.IsFromPoAdvance);
+            row++;
+        }
+        ws.Columns().AdjustToContents();
+    }
+
+    // Payments made/planned against a whole PO (advance, pre-dispatch
+    // balance, ...) — the source of the "from PO" lines in the Supplier
+    // Payment Due Schedule above. Entered by value in AMOUNT/CURRENCY;
+    // the % of the PO is derived, so it is not a column here.
+    private void BuildPoPaymentsSheet(XLWorkbook wb)
+    {
+        var ws = wb.Worksheets.Add("PO_Payments");
+        ws.Cell(1, 1).Value = "PO Payments (advance / pre-dispatch, by value)";
+        ws.Cell(1, 1).Style.Font.Bold = true;
+        ws.Cell(1, 1).Style.Font.FontSize = 13;
+        ws.Cell(1, 1).Style.Font.FontColor = Navy;
+
+        var headers = new[] { "PO NO", "PAYMENT NAME", "AMOUNT", "CURRENCY", "PLANNED DATE", "EXECUTED DATE", "NOTE" };
+        for (int i = 0; i < headers.Length; i++)
+        {
+            var c = ws.Cell(4, i + 1);
+            c.Value = headers[i];
+            c.Style.Font.Bold = true;
+            c.Style.Font.FontColor = XLColor.White;
+            c.Style.Fill.BackgroundColor = Navy;
+        }
+        for (int i = 0; i < headers.Length; i++) ws.Cell(5, i + 1).Style.Fill.BackgroundColor = LegendFill;
+
+        var pays = (from p in _db.PurchaseOrderPayments
+                    join po in _db.PurchaseOrders on p.PurchaseOrderId equals po.Id
+                    join cur in _db.Currencies on p.CurrencyId equals cur.Id
+                    orderby po.PoNumber, p.Id
+                    select new { po.PoNumber, p.Description, p.Amount, Currency = cur.Code, p.PlannedDate, p.ExecutedDate, p.Note }).ToList();
+
+        int row = 6;
+        foreach (var p in pays)
+        {
+            SetCell(ws, row, 1, p.PoNumber);
+            SetCell(ws, row, 2, p.Description);
+            SetCell(ws, row, 3, p.Amount);
+            SetCell(ws, row, 4, p.Currency);
+            SetCell(ws, row, 5, p.PlannedDate);
+            SetCell(ws, row, 6, p.ExecutedDate);
+            SetCell(ws, row, 7, p.Note);
             row++;
         }
         ws.Columns().AdjustToContents();

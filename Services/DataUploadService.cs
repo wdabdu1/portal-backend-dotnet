@@ -24,7 +24,8 @@ public class DataUploadService
 {
     private readonly ShippingPortalDbContext _db;
     private readonly FxRateService _fx;
-    public DataUploadService(ShippingPortalDbContext db, FxRateService fx) { _db = db; _fx = fx; }
+    private readonly PoAdvancePaymentService _poPay;
+    public DataUploadService(ShippingPortalDbContext db, FxRateService fx, PoAdvancePaymentService poPay) { _db = db; _fx = fx; _poPay = poPay; }
 
     // Main sheet uses a 3-row header block (section label / column
     // header / example) — data starts row 4. The two Payment sheets
@@ -86,6 +87,14 @@ public class DataUploadService
 
         var dueWs = wb.Worksheets.FirstOrDefault(w => w.Name == "Supplier_Payment_Due_Schedule");
         if (dueWs is not null) results.Add(await ProcessPaymentDueSchedule(dueWs));
+
+        // PO-level payments (advance / pre-dispatch, by value). Must come
+        // after Main (POs exist) and the Due Schedule (so restored "from PO"
+        // lines are adopted rather than duplicated). A backup that predates
+        // this sheet falls back to the old single-advance columns on Main.
+        var poPayWs = wb.Worksheets.FirstOrDefault(w => w.Name == "PO_Payments");
+        if (poPayWs is not null) results.Add(await ProcessPoPayments(poPayWs));
+        else if (mainWs is not null) results.Add(await ConvertLegacyAdvancesAsync());
 
         var recWs = wb.Worksheets.FirstOrDefault(w => w.Name == "Supplier_Payment_Records");
         if (recWs is not null) results.Add(await ProcessPaymentRecords(recWs));
@@ -820,6 +829,87 @@ public class DataUploadService
         }
         await _db.SaveChangesAsync();
         return new SheetUploadResult("Supplier_Payment_Due_Schedule", created, updated, errors);
+    }
+
+    private async Task<SheetUploadResult> ProcessPoPayments(IXLWorksheet ws)
+    {
+        var errors = new List<string>(); int created = 0, updated = 0;
+        var lastRow = ws.LastRowUsed()?.RowNumber() ?? PaymentFirstDataRow - 1;
+        var currencies = await _db.Currencies.ToListAsync();
+        var touched = new HashSet<int>();
+
+        for (int row = PaymentFirstDataRow; row <= lastRow; row++)
+        {
+            if (RowIsBlank(ws, row, 7)) continue;
+            var poNo = S(ws, row, 1); var name = S(ws, row, 2); var amount = D(ws, row, 3); var curCode = S(ws, row, 4);
+            var planned = Dt(ws, row, 5); var executed = Dt(ws, row, 6); var note = S(ws, row, 7);
+            if (poNo is null || amount is null || curCode is null || (planned is null && executed is null))
+            { errors.Add($"Row {row}: PO NO, AMOUNT, CURRENCY and a PLANNED or EXECUTED DATE are required."); continue; }
+
+            var po = await _db.PurchaseOrders.FirstOrDefaultAsync(p => p.PoNumber == poNo);
+            if (po is null) { errors.Add($"Row {row}: PO '{poNo}' not found — upload Main first."); continue; }
+            var currency = currencies.FirstOrDefault(c => c.Code == curCode);
+            if (currency is null) { errors.Add($"Row {row}: Currency '{curCode}' not found."); continue; }
+
+            name ??= "Advance";
+            if (name.Length > 60) name = name.Substring(0, 60);
+            var amountUsd = Math.Round(amount.Value / await _poPay.GetFxRateAsync(currency.Id), 4);
+
+            var existing = await _db.PurchaseOrderPayments.FirstOrDefaultAsync(p => p.PurchaseOrderId == po.Id && p.Description == name);
+            if (existing is null)
+            {
+                _db.PurchaseOrderPayments.Add(new PurchaseOrderPayment
+                {
+                    PurchaseOrderId = po.Id, Description = name, Amount = amount.Value, CurrencyId = currency.Id, AmountUsd = amountUsd,
+                    PlannedDate = planned, ExecutedDate = executed, Note = note, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow
+                });
+                created++;
+            }
+            else
+            {
+                existing.Amount = amount.Value; existing.CurrencyId = currency.Id; existing.AmountUsd = amountUsd;
+                existing.PlannedDate = planned; existing.ExecutedDate = executed; existing.Note = note; existing.UpdatedAt = DateTime.UtcNow;
+                updated++;
+            }
+            await _db.SaveChangesAsync();
+            touched.Add(po.Id);
+        }
+
+        foreach (var poId in touched) await _poPay.SyncAllForPoAsync(poId);
+        return new SheetUploadResult("PO_Payments", created, updated, errors);
+    }
+
+    // Backups taken before PO_Payments existed carry ONE advance per PO in
+    // the old Main columns (ADVANCE PAYMENT PERCENT / PLANNED / EXECUTED).
+    // Turn each into payment #1 ("Advance") of that PO, valued as % x PO value.
+    private async Task<SheetUploadResult> ConvertLegacyAdvancesAsync()
+    {
+        var errors = new List<string>(); int created = 0;
+        var pos = await _db.PurchaseOrders
+            .Where(p => p.AdvancePaymentPercent != null && p.AdvancePaymentPercent > 0
+                        && !_db.PurchaseOrderPayments.Any(x => x.PurchaseOrderId == p.Id))
+            .ToListAsync();
+
+        foreach (var po in pos)
+        {
+            var basis = await _poPay.GetPoBasisAsync(po.Id);
+            if (basis.DefaultCurrencyId == 0 || basis.UsdTotal <= 0) continue;
+            var pct = po.AdvancePaymentPercent!.Value / 100m;
+            var rate = await _poPay.GetFxRateAsync(basis.DefaultCurrencyId);
+            var amountUsd = Math.Round(basis.UsdTotal * pct, 4);
+            var amount = basis.SingleCurrencyId.HasValue ? Math.Round(basis.NativeTotal * pct, 4) : Math.Round(amountUsd * rate, 4);
+            _db.PurchaseOrderPayments.Add(new PurchaseOrderPayment
+            {
+                PurchaseOrderId = po.Id, Description = "Advance", Amount = amount, CurrencyId = basis.DefaultCurrencyId, AmountUsd = amountUsd,
+                PlannedDate = po.AdvancePaymentPlannedDate, ExecutedDate = po.AdvancePaymentExecutedDate,
+                Note = $"Restored from old advance setting ({po.AdvancePaymentPercent:0.####}%)",
+                CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow
+            });
+            await _db.SaveChangesAsync();
+            await _poPay.SyncAllForPoAsync(po.Id);
+            created++;
+        }
+        return new SheetUploadResult("PO_Payments (from legacy advance columns)", created, 0, errors);
     }
 
     private async Task<SheetUploadResult> ProcessPaymentRecords(IXLWorksheet ws)
