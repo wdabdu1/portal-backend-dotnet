@@ -119,6 +119,8 @@ public class ShippingPortalDbContext : IdentityDbContext<ApplicationUser>
         // Link from a shipment's "from PO" payment line to the PO payment it came from
         builder.Entity<ShippingPortal.Api.Models.Shipments.ShipmentPaymentDue>().Property<int?>("PurchaseOrderPaymentId");
         builder.Entity<ShippingPortal.Api.Models.Orders.PurchaseOrderPayment>().HasIndex(p => new { p.PurchaseOrderId, p.Description }).IsUnique();
+        Builder.Entity<ShippingPortal.Api.Models.Shipments.ShipmentSupplierPaymentRecord>().Property<int?>("PurchaseOrderPaymentId");
+
 
         // Business keys
         builder.Entity<PurchaseOrder>().HasIndex(p => p.PoNumber).IsUnique();
