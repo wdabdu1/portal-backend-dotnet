@@ -21,6 +21,7 @@ public class ShippingPortalDbContext : IdentityDbContext<ApplicationUser>
     public DbSet<ShippingPortal.Api.Models.UserTablePreference> UserTablePreferences => Set<ShippingPortal.Api.Models.UserTablePreference>();
     public DbSet<ShippingPortal.Api.Models.UserFavorite> UserFavorites => Set<ShippingPortal.Api.Models.UserFavorite>();
     public DbSet<ShippingPortal.Api.Models.DataChangeLog> DataChangeLogs => Set<ShippingPortal.Api.Models.DataChangeLog>();
+    public DbSet<ShippingPortal.Api.Models.Orders.PurchaseOrderPayment> PurchaseOrderPayments => Set<ShippingPortal.Api.Models.Orders.PurchaseOrderPayment>();
 
     // Settings / master data
     public DbSet<BusinessUnit> BusinessUnits => Set<BusinessUnit>();
@@ -114,6 +115,10 @@ public class ShippingPortalDbContext : IdentityDbContext<ApplicationUser>
     protected override void OnModelCreating(ModelBuilder builder)
     {
         base.OnModelCreating(builder);
+
+        // Link from a shipment's "from PO" payment line to the PO payment it came from
+        builder.Entity<ShippingPortal.Api.Models.Shipments.ShipmentPaymentDue>().Property<int?>("PurchaseOrderPaymentId");
+        builder.Entity<ShippingPortal.Api.Models.Orders.PurchaseOrderPayment>().HasIndex(p => new { p.PurchaseOrderId, p.Description }).IsUnique();
 
         // Business keys
         builder.Entity<PurchaseOrder>().HasIndex(p => p.PoNumber).IsUnique();
