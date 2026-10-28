@@ -99,10 +99,15 @@ public class PurchaseOrderPaymentsController : ControllerBase
         if (payment is null) return NotFound();
 
         var dues = await _svc.DuesOfPayment(paymentId).ToListAsync();
+        var autoRecords = await _svc.AutoRecordsOfPayment(paymentId).ToListAsync();
         var dueIds = dues.Select(d => d.Id).ToList();
-        if (dueIds.Count > 0 && await _db.ShipmentSupplierPaymentRecords.AnyAsync(r => r.PaymentDueId != null && dueIds.Contains(r.PaymentDueId.Value)))
-            return BadRequest(new { message = "This payment can't be deleted: actual payments have already been recorded against it on one or more shipments. Remove those shipment payment records first." });
+        // Records created automatically from this payment go with it; records
+        // someone typed in by hand against these lines block the delete.
+        var autoIds = autoRecords.Select(r => r.Id).ToHashSet();
+        if (dueIds.Count > 0 && await _db.ShipmentSupplierPaymentRecords.AnyAsync(r => r.PaymentDueId != null && dueIds.Contains(r.PaymentDueId.Value) && !autoIds.Contains(r.Id)))
+            return BadRequest(new { message = "This payment can't be deleted: actual payments have already been recorded by hand against it on one or more shipments. Remove those shipment payment records first." });
 
+        _db.ShipmentSupplierPaymentRecords.RemoveRange(autoRecords);
         _db.ShipmentPaymentDues.RemoveRange(dues);
         _db.PurchaseOrderPayments.Remove(payment);
         await _db.SaveChangesAsync();
