@@ -165,6 +165,57 @@ public class PoAdvancePaymentService
         }
 
         await _db.SaveChangesAsync();
+        await SyncPaymentRecordsAsync(shipmentId, payments);
+    }
+
+    // An EXECUTED PO payment is money already paid, so each linked shipment
+    // gets a matching actual payment record (its pro-rata share) against
+    // the "from PO" due line — that is what deducts it from the shipment's
+    // balance. Un-executing or deleting the PO payment removes the record.
+    // Records are tagged with the PO payment they came from (shadow column
+    // PurchaseOrderPaymentId) so they can be told apart from ones typed in
+    // by hand; if someone has already recorded a payment by hand against
+    // that due line, the automatic record steps aside (no double counting).
+    private int? RecLink(ShipmentSupplierPaymentRecord r) => _db.Entry(r).Property<int?>(LinkProp).CurrentValue;
+
+    private async Task SyncPaymentRecordsAsync(int shipmentId, List<PurchaseOrderPayment> payments)
+    {
+        var usdId = await GetUsdCurrencyIdAsync();
+        var dues = await _db.ShipmentPaymentDues
+            .Where(d => d.ShipmentId == shipmentId && EF.Property<int?>(d, LinkProp) != null).ToListAsync();
+        var records = await _db.ShipmentSupplierPaymentRecords
+            .Where(r => r.ShipmentId == shipmentId && r.PaymentDueId != null).ToListAsync();
+
+        foreach (var p in payments)
+        {
+            var due = dues.FirstOrDefault(d => LinkOf(d) == p.Id);
+            var auto = records.FirstOrDefault(r => RecLink(r) == p.Id);
+            var handPaid = due is not null && records.Any(r => r.PaymentDueId == due.Id && RecLink(r) is null);
+            var want = due is not null && due.Amount > 0 && p.ExecutedDate.HasValue && !handPaid;
+
+            if (!want)
+            {
+                if (auto is not null) _db.ShipmentSupplierPaymentRecords.Remove(auto);
+                continue;
+            }
+
+            // Show the shipment's share in the payment's own currency; the USD
+            // value is exactly the due line's amount so the line settles to zero.
+            var ratio = p.AmountUsd > 0 ? due!.Amount / p.AmountUsd : 0m;
+            var value = Math.Round(p.Amount * ratio, 4);
+            if (auto is null)
+            {
+                auto = new ShipmentSupplierPaymentRecord { ShipmentId = shipmentId, PaymentDueId = due!.Id };
+                _db.ShipmentSupplierPaymentRecords.Add(auto);
+                _db.Entry(auto).Property<int?>(LinkProp).CurrentValue = p.Id;
+            }
+            auto.PaymentDate = p.ExecutedDate!.Value;
+            auto.CurrencyId = p.CurrencyId != 0 ? p.CurrencyId : usdId;
+            auto.Value = value;
+            auto.ValueUsd = due!.Amount;
+        }
+
+        await _db.SaveChangesAsync();
     }
 
     public async Task SyncOneAsync(int shipmentId)
@@ -199,6 +250,9 @@ public class PoAdvancePaymentService
     }
 
     // ---- Delete support -------------------------------------------------
+
+    public IQueryable<ShipmentSupplierPaymentRecord> AutoRecordsOfPayment(int paymentId) =>
+        _db.ShipmentSupplierPaymentRecords.Where(r => EF.Property<int?>(r, LinkProp) == paymentId);
 
     public IQueryable<ShipmentPaymentDue> DuesOfPayment(int paymentId) =>
         _db.ShipmentPaymentDues.Where(d => EF.Property<int?>(d, LinkProp) == paymentId);
