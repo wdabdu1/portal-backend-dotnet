@@ -88,16 +88,17 @@ public class DataUploadService
         var dueWs = wb.Worksheets.FirstOrDefault(w => w.Name == "Supplier_Payment_Due_Schedule");
         if (dueWs is not null) results.Add(await ProcessPaymentDueSchedule(dueWs));
 
+        var recWs = wb.Worksheets.FirstOrDefault(w => w.Name == "Supplier_Payment_Records");
+        if (recWs is not null) results.Add(await ProcessPaymentRecords(recWs));
+
         // PO-level payments (advance / pre-dispatch, by value). Must come
-        // after Main (POs exist) and the Due Schedule (so restored "from PO"
-        // lines are adopted rather than duplicated). A backup that predates
+        // after Main (POs exist), the Due Schedule (so restored "from PO"
+        // lines are adopted) and the Payment Records (so restored actual
+        // payments are seen and no automatic duplicate is created). A backup that predates
         // this sheet falls back to the old single-advance columns on Main.
         var poPayWs = wb.Worksheets.FirstOrDefault(w => w.Name == "PO_Payments");
         if (poPayWs is not null) results.Add(await ProcessPoPayments(poPayWs));
         else if (mainWs is not null) results.Add(await ConvertLegacyAdvancesAsync());
-
-        var recWs = wb.Worksheets.FirstOrDefault(w => w.Name == "Supplier_Payment_Records");
-        if (recWs is not null) results.Add(await ProcessPaymentRecords(recWs));
 
         var chainWs = wb.Worksheets.FirstOrDefault(w => w.Name == "PO_Offshore_Chain");
         if (chainWs is not null) results.Add(await ProcessPoOffshoreChain(chainWs));
