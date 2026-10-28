@@ -1,43 +1,170 @@
 using Microsoft.EntityFrameworkCore;
 using ShippingPortal.Api.Data;
+using ShippingPortal.Api.Models.Orders;
 using ShippingPortal.Api.Models.Shipments;
 
 namespace ShippingPortal.Api.Services;
 
-// Keeps each shipment's own auto-inserted Advance line in sync with its
-// PO's Advance Payment configuration. Two entry points: SyncOneAsync is
-// called whenever a single shipment's Payment Due Schedule is opened
-// (inserts the line silently if missing); SyncAllForPoAsync is called
-// whenever the PO's own advance is edited (propagates the real
-// execution date/amount out to every shipment that already has one).
+// Keeps every shipment's "from PO" payment lines in sync with its PO's
+// payments (PurchaseOrderPayments). A PO can now carry several payments;
+// each one produces ONE line in each linked shipment's Payment Due
+// Schedule, sized pro rata to that shipment's share of the PO:
+//
+//     due (USD) = payment.AmountUsd × (shipment's lines of this PO ÷ whole PO)
+//
+// A line is tied back to its payment through the ShipmentPaymentDues
+// column PurchaseOrderPaymentId (a shadow property — see DbContext).
+//
+// Entry points: SyncOneAsync (a shipment's Payment Due Schedule is
+// opened) and SyncAllForPoAsync (a PO payment was added/edited).
 public class PoAdvancePaymentService
 {
+    private const string LinkProp = "PurchaseOrderPaymentId";
     private readonly ShippingPortalDbContext _db;
     public PoAdvancePaymentService(ShippingPortalDbContext db) => _db = db;
 
-    private async Task<decimal> GetFxRateAsync(int? currencyId)
+    // ---- FX / PO value basis ------------------------------------------
+
+    public async Task<decimal> GetFxRateAsync(int? currencyId)
     {
         if (!currencyId.HasValue) return 1m;
         var rate = await _db.FxRates.Where(r => r.CurrencyId == currencyId).OrderByDescending(r => r.EffectiveDate).FirstOrDefaultAsync();
-        return rate?.RateToUsd ?? 1m;
+        var v = rate?.RateToUsd ?? 1m;
+        return v == 0 ? 1m : v;
     }
 
     private async Task<int> GetUsdCurrencyIdAsync() =>
         await _db.Currencies.Where(c => c.Code == "USD").Select(c => c.Id).FirstOrDefaultAsync();
 
-    // Same computation as GetSupplierInvoiceSummary — sum of the
-    // shipment's own line items, converted to USD.
-    private async Task<decimal> GetShipmentInvoiceValueUsdAsync(int shipmentId)
+    // How big the PO is. When every line is in ONE currency the PO is
+    // measured natively in that currency (so % = value ÷ value exactly,
+    // no FX noise). A mixed-currency PO falls back to USD at current rates.
+    public class PoBasis
     {
-        var lineItems = await _db.ShipmentLineItems
+        public int PurchaseOrderId { get; set; }
+        public int? SingleCurrencyId { get; set; }   // set when all lines share one currency
+        public int DefaultCurrencyId { get; set; }   // single currency, or the first line's
+        public decimal NativeTotal { get; set; }     // only meaningful when SingleCurrencyId is set
+        public decimal UsdTotal { get; set; }        // at current rates
+        public Dictionary<int, decimal> Rates { get; set; } = new();
+    }
+
+    public async Task<PoBasis> GetPoBasisAsync(int purchaseOrderId)
+    {
+        var lines = await _db.PurchaseOrderLineItems.Where(li => li.PurchaseOrderId == purchaseOrderId).OrderBy(li => li.Id).ToListAsync();
+        var basis = new PoBasis { PurchaseOrderId = purchaseOrderId };
+        foreach (var cid in lines.Select(l => l.CurrencyId).Distinct())
+            basis.Rates[cid] = await GetFxRateAsync(cid);
+
+        var currencies = lines.Select(l => l.CurrencyId).Distinct().ToList();
+        basis.DefaultCurrencyId = lines.FirstOrDefault()?.CurrencyId ?? 0;
+        if (currencies.Count == 1) basis.SingleCurrencyId = currencies[0];
+        basis.NativeTotal = lines.Sum(l => l.Qty * l.UnitPrice);
+        basis.UsdTotal = lines.Sum(l => l.Qty * l.UnitPrice / basis.Rates[l.CurrencyId]);
+        return basis;
+    }
+
+    // % of the PO a payment represents. Exact (native) when the payment is
+    // in the PO's single currency, otherwise via USD.
+    public static decimal PercentOf(PurchaseOrderPayment p, PoBasis b)
+    {
+        if (b.SingleCurrencyId.HasValue && b.SingleCurrencyId.Value == p.CurrencyId)
+            return b.NativeTotal > 0 ? p.Amount / b.NativeTotal * 100m : 0m;
+        return b.UsdTotal > 0 ? p.AmountUsd / b.UsdTotal * 100m : 0m;
+    }
+
+    // ---- Shipment cascade ---------------------------------------------
+
+    private static string BuildLabel(PurchaseOrderPayment p, decimal pct)
+    {
+        var state = p.ExecutedDate.HasValue ? "settled" : "planned";
+        var label = $"{p.Description} ({pct:0.####}% — from PO, {state})";
+        return label.Length > 100 ? label.Substring(0, 100) : label;
+    }
+
+    // The shipment's share of this PO (0..1). Only lines that belong to
+    // this PO count, so a multi-PO shipment is split correctly.
+    private async Task<decimal> GetShipmentShareAsync(int shipmentId, PoBasis basis)
+    {
+        var lines = await _db.ShipmentLineItems
             .Where(li => li.ShipmentId == shipmentId)
             .Include(li => li.PurchaseOrderLineItem)
             .ToListAsync();
+        var mine = lines.Where(li => li.PurchaseOrderLineItem != null && li.PurchaseOrderLineItem.PurchaseOrderId == basis.PurchaseOrderId).ToList();
+        if (mine.Count == 0) return 0m;
 
-        var invoiceValue = lineItems.Sum(li => li.ItemSubtotal);
-        var currencyId = lineItems.FirstOrDefault()?.PurchaseOrderLineItem?.CurrencyId;
-        var rate = await GetFxRateAsync(currencyId);
-        return invoiceValue / rate;
+        decimal share;
+        if (basis.SingleCurrencyId.HasValue)
+            share = basis.NativeTotal > 0 ? mine.Sum(li => li.ItemSubtotal) / basis.NativeTotal : 0m;
+        else
+        {
+            var usd = mine.Sum(li => li.ItemSubtotal / (basis.Rates.TryGetValue(li.PurchaseOrderLineItem!.CurrencyId, out var r) ? r : 1m));
+            share = basis.UsdTotal > 0 ? usd / basis.UsdTotal : 0m;
+        }
+        return share > 1m ? 1m : (share < 0m ? 0m : share);
+    }
+
+    private int? LinkOf(ShipmentPaymentDue d) => _db.Entry(d).Property<int?>(LinkProp).CurrentValue;
+
+    private async Task SyncShipmentForPoAsync(int shipmentId, int purchaseOrderId, bool isPrimaryPo, int usdId)
+    {
+        var payments = await _db.PurchaseOrderPayments.Where(p => p.PurchaseOrderId == purchaseOrderId).OrderBy(p => p.Id).ToListAsync();
+        if (payments.Count == 0) return;
+
+        var basis = await GetPoBasisAsync(purchaseOrderId);
+        var share = await GetShipmentShareAsync(shipmentId, basis);
+
+        var advanceDues = await _db.ShipmentPaymentDues.Where(d => d.ShipmentId == shipmentId && d.IsFromPoAdvance).ToListAsync();
+        var paymentIds = payments.Select(p => p.Id).ToHashSet();
+        // Unlinked lines are legacy ones (pre-multi-payment); only the shipment's
+        // primary PO may adopt them, mirroring the old one-advance-per-PO behaviour.
+        var orphans = isPrimaryPo ? advanceDues.Where(d => LinkOf(d) is null).ToList() : new List<ShipmentPaymentDue>();
+        var first = true;
+
+        foreach (var p in payments)
+        {
+            var dueDate = p.ExecutedDate ?? p.PlannedDate;
+            var pct = PercentOf(p, basis);
+            var label = BuildLabel(p, pct);
+
+            var existing = advanceDues.FirstOrDefault(d => LinkOf(d) == p.Id);
+            if (existing is null)
+            {
+                existing = orphans.FirstOrDefault(d => d.Label == label) ?? (first ? orphans.FirstOrDefault() : null);
+                if (existing is not null) orphans.Remove(existing);
+            }
+            first = false;
+
+            if (!dueDate.HasValue) continue; // nothing to anchor the line to yet
+
+            var amountUsd = Math.Round(p.AmountUsd * share, 4);
+            if (existing is null)
+            {
+                if (amountUsd <= 0) continue;
+                var due = new ShipmentPaymentDue
+                {
+                    ShipmentId = shipmentId,
+                    DueDate = dueDate.Value,
+                    Amount = amountUsd,
+                    CurrencyId = usdId,
+                    Label = label,
+                    IsFromPoAdvance = true
+                };
+                _db.ShipmentPaymentDues.Add(due);
+                _db.Entry(due).Property<int?>(LinkProp).CurrentValue = p.Id;
+            }
+            else
+            {
+                existing.DueDate = dueDate.Value;
+                existing.Amount = amountUsd;
+                existing.CurrencyId = usdId;
+                existing.Label = label;
+                existing.IsFromPoAdvance = true;
+                _db.Entry(existing).Property<int?>(LinkProp).CurrentValue = p.Id;
+            }
+        }
+
+        await _db.SaveChangesAsync();
     }
 
     public async Task SyncOneAsync(int shipmentId)
@@ -45,51 +172,34 @@ public class PoAdvancePaymentService
         var shipment = await _db.Shipments.FirstOrDefaultAsync(s => s.Id == shipmentId);
         if (shipment is null) return;
 
-        var po = await _db.PurchaseOrders.FirstOrDefaultAsync(p => p.Id == shipment.PurchaseOrderId);
-        if (po is null || !po.AdvancePaymentPercent.HasValue || po.AdvancePaymentPercent.Value <= 0) return;
+        var linePoIds = await _db.ShipmentLineItems
+            .Where(li => li.ShipmentId == shipmentId && li.PurchaseOrderLineItem != null)
+            .Select(li => li.PurchaseOrderLineItem!.PurchaseOrderId)
+            .Distinct().ToListAsync();
+        if (!linePoIds.Contains(shipment.PurchaseOrderId)) linePoIds.Add(shipment.PurchaseOrderId);
 
-        var existing = await _db.ShipmentPaymentDues.FirstOrDefaultAsync(d => d.ShipmentId == shipmentId && d.IsFromPoAdvance);
-        var dueDate = po.AdvancePaymentExecutedDate ?? po.AdvancePaymentPlannedDate;
-        if (!dueDate.HasValue) return; // nothing to anchor the line to yet
-
-        var invoiceValueUsd = await GetShipmentInvoiceValueUsdAsync(shipmentId);
-        var amountUsd = invoiceValueUsd * (po.AdvancePaymentPercent.Value / 100m);
         var usdId = await GetUsdCurrencyIdAsync();
-        var label = po.AdvancePaymentExecutedDate.HasValue
-            ? $"Advance ({po.AdvancePaymentPercent.Value:0.##}% — from PO, settled)"
-            : $"Advance ({po.AdvancePaymentPercent.Value:0.##}% — from PO, planned)";
-
-        if (existing is null)
-        {
-            _db.ShipmentPaymentDues.Add(new ShipmentPaymentDue
-            {
-                ShipmentId = shipmentId,
-                DueDate = dueDate.Value,
-                Amount = amountUsd,
-                CurrencyId = usdId,
-                Label = label,
-                IsFromPoAdvance = true
-            });
-        }
-        else
-        {
-            existing.DueDate = dueDate.Value;
-            existing.Amount = amountUsd;
-            existing.CurrencyId = usdId;
-            existing.Label = label;
-        }
-
-        await _db.SaveChangesAsync();
+        foreach (var poId in linePoIds)
+            await SyncShipmentForPoAsync(shipmentId, poId, poId == shipment.PurchaseOrderId, usdId);
     }
 
     public async Task SyncAllForPoAsync(int purchaseOrderId)
     {
-        var shipmentIds = await _db.Shipments
-            .Where(s => s.PurchaseOrderId == purchaseOrderId)
-            .Select(s => s.Id)
-            .ToListAsync();
+        var viaLines = await _db.ShipmentLineItems
+            .Where(li => li.PurchaseOrderLineItem != null && li.PurchaseOrderLineItem.PurchaseOrderId == purchaseOrderId)
+            .Select(li => li.ShipmentId).Distinct().ToListAsync();
+        var primary = await _db.Shipments.Where(s => s.PurchaseOrderId == purchaseOrderId).Select(s => s.Id).ToListAsync();
+        var usdId = await GetUsdCurrencyIdAsync();
 
-        foreach (var id in shipmentIds)
-            await SyncOneAsync(id);
+        foreach (var id in viaLines.Union(primary))
+        {
+            var isPrimary = primary.Contains(id);
+            await SyncShipmentForPoAsync(id, purchaseOrderId, isPrimary, usdId);
+        }
     }
+
+    // ---- Delete support -------------------------------------------------
+
+    public IQueryable<ShipmentPaymentDue> DuesOfPayment(int paymentId) =>
+        _db.ShipmentPaymentDues.Where(d => EF.Property<int?>(d, LinkProp) == paymentId);
 }
