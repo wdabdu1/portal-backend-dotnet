@@ -54,6 +54,7 @@ public class ShippingPortalDbContext : IdentityDbContext<ApplicationUser>
     public DbSet<Driver> Drivers => Set<Driver>();
     public DbSet<Truck> Trucks => Set<Truck>();
     public DbSet<Warehouse> Warehouses => Set<Warehouse>();
+    public DbSet<ExternalTransporter> ExternalTransporters => Set<ExternalTransporter>();
     public DbSet<ShippingPortal.Api.Models.Logistics.WarehouseAllocation> WarehouseAllocations => Set<ShippingPortal.Api.Models.Logistics.WarehouseAllocation>();
     public DbSet<ShippingPortal.Api.Models.Logistics.TruckLoad> TruckLoads => Set<ShippingPortal.Api.Models.Logistics.TruckLoad>();
     public DbSet<ShippingPortal.Api.Models.Logistics.TruckLoadDrop> TruckLoadDrops => Set<ShippingPortal.Api.Models.Logistics.TruckLoadDrop>();
@@ -433,6 +434,10 @@ public class ShippingPortalDbContext : IdentityDbContext<ApplicationUser>
             .OnDelete(DeleteBehavior.Restrict);
         builder.Entity<ShippingPortal.Api.Models.Logistics.TruckLoad>()
             .HasOne(t => t.Driver)
+            .WithMany()
+            .OnDelete(DeleteBehavior.Restrict);
+        builder.Entity<ShippingPortal.Api.Models.Logistics.TruckLoad>()
+            .HasOne(t => t.ExternalTransporter)
             .WithMany()
             .OnDelete(DeleteBehavior.Restrict);
 
