@@ -560,7 +560,7 @@ public class DashboardsController : ControllerBase
                 item.Qty, pickFrom, truckLoad?.LoadDate ?? default,
                 drop.Warehouse?.City?.Name ?? "", drop.Warehouse?.Name ?? "",
                 drop.ExpectedDeliveryDate, drop.ActualDropOffDate,
-                truckLoad?.Truck?.PlateNo ?? "", truckLoad?.Driver?.Name ?? "", status));
+                truckLoad?.TruckDisplay ?? "", truckLoad?.DriverDisplay ?? "", status));
         }
 
         if (!buAccess.SeesAllBus(User))

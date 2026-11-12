@@ -215,7 +215,7 @@ public class HomePageController : ControllerBase
                 .Where(tl => tl.LoadDate >= windowStart && tl.LoadDate <= windowEnd)
                 .ToListAsync();
             allocatedTrucks = loads.Select(tl => new HomeTruckRow(
-                "", "", "", tl.Truck?.PlateNo ?? "", tl.Driver?.Name ?? "", tl.LoadDate, true))
+                "", "", "", tl.TruckDisplay, tl.DriverDisplay ?? "", tl.LoadDate, true))
                 .OrderByDescending(r => r.TargetDate).ToList();
 
             var drops = await _db.TruckLoadDrops
@@ -228,7 +228,7 @@ public class HomePageController : ControllerBase
                 var target = d.ActualDropOffDate ?? d.ExpectedDeliveryDate;
                 if (!target.HasValue || target.Value < windowStart || target.Value > windowEnd) continue;
                 arrivedArrivingTrucks.Add(new HomeTruckRow(
-                    "", "", "", d.TruckLoad?.Truck?.PlateNo ?? "",
+                    "", "", "", d.TruckLoad?.TruckDisplay ?? "",
                     $"{d.Warehouse?.Name} ({d.Warehouse?.City?.Name})", target.Value, d.ActualDropOffDate.HasValue));
             }
             arrivedArrivingTrucks = arrivedArrivingTrucks.OrderBy(r => r.TargetDate).ToList();
