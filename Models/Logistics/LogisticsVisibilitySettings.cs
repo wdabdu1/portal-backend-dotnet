@@ -26,5 +26,11 @@ public class LogisticsVisibilitySettings
     // is never deleted — only this granularity re-hides.
     public int PostDeliveryRehideDays { get; set; } = 30;
 
+    // Admin switch (Settings > Logistics - Reveal Settings). When false, the
+    // Drivers / Trucks / Warehouses / External Transporters links are hidden from
+    // the MAIN Settings screen; they always remain available under
+    // Logistics - Settings (Coordinator's entry point).
+    public bool ShowLogisticsListsInMainSettings { get; set; } = true;
+
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 }
