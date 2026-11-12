@@ -21,7 +21,23 @@ public class ClearanceScheduleService
     // completion date (what Logistics actually needs) for many shipments
     // at once — every input is fetched in bulk instead of ~9 round-trips
     // per shipment, which is what made lists with many rows slow.
-    public async Task<Dictionary<int, DateOnly?>> GetEstimatedCompletionDatesAsync(List<int> shipmentIds)
+    public Task<Dictionary<int, DateOnly?>> GetEstimatedCompletionDatesAsync(List<int> shipmentIds)
+        => ComputeTargetDatesAsync(shipmentIds, null);
+
+    // Projected (target) date of the "SPC Bill" step per shipment, from the same
+    // cascade as the completion date above. Once SPC Bill is actually settled the
+    // caller should use the real settlement date instead - this is only the forecast.
+    // Logistics treats SPC Bill settlement as the moment clearance releases the cargo.
+    public async Task<Dictionary<int, DateOnly?>> GetSpcBillTargetDatesAsync(List<int> shipmentIds)
+    {
+        var perStep = new Dictionary<int, Dictionary<string, DateOnly>>();
+        await ComputeTargetDatesAsync(shipmentIds, perStep);
+        return shipmentIds.Distinct().ToDictionary(
+            id => id,
+            id => perStep.TryGetValue(id, out var steps) && steps.TryGetValue("SPC Bill", out var d) ? (DateOnly?)d : null);
+    }
+
+    private async Task<Dictionary<int, DateOnly?>> ComputeTargetDatesAsync(List<int> shipmentIds, Dictionary<int, Dictionary<string, DateOnly>>? perStep)
     {
         var result = new Dictionary<int, DateOnly?>();
         if (shipmentIds.Count == 0) return result;
@@ -171,6 +187,12 @@ public class ClearanceScheduleService
                             _ => null
                         };
                     }
+                }
+
+                if (perStep is not null)
+                {
+                    if (!perStep.TryGetValue(shipment.Id, out var stepDates)) perStep[shipment.Id] = stepDates = new Dictionary<string, DateOnly>();
+                    stepDates[row.GroupItem] = targetDate;
                 }
 
                 chainFrom = actualDate ?? targetDate;

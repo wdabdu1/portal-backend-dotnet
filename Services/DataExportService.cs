@@ -976,8 +976,10 @@ public class DataExportService
             SetCell(ws, row, c2++, shipLine.PurchaseOrderLineItem?.ModelProduct?.Name);
             SetCell(ws, row, c2++, item?.Qty ?? allocation.Qty);
             SetCell(ws, row, c2++, drop?.Warehouse?.Name ?? allocation.Warehouse?.Name);
-            SetCell(ws, row, c2++, load?.Truck?.PlateNo);
-            SetCell(ws, row, c2++, load?.Driver?.Name);
+            // External loads have no fleet truck; leaving the plate blank keeps this sheet re-uploadable
+            // (the upload looks plates up in the Trucks list). External details aren't in this sheet yet.
+            SetCell(ws, row, c2++, load is { IsExternal: false } ? load.Truck?.PlateNo : null);
+            SetCell(ws, row, c2++, load is { IsExternal: false } ? load.Driver?.Name : null);
             SetCell(ws, row, c2++, load?.LoadDate);
             SetCell(ws, row, c2++, drop?.ExpectedDeliveryDate);
             SetCell(ws, row, c2++, drop?.ActualDropOffDate);
