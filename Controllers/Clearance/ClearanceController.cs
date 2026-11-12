@@ -294,7 +294,7 @@ public class ClearanceController : ControllerBase
     // Selection screen: only Confirmed shipments (nothing to clear on a Draft),
     // sorted by ETA ascending — soonest-arriving first, per the requirement.
     [HttpGet("shipments")]
-    [Authorize(Roles = AppRoles.ClearanceViewers)]
+    [Authorize(Roles = AppRoles.ClearanceScreenViewers)]
     public async Task<ActionResult<IEnumerable<ClearanceShipmentSummary>>> GetShipmentsForClearance([FromQuery] string? search, [FromServices] ShippingPortal.Api.Services.BuAccessService buAccess)
     {
         // Per-step target days — used for the weighted progress calc
@@ -493,7 +493,7 @@ public class ClearanceController : ControllerBase
     }
 
     [HttpGet("{shipmentId:int}/detail")]
-    [Authorize(Roles = AppRoles.ClearanceViewers)]
+    [Authorize(Roles = AppRoles.ClearanceScreenViewers)]
     public async Task<ActionResult<ClearanceDetailResponse>> GetDetail(int shipmentId)
     {
         var shipment = await _db.Shipments
@@ -530,7 +530,7 @@ public class ClearanceController : ControllerBase
     // it. Traffic light per step reflects real performance: completed
     // early/on-time/late, or pending on-track/delayed.
     [HttpGet("{shipmentId:int}/sla-schedule")]
-    [Authorize(Roles = AppRoles.ClearanceViewers)]
+    [Authorize(Roles = AppRoles.ClearanceScreenViewers)]
     public async Task<ActionResult<ClearanceScheduleResponse>> GetSlaSchedule(int shipmentId, [FromServices] ShippingPortal.Api.Services.ClearanceScheduleService scheduleService)
     {
         var result = await scheduleService.GetScheduleAsync(shipmentId);
@@ -538,7 +538,7 @@ public class ClearanceController : ControllerBase
     }
 
     [HttpGet("{shipmentId:int}/demurrage-storage")]
-    [Authorize(Roles = AppRoles.ClearanceViewers)]
+    [Authorize(Roles = AppRoles.ClearanceScreenViewers)]
     public async Task<ActionResult<ShippingPortal.Api.Services.DemurrageStorageResult>> GetDemurrageStorage(
         int shipmentId, [FromServices] ShippingPortal.Api.Services.DemurrageStorageService service)
     {
@@ -546,7 +546,7 @@ public class ClearanceController : ControllerBase
         return Ok(result);
     }
     [HttpGet("{shipmentId:int}/print-estimate")]
-    [Authorize(Roles = AppRoles.ClearanceViewers)]
+    [Authorize(Roles = AppRoles.ClearanceScreenViewers)]
     public async Task<IActionResult> PrintEstimate(
         int shipmentId, [FromServices] ShippingPortal.Api.Services.ClearanceEstimatePdfService pdfService)
     {

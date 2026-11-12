@@ -24,7 +24,10 @@ public record FzInventoryItemRow(
     int InventoryDays, decimal PercentWithdrawn);
 
 [ApiController]
-[Authorize(Roles = AppRoles.ClearanceViewers)]
+// Class level is the wider ClearanceScreenViewers (adds Coordinator) so the read-only
+// Clearance screen can load Route 3's FZ deposit picker + balance. The full FZ
+// Inventory list below stays on ClearanceViewers (Coordinator must not see it).
+[Authorize(Roles = AppRoles.ClearanceScreenViewers)]
 [Route("api/fz-inventory")]
 public class FzInventoryController : ControllerBase
 {
@@ -83,6 +86,7 @@ public class FzInventoryController : ControllerBase
     }
 
     [HttpGet]
+    [Authorize(Roles = AppRoles.ClearanceViewers)]
     public async Task<ActionResult<IEnumerable<FzInventoryItemRow>>> GetInventory()
     {
         var deposits = await _db.ClearanceRoute2Details

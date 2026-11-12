@@ -26,6 +26,17 @@ public record Route2Request(
     DateOnly? TruckPortEntryPermitDate, DateOnly? ContainersReceivedAtFzDate, DateOnly? ContainersReturnedDate,
     DateOnly? ClearanceActualCompletedDate, string? TruckContainersComments);
 
+// Truck & Containers ONLY - the one section Coordinator may edit on the (otherwise
+// read-only) Clearance screen. Narrow on purpose: these requests carry just this
+// section's fields, so a Coordinator save can never touch any other clearance data.
+public record TruckContainersRoute1Request(
+    DateOnly? TruckPortEntryPermitDate, DateOnly? ContainersReturnedDate, DateOnly? ClearanceActualCompletedDate, string? TruckContainersComments);
+public record TruckContainersRoute2Request(
+    DateOnly? TruckPortEntryPermitDate, DateOnly? ContainersReceivedAtFzDate, DateOnly? ContainersReturnedDate,
+    DateOnly? ClearanceActualCompletedDate, string? TruckContainersComments);
+public record TruckContainersRoute3Request(
+    DateOnly? TruckPortEntryPermitDate, DateOnly? ClearanceActualCompletedDate, string? TruckContainersComments);
+
 public record ActualChargesResponse(
     decimal? ForecastDemurrageSdg, decimal? ForecastStorageSdg, DateTime? ForecastCapturedAt,
     decimal? ActualDemurragePaidSdg, decimal? ActualStoragePaidSdg,
@@ -117,7 +128,7 @@ public class ClearanceRouteDetailsController : ControllerBase
     }
 
     [HttpGet("route1")]
-    [Authorize(Roles = AppRoles.ClearanceViewers)]
+    [Authorize(Roles = AppRoles.ClearanceScreenViewers)]
     public async Task<ActionResult<ClearanceRoute1Details>> GetRoute1(int shipmentId)
     {
         var clearance = await _db.Clearances.FirstOrDefaultAsync(c => c.ShipmentId == shipmentId);
@@ -178,7 +189,7 @@ public class ClearanceRouteDetailsController : ControllerBase
     }
 
     [HttpGet("route2")]
-    [Authorize(Roles = AppRoles.ClearanceViewers)]
+    [Authorize(Roles = AppRoles.ClearanceScreenViewers)]
     public async Task<ActionResult<ClearanceRoute2Details>> GetRoute2(int shipmentId)
     {
         var clearance = await _db.Clearances.FirstOrDefaultAsync(c => c.ShipmentId == shipmentId);
@@ -225,7 +236,7 @@ public class ClearanceRouteDetailsController : ControllerBase
     }
 
     [HttpGet("route3")]
-    [Authorize(Roles = AppRoles.ClearanceViewers)]
+    [Authorize(Roles = AppRoles.ClearanceScreenViewers)]
     public async Task<ActionResult<ClearanceRoute3Details>> GetRoute3(int shipmentId)
     {
         var clearance = await _db.Clearances.FirstOrDefaultAsync(c => c.ShipmentId == shipmentId);
@@ -301,8 +312,79 @@ public class ClearanceRouteDetailsController : ControllerBase
        return Ok(entity);
     }
 
+    // --- Truck & Containers only (Clearance team + Coordinator) -----------------
+    // The full-route saves above stay ClearanceEditors-only. These three carry only
+    // the Truck & Containers fields and are the endpoints Coordinator uses.
+
+    [HttpPut("route1/truck-containers")]
+    [Authorize(Roles = AppRoles.ClearanceTruckEditors)]
+    public async Task<IActionResult> SaveRoute1TruckContainers(int shipmentId, TruckContainersRoute1Request req)
+    {
+        var lockDenied = await _sectionLock.EnsureNotLockedAsync("Clearance", shipmentId, "route1TruckContainers");
+        if (lockDenied is not null) return lockDenied;
+        var clearance = await GetOrCreateClearanceAsync(shipmentId);
+        if (clearance is null) return NotFound();
+
+        var entity = await _db.ClearanceRoute1Details.FirstOrDefaultAsync(x => x.ClearanceId == clearance.Id);
+        if (entity is null) { entity = new ClearanceRoute1Details { ClearanceId = clearance.Id }; _db.ClearanceRoute1Details.Add(entity); }
+
+        entity.TruckPortEntryPermitDate = req.TruckPortEntryPermitDate;
+        entity.ContainersReturnedDate = req.ContainersReturnedDate;
+        entity.TruckContainersComments = req.TruckContainersComments;
+
+        await CaptureForecastIfNewlyCompletedAsync(shipmentId, clearance.Id, entity.ClearanceActualCompletedDate, req.ClearanceActualCompletedDate);
+        entity.ClearanceActualCompletedDate = req.ClearanceActualCompletedDate;
+
+        await _db.SaveChangesAsync();
+        return Ok(entity);
+    }
+
+    [HttpPut("route2/truck-containers")]
+    [Authorize(Roles = AppRoles.ClearanceTruckEditors)]
+    public async Task<IActionResult> SaveRoute2TruckContainers(int shipmentId, TruckContainersRoute2Request req)
+    {
+        var lockDenied = await _sectionLock.EnsureNotLockedAsync("Clearance", shipmentId, "route2TruckContainers");
+        if (lockDenied is not null) return lockDenied;
+        var clearance = await GetOrCreateClearanceAsync(shipmentId);
+        if (clearance is null) return NotFound();
+
+        var entity = await _db.ClearanceRoute2Details.FirstOrDefaultAsync(x => x.ClearanceId == clearance.Id);
+        if (entity is null) { entity = new ClearanceRoute2Details { ClearanceId = clearance.Id }; _db.ClearanceRoute2Details.Add(entity); }
+
+        entity.TruckPortEntryPermitDate = req.TruckPortEntryPermitDate;
+        entity.ContainersReceivedAtFzDate = req.ContainersReceivedAtFzDate;
+        entity.ContainersReturnedDate = req.ContainersReturnedDate;
+        entity.TruckContainersComments = req.TruckContainersComments;
+
+        await CaptureForecastIfNewlyCompletedAsync(shipmentId, clearance.Id, entity.ClearanceActualCompletedDate, req.ClearanceActualCompletedDate);
+        entity.ClearanceActualCompletedDate = req.ClearanceActualCompletedDate;
+
+        await _db.SaveChangesAsync();
+        return Ok(entity);
+    }
+
+    [HttpPut("route3/truck-containers")]
+    [Authorize(Roles = AppRoles.ClearanceTruckEditors)]
+    public async Task<IActionResult> SaveRoute3TruckContainers(int shipmentId, TruckContainersRoute3Request req)
+    {
+        var lockDenied = await _sectionLock.EnsureNotLockedAsync("Clearance", shipmentId, "route3TruckContainers");
+        if (lockDenied is not null) return lockDenied;
+        var clearance = await GetOrCreateClearanceAsync(shipmentId);
+        if (clearance is null) return NotFound();
+
+        var entity = await _db.ClearanceRoute3Details.FirstOrDefaultAsync(x => x.ClearanceId == clearance.Id);
+        if (entity is null) { entity = new ClearanceRoute3Details { ClearanceId = clearance.Id }; _db.ClearanceRoute3Details.Add(entity); }
+
+        entity.TruckPortEntryPermitDate = req.TruckPortEntryPermitDate;
+        entity.ClearanceActualCompletedDate = req.ClearanceActualCompletedDate;
+        entity.TruckContainersComments = req.TruckContainersComments;
+
+        await _db.SaveChangesAsync();
+        return Ok(entity);
+    }
+
     [HttpGet("actual-charges")]
-    [Authorize(Roles = AppRoles.ClearanceViewers)]
+    [Authorize(Roles = AppRoles.ClearanceScreenViewers)]
     public async Task<ActionResult<ActualChargesResponse>> GetActualCharges(int shipmentId)
     {
         var clearance = await _db.Clearances.FirstOrDefaultAsync(c => c.ShipmentId == shipmentId);

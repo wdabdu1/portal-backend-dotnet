@@ -50,7 +50,7 @@ public class ClearanceGeneralSubSectionsController : ControllerBase
     }
 
     [HttpGet("delivery-order")]
-    [Authorize(Roles = AppRoles.ClearanceViewers)]
+    [Authorize(Roles = AppRoles.ClearanceScreenViewers)]
     public async Task<ActionResult<ClearanceDeliveryOrder>> GetDeliveryOrder(int shipmentId)
     {
         var clearance = await _db.Clearances.FirstOrDefaultAsync(c => c.ShipmentId == shipmentId);
@@ -84,7 +84,7 @@ public class ClearanceGeneralSubSectionsController : ControllerBase
     }
 
     [HttpGet("cost-estimate")]
-    [Authorize(Roles = AppRoles.ClearanceViewers)]
+    [Authorize(Roles = AppRoles.ClearanceScreenViewers)]
     public async Task<ActionResult<object>> GetCostEstimate(int shipmentId)
     {
         var clearance = await _db.Clearances.FirstOrDefaultAsync(c => c.ShipmentId == shipmentId);
@@ -118,7 +118,7 @@ public class ClearanceGeneralSubSectionsController : ControllerBase
     }
 
     [HttpGet("estimate-line-items")]
-    [Authorize(Roles = AppRoles.ClearanceViewers)]
+    [Authorize(Roles = AppRoles.ClearanceScreenViewers)]
     public async Task<ActionResult<IEnumerable<EstimateLineItemResponse>>> GetEstimateLineItems(int shipmentId)
     {
         var clearance = await GetOrCreateClearanceAsync(shipmentId);
@@ -172,7 +172,7 @@ public class ClearanceGeneralSubSectionsController : ControllerBase
     }
 
     [HttpGet("certificate-entry")]
-    [Authorize(Roles = AppRoles.ClearanceViewers)]
+    [Authorize(Roles = AppRoles.ClearanceScreenViewers)]
     public async Task<ActionResult<ClearanceCertificateEntry>> GetCertificateEntry(int shipmentId)
     {
         var clearance = await _db.Clearances.FirstOrDefaultAsync(c => c.ShipmentId == shipmentId);
