@@ -14,6 +14,15 @@ public abstract class LookupCrudController<TEntity> : ControllerBase where TEnti
     protected readonly ShippingPortalDbContext Db;
     protected LookupCrudController(ShippingPortalDbContext db) => Db = db;
 
+    // Who may create/update/delete. Defaults to Manager/SuperUser (the rule every
+    // Settings list has always had); a derived controller overrides this to widen
+    // it (e.g. the Logistics lists let Coordinator edit too). Checked in code
+    // rather than via an [Authorize] attribute on each action, because MVC applies
+    // attributes inherited from an overridden base action IN ADDITION to the
+    // override's own - so a derived [Authorize] could only ever narrow, never widen.
+    protected virtual string[] WriteRoles => new[] { AppRoles.Manager, AppRoles.SuperUser };
+    private bool CanWrite() => WriteRoles.Any(r => User.IsInRole(r));
+
     [HttpGet]
     public async Task<ActionResult<IEnumerable<TEntity>>> GetAll() => await Db.Set<TEntity>().ToListAsync();
 
@@ -25,18 +34,18 @@ public abstract class LookupCrudController<TEntity> : ControllerBase where TEnti
     }
 
     [HttpPost]
-    [Authorize(Roles = AppRoles.Manager + "," + AppRoles.SuperUser)]
     public virtual async Task<ActionResult<TEntity>> Create(TEntity entity)
     {
+        if (!CanWrite()) return Forbid();
         Db.Set<TEntity>().Add(entity);
         await Db.SaveChangesAsync();
         return Ok(entity);
     }
 
     [HttpPut("{id:int}")]
-    [Authorize(Roles = AppRoles.Manager + "," + AppRoles.SuperUser)]
     public virtual async Task<IActionResult> Update(int id, [FromBody] JsonElement raw)
     {
+        if (!CanWrite()) return Forbid();
         var existing = await Db.Set<TEntity>().FindAsync(id);
         if (existing is null) return NotFound();
 
@@ -76,9 +85,9 @@ public abstract class LookupCrudController<TEntity> : ControllerBase where TEnti
         return NoContent();
     }
     [HttpDelete("{id:int}")]
-    [Authorize(Roles = AppRoles.Manager + "," + AppRoles.SuperUser)]
     public virtual async Task<IActionResult> Delete(int id)
     {
+        if (!CanWrite()) return Forbid();
         var entity = await Db.Set<TEntity>().FindAsync(id);
         if (entity is null) return NotFound();
 
