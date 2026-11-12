@@ -93,6 +93,18 @@ public static class AppRoles
     // here, same as Bu/Treasury/CorpFinance.
     public const string ClearanceViewers = IpUser + "," + IpSupervisor + "," + ClrUsr + "," + ClrSupervisor + "," + Bu + "," + Treasury + "," + CorpFinance + "," + Manager + "," + SuperUser + "," + CPricing;
 
+    // Clearance screen (list, detail, every section's GET) — ClearanceViewers
+    // plus Coordinator, who gets a READ-ONLY view of the whole screen. Added as a
+    // separate constant (not folded into ClearanceViewers) on purpose:
+    // ClearanceViewers also guards the Clearance dashboards, FZ Inventory and
+    // Withdrawal screens, which Coordinator must NOT see.
+    public const string ClearanceScreenViewers = ClearanceViewers + "," + Coordinator;
+
+    // Truck & Containers section only — the one part of the Clearance screen
+    // Coordinator may edit (alongside the Clearance team). Everything else on
+    // that screen stays on ClearanceEditors.
+    public const string ClearanceTruckEditors = ClearanceEditors + "," + Coordinator;
+
     public const string ShipmentDetailsViewers = IpUser + "," + IpSupervisor + "," + ClrUsr + "," + ClrSupervisor + "," + Bu + "," + Treasury + "," + Manager + "," + SuperUser;
 
     public const string SettingsViewers = Manager + "," + SuperUser;
@@ -114,6 +126,12 @@ public static class AppRoles
     public const string PayBankDuesUsers = IpUser + "," + IpSupervisor + "," + Treasury + "," + CorpFinance + "," + SuperUser;
 
     public const string LogisticsEditors = LogisticsOfficer + "," + SuperUser;
+
+    // Logistics master data: Drivers, Trucks, Warehouses, Logistics Cities,
+    // External Transporters. Coordinator edits these from "Logistics - Settings";
+    // Manager/SuperUser from the main Settings screen. LogisticsOfficer is
+    // deliberately not included (they allocate/load, they don't maintain lists).
+    public const string LogisticsSettingsEditors = Coordinator + "," + Manager + "," + SuperUser;
     public const string LogisticsViewers = LogisticsOfficer + "," + Coordinator + "," + Manager + "," + SuperUser;
 
     // NOTE: LogisticsRevealEditors (Coordinator + Manager + SuperUser) used
