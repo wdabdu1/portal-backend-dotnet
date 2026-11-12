@@ -7,13 +7,22 @@ using ShippingPortal.Api.Models.Logistics;
 
 namespace ShippingPortal.Api.Controllers.Logistics;
 
-public record CreateTruckLoadRequest(int TruckId, int? DriverId, DateOnly LoadDate, string? Notes);
-public record TruckLoadSummary(int Id, string PlateNo, string? DriverName, DateOnly LoadDate, int DropCount, int ItemCount);
+// Internal: TruckId (+ optional DriverId) from the in-house fleet. External:
+// IsExternal = true, ExternalTransporterId + ExternalTruckNo + ExternalDriverName
+// required (phone optional) - typed in per trip, never a Settings truck/driver.
+public record CreateTruckLoadRequest(
+    int? TruckId, int? DriverId, DateOnly LoadDate, string? Notes,
+    bool IsExternal = false, int? ExternalTransporterId = null, string? ExternalTruckNo = null,
+    string? ExternalDriverName = null, string? ExternalDriverPhone = null);
+public record TruckLoadSummary(
+    int Id, string PlateNo, string? DriverName, DateOnly LoadDate, int DropCount, int ItemCount,
+    bool IsExternal = false, string? TransporterName = null, string? DriverPhone = null);
 
 public record TruckLoadItemRow(
     int TruckLoadItemId, int TruckLoadId, string PlateNo, string? DriverName, DateOnly LoadDate,
     string WarehouseName, string? City, DateOnly? ExpectedDeliveryDate, DateOnly? ActualDropOffDate,
-    string ModelProduct, string Unit, decimal Qty, decimal? InHousePrice, decimal? ParallelMarketPrice, bool IsCompleted);
+    string ModelProduct, string Unit, decimal Qty, decimal? InHousePrice, decimal? ParallelMarketPrice, bool IsCompleted,
+    bool IsExternal = false, string? TransporterName = null, string? DriverPhone = null);
 
 public record AddDropRequest(int WarehouseId, DateOnly? ExpectedDeliveryDate);
 public record SetActualDropOffRequest(DateOnly? ActualDropOffDate);
@@ -26,8 +35,9 @@ public record TruckLoadItemSummary(
     decimal? InHousePrice, decimal? ParallelMarketPrice);
 
 public record TruckLoadDetailResponse(
-    int Id, int TruckId, string PlateNo, int? DriverId, string? DriverName, DateOnly LoadDate, string? Notes,
-    List<TruckLoadDropDetail> Drops);
+    int Id, int? TruckId, string PlateNo, int? DriverId, string? DriverName, DateOnly LoadDate, string? Notes,
+    List<TruckLoadDropDetail> Drops,
+    bool IsExternal = false, int? ExternalTransporterId = null, string? TransporterName = null, string? DriverPhone = null);
 public record TruckLoadDropDetail(int Id, int WarehouseId, string WarehouseName, string? City, DateOnly? ExpectedDeliveryDate, DateOnly? ActualDropOffDate, List<TruckLoadItemSummary> Items);
 
 // Which WarehouseAllocations still have quantity not yet assigned to any
@@ -44,7 +54,10 @@ public record ReadyForTruckAssignment(
     int WarehouseId, string WarehouseName, string? City, decimal AllocatedQty, decimal LoadedQty, decimal RemainingQty, DateTime AllocatedAt);
 
 public record QuickAssignItem(int WarehouseAllocationId, decimal Qty, decimal? InHousePrice, decimal? ParallelMarketPrice);
-public record QuickAssignRequest(int TruckId, int? DriverId, DateOnly LoadDate, int WarehouseId, DateOnly? ExpectedDeliveryDate, List<QuickAssignItem> Items);
+public record QuickAssignRequest(
+    int? TruckId, int? DriverId, DateOnly LoadDate, int WarehouseId, DateOnly? ExpectedDeliveryDate, List<QuickAssignItem> Items,
+    bool IsExternal = false, int? ExternalTransporterId = null, string? ExternalTruckNo = null,
+    string? ExternalDriverName = null, string? ExternalDriverPhone = null);
 
 [ApiController]
 [Authorize(Roles = AppRoles.LogisticsViewers)]
@@ -54,11 +67,30 @@ public class TruckLoadController : ControllerBase
     private readonly ShippingPortalDbContext _db;
     public TruckLoadController(ShippingPortalDbContext db) => _db = db;
 
+    // Returns an error message, or null when the chosen mode has everything it needs.
+    private async Task<string?> ValidateModeAsync(
+        bool isExternal, int? truckId, int? externalTransporterId, string? externalTruckNo, string? externalDriverName)
+    {
+        if (isExternal)
+        {
+            if (!externalTransporterId.HasValue || !await _db.ExternalTransporters.AnyAsync(t => t.Id == externalTransporterId.Value))
+                return "Choose the external transporter.";
+            if (string.IsNullOrWhiteSpace(externalTruckNo)) return "Enter the external truck number.";
+            if (string.IsNullOrWhiteSpace(externalDriverName)) return "Enter the external driver's name.";
+            return null;
+        }
+        if (!truckId.HasValue || !await _db.Trucks.AnyAsync(t => t.Id == truckId.Value))
+            return "Truck not found.";
+        return null;
+    }
+
+    private static string? Clean(string? v) => string.IsNullOrWhiteSpace(v) ? null : v.Trim();
+
     [HttpGet]
     public async Task<ActionResult<IEnumerable<TruckLoadSummary>>> GetAll()
     {
         var loads = await _db.TruckLoads
-            .Include(t => t.Truck).Include(t => t.Driver)
+            .Include(t => t.Truck).Include(t => t.Driver).Include(t => t.ExternalTransporter)
             .OrderByDescending(t => t.LoadDate)
             .ToListAsync();
 
@@ -67,7 +99,8 @@ public class TruckLoadController : ControllerBase
         {
             var dropCount = await _db.TruckLoadDrops.CountAsync(d => d.TruckLoadId == load.Id);
             var itemCount = await _db.TruckLoadItems.CountAsync(i => i.TruckLoadDrop!.TruckLoadId == load.Id);
-            result.Add(new TruckLoadSummary(load.Id, load.Truck!.PlateNo, load.Driver?.Name, load.LoadDate, dropCount, itemCount));
+            result.Add(new TruckLoadSummary(load.Id, load.TruckDisplay, load.DriverDisplay, load.LoadDate, dropCount, itemCount,
+                load.IsExternal, load.ExternalTransporter?.Name, load.DriverPhoneDisplay));
         }
         return Ok(result);
     }
@@ -80,6 +113,7 @@ public class TruckLoadController : ControllerBase
         var items = await _db.TruckLoadItems
             .Include(i => i.TruckLoadDrop).ThenInclude(d => d!.TruckLoad).ThenInclude(t => t!.Truck)
             .Include(i => i.TruckLoadDrop).ThenInclude(d => d!.TruckLoad).ThenInclude(t => t!.Driver)
+            .Include(i => i.TruckLoadDrop).ThenInclude(d => d!.TruckLoad).ThenInclude(t => t!.ExternalTransporter)
             .Include(i => i.TruckLoadDrop).ThenInclude(d => d!.Warehouse).ThenInclude(w => w!.City)
             .Include(i => i.WarehouseAllocation).ThenInclude(a => a!.ShipmentLineItem).ThenInclude(li => li!.PurchaseOrderLineItem).ThenInclude(pli => pli!.ModelProduct)
             .Include(i => i.WarehouseAllocation).ThenInclude(a => a!.ShipmentLineItem).ThenInclude(li => li!.PurchaseOrderLineItem).ThenInclude(pli => pli!.UnitOfMeasure)
@@ -95,11 +129,12 @@ public class TruckLoadController : ControllerBase
             var withdrawalLi = i.WarehouseAllocation?.WithdrawalLineItem?.DepositShipmentLineItem?.PurchaseOrderLineItem;
 
             return new TruckLoadItemRow(
-                i.Id, load.Id, load.Truck!.PlateNo, load.Driver?.Name, load.LoadDate,
+                i.Id, load.Id, load.TruckDisplay, load.DriverDisplay, load.LoadDate,
                 drop.Warehouse!.Name, drop.Warehouse.City?.Name, drop.ExpectedDeliveryDate, drop.ActualDropOffDate,
                 portLi?.ModelProduct?.Name ?? withdrawalLi?.ModelProduct?.Name ?? "",
                 portLi?.UnitOfMeasure?.Code ?? withdrawalLi?.UnitOfMeasure?.Code ?? "",
-                i.Qty, i.InHousePrice, i.ParallelMarketPrice, drop.ActualDropOffDate.HasValue);
+                i.Qty, i.InHousePrice, i.ParallelMarketPrice, drop.ActualDropOffDate.HasValue,
+                load.IsExternal, load.ExternalTransporter?.Name, load.DriverPhoneDisplay);
         }).ToList();
 
         return Ok(result);
@@ -109,21 +144,34 @@ public class TruckLoadController : ControllerBase
     [Authorize(Roles = AppRoles.LogisticsEditors)]
     public async Task<ActionResult<TruckLoadSummary>> Create(CreateTruckLoadRequest req)
     {
-        var truck = await _db.Trucks.FindAsync(req.TruckId);
-        if (truck is null) return NotFound(new { message = "Truck not found." });
+        var modeError = await ValidateModeAsync(req.IsExternal, req.TruckId, req.ExternalTransporterId, req.ExternalTruckNo, req.ExternalDriverName);
+        if (modeError is not null) return BadRequest(new { message = modeError });
 
-        var load = new TruckLoad { TruckId = req.TruckId, DriverId = req.DriverId, LoadDate = req.LoadDate, Notes = req.Notes };
+        var load = new TruckLoad { LoadDate = req.LoadDate, Notes = req.Notes, IsExternal = req.IsExternal };
+        if (req.IsExternal)
+        {
+            load.ExternalTransporterId = req.ExternalTransporterId;
+            load.ExternalTruckNo = Clean(req.ExternalTruckNo);
+            load.ExternalDriverName = Clean(req.ExternalDriverName);
+            load.ExternalDriverPhone = Clean(req.ExternalDriverPhone);
+        }
+        else
+        {
+            load.TruckId = req.TruckId;
+            load.DriverId = req.DriverId;
+        }
         _db.TruckLoads.Add(load);
         await _db.SaveChangesAsync();
 
-        var driver = req.DriverId.HasValue ? await _db.Drivers.FindAsync(req.DriverId.Value) : null;
-        return Ok(new TruckLoadSummary(load.Id, truck.PlateNo, driver?.Name, load.LoadDate, 0, 0));
+        var saved = await _db.TruckLoads.Include(t => t.Truck).Include(t => t.Driver).Include(t => t.ExternalTransporter).FirstAsync(t => t.Id == load.Id);
+        return Ok(new TruckLoadSummary(saved.Id, saved.TruckDisplay, saved.DriverDisplay, saved.LoadDate, 0, 0,
+            saved.IsExternal, saved.ExternalTransporter?.Name, saved.DriverPhoneDisplay));
     }
 
     [HttpGet("{id:int}")]
     public async Task<ActionResult<TruckLoadDetailResponse>> GetDetail(int id)
     {
-        var load = await _db.TruckLoads.Include(t => t.Truck).Include(t => t.Driver).FirstOrDefaultAsync(t => t.Id == id);
+        var load = await _db.TruckLoads.Include(t => t.Truck).Include(t => t.Driver).Include(t => t.ExternalTransporter).FirstOrDefaultAsync(t => t.Id == id);
         if (load is null) return NotFound();
 
         var drops = await _db.TruckLoadDrops.Where(d => d.TruckLoadId == id).Include(d => d.Warehouse).ThenInclude(w => w!.City).ToListAsync();
@@ -151,7 +199,8 @@ public class TruckLoadController : ControllerBase
             dropDetails.Add(new TruckLoadDropDetail(drop.Id, drop.WarehouseId, drop.Warehouse!.Name, drop.Warehouse.City?.Name, drop.ExpectedDeliveryDate, drop.ActualDropOffDate, itemSummaries));
         }
 
-        return Ok(new TruckLoadDetailResponse(load.Id, load.TruckId, load.Truck!.PlateNo, load.DriverId, load.Driver?.Name, load.LoadDate, load.Notes, dropDetails));
+        return Ok(new TruckLoadDetailResponse(load.Id, load.TruckId, load.TruckDisplay, load.DriverId, load.DriverDisplay, load.LoadDate, load.Notes, dropDetails,
+            load.IsExternal, load.ExternalTransporterId, load.ExternalTransporter?.Name, load.DriverPhoneDisplay));
     }
 
     [HttpPost("{id:int}/drops")]
@@ -184,9 +233,10 @@ public class TruckLoadController : ControllerBase
             if (lastDropId == dropId)
             {
                 var truckLoad = await _db.TruckLoads.FindAsync(drop.TruckLoadId);
-                if (truckLoad is not null)
+                // External trucks are not in the fleet list, so there is no position to update.
+                if (truckLoad is not null && truckLoad.TruckId.HasValue)
                 {
-                    var truck = await _db.Trucks.FindAsync(truckLoad.TruckId);
+                    var truck = await _db.Trucks.FindAsync(truckLoad.TruckId.Value);
                     if (truck is not null) truck.CurrentCityId = drop.Warehouse.CityId;
                 }
             }
@@ -274,12 +324,37 @@ public class TruckLoadController : ControllerBase
     public async Task<IActionResult> QuickAssign(QuickAssignRequest req)
     {
         if (req.Items.Count == 0) return BadRequest(new { message = "At least one item is required." });
-        if (!await _db.Trucks.AnyAsync(t => t.Id == req.TruckId)) return NotFound(new { message = "Truck not found." });
+        var modeError = await ValidateModeAsync(req.IsExternal, req.TruckId, req.ExternalTransporterId, req.ExternalTruckNo, req.ExternalDriverName);
+        if (modeError is not null) return BadRequest(new { message = modeError });
 
-        var load = await _db.TruckLoads.FirstOrDefaultAsync(l => l.TruckId == req.TruckId && l.LoadDate == req.LoadDate);
+        // Reuse the same trip when it's the same vehicle on the same day: same fleet truck
+        // (internal) or same transporter + truck number (external) - never mixed.
+        TruckLoad? load;
+        if (req.IsExternal)
+        {
+            var truckNo = Clean(req.ExternalTruckNo)!;
+            load = await _db.TruckLoads.FirstOrDefaultAsync(l => l.IsExternal && l.ExternalTransporterId == req.ExternalTransporterId
+                && l.ExternalTruckNo == truckNo && l.LoadDate == req.LoadDate);
+        }
+        else
+        {
+            load = await _db.TruckLoads.FirstOrDefaultAsync(l => !l.IsExternal && l.TruckId == req.TruckId && l.LoadDate == req.LoadDate);
+        }
         if (load is null)
         {
-            load = new TruckLoad { TruckId = req.TruckId, DriverId = req.DriverId, LoadDate = req.LoadDate };
+            load = new TruckLoad { LoadDate = req.LoadDate, IsExternal = req.IsExternal };
+            if (req.IsExternal)
+            {
+                load.ExternalTransporterId = req.ExternalTransporterId;
+                load.ExternalTruckNo = Clean(req.ExternalTruckNo);
+                load.ExternalDriverName = Clean(req.ExternalDriverName);
+                load.ExternalDriverPhone = Clean(req.ExternalDriverPhone);
+            }
+            else
+            {
+                load.TruckId = req.TruckId;
+                load.DriverId = req.DriverId;
+            }
             _db.TruckLoads.Add(load);
             await _db.SaveChangesAsync();
         }

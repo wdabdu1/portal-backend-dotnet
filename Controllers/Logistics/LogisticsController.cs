@@ -16,7 +16,12 @@ public record LogisticsItemRow(
     DateOnly? ArrivalDate,
     DateOnly? PlannedCompletionDate, DateOnly? ActualCompletionDate,
     decimal Qty, string Unit, string ClearanceRoute, string? FzDestination,
-    decimal AllocatedQty, decimal RemainingQty);
+    decimal AllocatedQty, decimal RemainingQty,
+    // When Clearance hands the cargo over to Logistics = the SPC Bill settlement date
+    // (Route 1) / Release & Exit Pass date (FZ withdrawals). ReleaseIsForecast is true
+    // when the date is still the projected SPC Bill target rather than a real settlement,
+    // so the Logistics team can plan trucks against it without mistaking it for a fact.
+    DateOnly? ClearanceReleaseDate = null, bool ReleaseIsForecast = false);
 
 public record AllocationRequest(string SourceType, int SourceLineItemId, int WarehouseId, decimal Qty, string? ContactName, string? ContactPhone);
 public record AllocationResponse(int Id, int WarehouseId, string WarehouseName, decimal Qty, string? ContactName, string? ContactPhone, string? DeliveryCity);
@@ -89,6 +94,11 @@ public class LogisticsController : ControllerBase
             .ToDictionary(g => g.Key, g => g.ToList());
 
         var estimatedCompletionByShipment = await _schedule.GetEstimatedCompletionDatesAsync(portShipmentIds);
+        // Release date for planning: real SPC Bill settlement if entered, else the projected SPC Bill date.
+        var spcTargetByShipment = await _schedule.GetSpcBillTargetDatesAsync(portShipmentIds);
+        var route1ByClearanceId = await _db.ClearanceRoute1Details
+            .Where(r => portClearanceIds.Contains(r.ClearanceId))
+            .ToDictionaryAsync(r => r.ClearanceId, r => new { r.SpcBillSettlementDate, r.ClearanceActualCompletedDate });
 
         // Arrival = Actual Arrival Date (Clearance's Delivery Order
         // section) if entered, else vessel ETA — this is what the
@@ -115,6 +125,12 @@ public class LogisticsController : ControllerBase
                 continue;
 
             var estimatedCompletion = estimatedCompletionByShipment.GetValueOrDefault(shipment.Id);
+            var route1 = route1ByClearanceId.GetValueOrDefault(clearance.Id);
+            var spcActual = route1?.SpcBillSettlementDate;
+            var releaseDate = spcActual ?? spcTargetByShipment.GetValueOrDefault(shipment.Id);
+            // Previously this showed only the generic Clearance.ClearanceCompleteDate (rarely filled in);
+            // Truck & Containers' own Actual Completed Date is the real "clearance done" marker.
+            var actualCompletion = route1?.ClearanceActualCompletedDate ?? clearance.ClearanceCompleteDate;
             var lineItems = portLineItemsByShipment.GetValueOrDefault(shipment.Id, new List<ShipmentLineItem>());
 
             foreach (var li in lineItems)
@@ -125,9 +141,10 @@ public class LogisticsController : ControllerBase
                     shipment.PurchaseOrder?.BusinessUnit?.Name ?? "", shipment.PurchaseOrder?.Consignee?.Name ?? "",
                     li.PurchaseOrderLineItem?.ProductCategory?.Name ?? "", "",
                     shipment.BlAwbNo, arrivalDate,
-                    estimatedCompletion, clearance.ClearanceCompleteDate,
+                    estimatedCompletion, actualCompletion,
                     li.QtyInBl, li.PurchaseOrderLineItem?.UnitOfMeasure?.Code ?? "", "Clear at Port", null,
-                    allocated, li.QtyInBl - allocated));
+                    allocated, li.QtyInBl - allocated,
+                    releaseDate, !spcActual.HasValue && releaseDate.HasValue));
             }
         }
 
@@ -177,7 +194,8 @@ public class LogisticsController : ControllerBase
                     li.PurchaseOrderLineItem?.ProductCategory?.Name ?? "", "",
                     depositShipment.BlAwbNo, null, null, withdrawal.ClearanceActualCompletedDate,
                     wli.Qty, li.PurchaseOrderLineItem?.UnitOfMeasure?.Code ?? "", "Clear from FZ", depositRoute2?.Destination?.Name,
-                    allocated, wli.Qty - allocated));
+                    allocated, wli.Qty - allocated,
+                    withdrawal.ReleaseExitPassDate, false));
             }
         }
 

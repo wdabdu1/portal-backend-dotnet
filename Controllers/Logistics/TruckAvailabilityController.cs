@@ -48,8 +48,8 @@ public class TruckAvailabilityController : ControllerBase
         // actual current status.
         var activeDropByTruckId = openDrops
             .Where(d => lastDropIdByLoad.GetValueOrDefault(d.TruckLoadId) == d.Id)
-            .Where(d => d.TruckLoad is not null)
-            .GroupBy(d => d.TruckLoad!.TruckId)
+            .Where(d => d.TruckLoad is not null && d.TruckLoad.TruckId.HasValue)   // external loads have no fleet truck
+            .GroupBy(d => d.TruckLoad!.TruckId!.Value)
             .ToDictionary(g => g.Key, g => g.OrderBy(d => d.ExpectedDeliveryDate ?? DateOnly.MaxValue).First());
 
         var rows = trucks.Select(t =>
