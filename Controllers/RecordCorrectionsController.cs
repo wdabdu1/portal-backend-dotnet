@@ -80,7 +80,7 @@ public class RecordCorrectionsController : ControllerBase
     // the new value to the entity. Each method returns false when the new
     // value is invalid (unknown lookup id) so the caller can reject the whole
     // request before anything is saved.
-    private sealed class Changes
+    internal sealed class Changes
     {
         public readonly List<DataChangeLog> Rows = new();
         private readonly string _type, _ref, _userId, _userName;
@@ -104,6 +104,13 @@ public class RecordCorrectionsController : ControllerBase
         }
 
         public void Note(string field, string value) => Add(field, null, value);
+
+        public void Decimal(string field, decimal oldV, decimal newV, Action<decimal> apply)
+        {
+            if (oldV == newV) return;
+            Add(field, oldV.ToString("0.####", CultureInfo.InvariantCulture), newV.ToString("0.####", CultureInfo.InvariantCulture));
+            apply(newV);
+        }
 
         public void Text(string field, string? oldV, string? newV, Action<string?> apply)
         {

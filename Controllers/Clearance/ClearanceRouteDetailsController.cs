@@ -86,6 +86,18 @@ public class ClearanceRouteDetailsController : ControllerBase
         _scheduleService = scheduleService;
     }
 
+    // The Actual Charges block is shown (and locked from the UI) under route-specific keys, so the server-side
+    // check must look at those same keys (plus the legacy "actualCharges" key) - otherwise the lock never bites.
+    private async Task<ActionResult?> EnsureActualChargesNotLockedAsync(int shipmentId)
+    {
+        foreach (var key in new[] { "route1ActualCharges", "route2ActualCharges", "actualCharges" })
+        {
+            var denied = await _sectionLock.EnsureNotLockedAsync("Clearance", shipmentId, key);
+            if (denied is not null) return denied;
+        }
+        return null;
+    }
+
     // Fires the instant Truck & Containers' own Actual Completion Date
     // is FIRST saved (was null, now isn't) — calling the demurrage/
     // storage engine at this exact moment, before the new date takes
@@ -445,7 +457,7 @@ public class ClearanceRouteDetailsController : ControllerBase
     [Authorize(Roles = AppRoles.ClearanceEditors)]
     public async Task<IActionResult> SaveActualCharges(int shipmentId, ActualChargesRequest req)
     {
-        var lockDenied = await _sectionLock.EnsureNotLockedAsync("Clearance", shipmentId, "actualCharges");
+        var lockDenied = await EnsureActualChargesNotLockedAsync(shipmentId);
         if (lockDenied is not null) return lockDenied;
         var clearance = await GetOrCreateClearanceAsync(shipmentId);
         if (clearance is null) return NotFound();
@@ -477,7 +489,7 @@ public class ClearanceRouteDetailsController : ControllerBase
     [Authorize(Roles = AppRoles.ClearanceEditors)]
     public async Task<ActionResult<ActualChargesResponse>> RecalculateForecast(int shipmentId)
     {
-        var lockDenied = await _sectionLock.EnsureNotLockedAsync("Clearance", shipmentId, "actualCharges");
+        var lockDenied = await EnsureActualChargesNotLockedAsync(shipmentId);
         if (lockDenied is not null) return lockDenied;
         var clearance = await GetOrCreateClearanceAsync(shipmentId);
         if (clearance is null) return NotFound();
