@@ -278,6 +278,11 @@ public class LogisticsCity
     public int Id { get; set; }
     [Required, MaxLength(120)] public string Name { get; set; } = "";
     public bool IsActive { get; set; } = true;
+
+    // Delivery target for trucks going to this city: calendar days from the
+    // truck load date to the actual drop-off. Null = no target set. Used to
+    // prefill Expected Delivery and for the delivery-performance review.
+    public int? TargetDeliveryDays { get; set; }
 }
 
 public class Driver

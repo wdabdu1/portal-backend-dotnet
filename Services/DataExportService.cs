@@ -929,7 +929,8 @@ public class DataExportService
         ws.Cell(1, 1).Style.Font.Bold = true; ws.Cell(1, 1).Style.Font.FontSize = 13; ws.Cell(1, 1).Style.Font.FontColor = Navy;
         var headers = new[] { "B/L NO", "MODEL/PRODUCT", "QTY ALLOCATED", "WAREHOUSE NAME", "TRUCK PLATE NO.", "DRIVER NAME (optional)",
             "LOAD DATE", "EXPECTED DELIVERY DATE", "ACTUAL DROP OFF DATE", "IN-HOUSE PRICE", "PARALLEL MARKET PRICE",
-            "CONTACT NAME", "CONTACT PHONE", "TRUCK LOAD NOTES" };
+            "CONTACT NAME", "CONTACT PHONE", "TRUCK LOAD NOTES",
+            "EXTERNAL TRANSPORTER", "EXTERNAL TRUCK NO.", "EXTERNAL DRIVER NAME", "EXTERNAL DRIVER PHONE" };
         for (int i = 0; i < headers.Length; i++)
         {
             var c = ws.Cell(4, i + 1);
@@ -955,6 +956,7 @@ public class DataExportService
             join ti in _db.TruckLoadItems
                 .Include(i => i.TruckLoadDrop!).ThenInclude(d => d.TruckLoad!).ThenInclude(t => t.Truck)
                 .Include(i => i.TruckLoadDrop!).ThenInclude(d => d.TruckLoad!).ThenInclude(t => t.Driver)
+                .Include(i => i.TruckLoadDrop!).ThenInclude(d => d.TruckLoad!).ThenInclude(t => t.ExternalTransporter)
                 .Include(i => i.TruckLoadDrop!).ThenInclude(d => d.Warehouse)
                 on a.Id equals ti.WarehouseAllocationId into truckItems
             from item in truckItems.DefaultIfEmpty()
@@ -976,8 +978,8 @@ public class DataExportService
             SetCell(ws, row, c2++, shipLine.PurchaseOrderLineItem?.ModelProduct?.Name);
             SetCell(ws, row, c2++, item?.Qty ?? allocation.Qty);
             SetCell(ws, row, c2++, drop?.Warehouse?.Name ?? allocation.Warehouse?.Name);
-            // External loads have no fleet truck; leaving the plate blank keeps this sheet re-uploadable
-            // (the upload looks plates up in the Trucks list). External details aren't in this sheet yet.
+            // Internal loads fill the plate/driver columns; external loads leave them blank and carry
+            // their details in the four EXTERNAL columns at the end of the row.
             SetCell(ws, row, c2++, load is { IsExternal: false } ? load.Truck?.PlateNo : null);
             SetCell(ws, row, c2++, load is { IsExternal: false } ? load.Driver?.Name : null);
             SetCell(ws, row, c2++, load?.LoadDate);
@@ -988,6 +990,10 @@ public class DataExportService
             SetCell(ws, row, c2++, allocation.ContactName);
             SetCell(ws, row, c2++, allocation.ContactPhone);
             SetCell(ws, row, c2++, load?.Notes);
+            SetCell(ws, row, c2++, load is { IsExternal: true } ? load.ExternalTransporter?.Name : null);
+            SetCell(ws, row, c2++, load is { IsExternal: true } ? load.ExternalTruckNo : null);
+            SetCell(ws, row, c2++, load is { IsExternal: true } ? load.ExternalDriverName : null);
+            SetCell(ws, row, c2++, load is { IsExternal: true } ? load.ExternalDriverPhone : null);
             row++;
         }
         ws.Columns().AdjustToContents();

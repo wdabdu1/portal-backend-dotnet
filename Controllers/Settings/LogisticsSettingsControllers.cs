@@ -49,3 +49,10 @@ public class ExternalTransportersController : LookupCrudController<ExternalTrans
     public ExternalTransportersController(ShippingPortalDbContext db) : base(db) { }
     protected override string[] WriteRoles => new[] { AppRoles.Coordinator, AppRoles.Manager, AppRoles.SuperUser };
 }
+
+[Route("api/settings/logistics-delay-reasons")]
+public class LogisticsDelayReasonsController : LookupCrudController<LogisticsDelayReason>
+{
+    public LogisticsDelayReasonsController(ShippingPortalDbContext db) : base(db) { }
+    protected override string[] WriteRoles => new[] { AppRoles.Coordinator, AppRoles.Manager, AppRoles.SuperUser };
+}

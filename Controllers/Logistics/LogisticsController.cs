@@ -21,7 +21,9 @@ public record LogisticsItemRow(
     // (Route 1) / Release & Exit Pass date (FZ withdrawals). ReleaseIsForecast is true
     // when the date is still the projected SPC Bill target rather than a real settlement,
     // so the Logistics team can plan trucks against it without mistaking it for a fact.
-    DateOnly? ClearanceReleaseDate = null, bool ReleaseIsForecast = false);
+    DateOnly? ClearanceReleaseDate = null, bool ReleaseIsForecast = false,
+    // Which shipment (and for FZ rows, which withdrawal) this row belongs to - used to open the Delay Log.
+    int ShipmentId = 0, int? WithdrawalId = null);
 
 public record AllocationRequest(string SourceType, int SourceLineItemId, int WarehouseId, decimal Qty, string? ContactName, string? ContactPhone);
 public record AllocationResponse(int Id, int WarehouseId, string WarehouseName, decimal Qty, string? ContactName, string? ContactPhone, string? DeliveryCity);
@@ -144,7 +146,8 @@ public class LogisticsController : ControllerBase
                     estimatedCompletion, actualCompletion,
                     li.QtyInBl, li.PurchaseOrderLineItem?.UnitOfMeasure?.Code ?? "", "Clear at Port", null,
                     allocated, li.QtyInBl - allocated,
-                    releaseDate, !spcActual.HasValue && releaseDate.HasValue));
+                    releaseDate, !spcActual.HasValue && releaseDate.HasValue,
+                    shipment.Id, null));
             }
         }
 
@@ -195,7 +198,8 @@ public class LogisticsController : ControllerBase
                     depositShipment.BlAwbNo, null, null, withdrawal.ClearanceActualCompletedDate,
                     wli.Qty, li.PurchaseOrderLineItem?.UnitOfMeasure?.Code ?? "", "Clear from FZ", depositRoute2?.Destination?.Name,
                     allocated, wli.Qty - allocated,
-                    withdrawal.ReleaseExitPassDate, false));
+                    withdrawal.ReleaseExitPassDate, false,
+                    depositShipment.Id, withdrawal.Id));
             }
         }
 

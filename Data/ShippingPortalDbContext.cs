@@ -55,6 +55,8 @@ public class ShippingPortalDbContext : IdentityDbContext<ApplicationUser>
     public DbSet<Truck> Trucks => Set<Truck>();
     public DbSet<Warehouse> Warehouses => Set<Warehouse>();
     public DbSet<ExternalTransporter> ExternalTransporters => Set<ExternalTransporter>();
+    public DbSet<LogisticsDelayReason> LogisticsDelayReasons => Set<LogisticsDelayReason>();
+    public DbSet<ShippingPortal.Api.Models.Logistics.LogisticsDelayLog> LogisticsDelayLogs => Set<ShippingPortal.Api.Models.Logistics.LogisticsDelayLog>();
     public DbSet<ShippingPortal.Api.Models.Logistics.WarehouseAllocation> WarehouseAllocations => Set<ShippingPortal.Api.Models.Logistics.WarehouseAllocation>();
     public DbSet<ShippingPortal.Api.Models.Logistics.TruckLoad> TruckLoads => Set<ShippingPortal.Api.Models.Logistics.TruckLoad>();
     public DbSet<ShippingPortal.Api.Models.Logistics.TruckLoadDrop> TruckLoadDrops => Set<ShippingPortal.Api.Models.Logistics.TruckLoadDrop>();
@@ -440,6 +442,19 @@ public class ShippingPortalDbContext : IdentityDbContext<ApplicationUser>
             .HasOne(t => t.ExternalTransporter)
             .WithMany()
             .OnDelete(DeleteBehavior.Restrict);
+
+        builder.Entity<ShippingPortal.Api.Models.Logistics.LogisticsDelayLog>()
+            .HasOne(d => d.Reason)
+            .WithMany()
+            .HasForeignKey(d => d.ReasonId)
+            .OnDelete(DeleteBehavior.Restrict);
+        builder.Entity<ShippingPortal.Api.Models.Logistics.LogisticsDelayLog>()
+            .HasOne(d => d.Shipment)
+            .WithMany()
+            .HasForeignKey(d => d.ShipmentId)
+            .OnDelete(DeleteBehavior.Cascade);
+        builder.Entity<ShippingPortal.Api.Models.Logistics.LogisticsDelayLog>()
+            .HasIndex(d => d.ShipmentId);
 
         builder.Entity<ShippingPortal.Api.Models.Logistics.TruckLoadDrop>()
             .HasOne(d => d.TruckLoad)

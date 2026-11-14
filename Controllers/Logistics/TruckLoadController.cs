@@ -207,9 +207,21 @@ public class TruckLoadController : ControllerBase
     [Authorize(Roles = AppRoles.LogisticsEditors)]
     public async Task<IActionResult> AddDrop(int id, AddDropRequest req)
     {
-        if (!await _db.TruckLoads.AnyAsync(t => t.Id == id)) return NotFound();
+        var loadDate = await _db.TruckLoads.Where(t => t.Id == id).Select(t => (DateOnly?)t.LoadDate).FirstOrDefaultAsync();
+        if (!loadDate.HasValue) return NotFound();
 
-        var drop = new TruckLoadDrop { TruckLoadId = id, WarehouseId = req.WarehouseId, ExpectedDeliveryDate = req.ExpectedDeliveryDate };
+        // No expected date typed: use the destination city's delivery target, if one is set.
+        var expectedDate = req.ExpectedDeliveryDate;
+        if (!expectedDate.HasValue)
+        {
+            var cityTarget = await _db.Warehouses
+                .Where(w => w.Id == req.WarehouseId)
+                .Select(w => w.City != null ? w.City.TargetDeliveryDays : (int?)null)
+                .FirstOrDefaultAsync();
+            if (cityTarget.HasValue) expectedDate = loadDate.Value.AddDays(cityTarget.Value);
+        }
+
+        var drop = new TruckLoadDrop { TruckLoadId = id, WarehouseId = req.WarehouseId, ExpectedDeliveryDate = expectedDate };
         _db.TruckLoadDrops.Add(drop);
         await _db.SaveChangesAsync();
         return Ok(new { id = drop.Id });
@@ -362,7 +374,17 @@ public class TruckLoadController : ControllerBase
         var drop = await _db.TruckLoadDrops.FirstOrDefaultAsync(d => d.TruckLoadId == load.Id && d.WarehouseId == req.WarehouseId);
         if (drop is null)
         {
-            drop = new TruckLoadDrop { TruckLoadId = load.Id, WarehouseId = req.WarehouseId, ExpectedDeliveryDate = req.ExpectedDeliveryDate };
+            // No expected date typed: use the destination city's delivery target (calendar days from load date), if one is set.
+            var expectedDate = req.ExpectedDeliveryDate;
+            if (!expectedDate.HasValue)
+            {
+                var cityTarget = await _db.Warehouses
+                    .Where(w => w.Id == req.WarehouseId)
+                    .Select(w => w.City != null ? w.City.TargetDeliveryDays : (int?)null)
+                    .FirstOrDefaultAsync();
+                if (cityTarget.HasValue) expectedDate = req.LoadDate.AddDays(cityTarget.Value);
+            }
+            drop = new TruckLoadDrop { TruckLoadId = load.Id, WarehouseId = req.WarehouseId, ExpectedDeliveryDate = expectedDate };
             _db.TruckLoadDrops.Add(drop);
             await _db.SaveChangesAsync();
         }

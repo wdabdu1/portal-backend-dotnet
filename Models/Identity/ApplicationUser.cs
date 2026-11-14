@@ -105,6 +105,12 @@ public static class AppRoles
     // that screen stays on ClearanceEditors.
     public const string ClearanceTruckEditors = ClearanceEditors + "," + Coordinator;
 
+    // Logistics Delay Log: who may write entries (Clearance team + Coordinator,
+    // same people as Truck & Containers) and who may read them (the Logistics box
+    // roles plus the Clearance team). LogisticsOfficer and Manager are view-only.
+    public const string DelayLogEditors = ClearanceTruckEditors;
+    public const string DelayLogViewers = LogisticsOfficer + "," + Coordinator + "," + Manager + "," + SuperUser + "," + ClrUsr + "," + ClrSupervisor;
+
     public const string ShipmentDetailsViewers = IpUser + "," + IpSupervisor + "," + ClrUsr + "," + ClrSupervisor + "," + Bu + "," + Treasury + "," + Manager + "," + SuperUser;
 
     public const string SettingsViewers = Manager + "," + SuperUser;

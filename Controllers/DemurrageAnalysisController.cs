@@ -76,7 +76,13 @@ public record DemurrageAnalysisResult(
     decimal? ForecastDemurrageSdg, decimal? ForecastStorageSdg, decimal? ForecastTotalSdg,
     decimal? ActualDemurragePaidSdg, decimal? ActualStoragePaidSdg, decimal? ActualTotalPaidSdg,
     decimal? SavingsSdg,
-    List<string> Warnings);
+    List<string> Warnings,
+    // Single-shipment mode, Route 1 only: the Logistics-owned wait AFTER clearance (SPC Bill
+    // settlement -> whole shipment on trucks). Deliberately NOT part of StepGaps / the
+    // reconciliation above (demurrage stops at Container Return), shown as its own card
+    // together with the logged delay reasons.
+    ClearanceStepGap? LogisticsStep = null,
+    List<ShippingPortal.Api.Controllers.Logistics.DelayEntryDto>? LogisticsDelays = null);
 
 // Every figure here is anchored on shipments that actually had a real
 // Demurrage or Storage payment recorded — this is a "what happened and
@@ -93,12 +99,14 @@ public class DemurrageAnalysisController : ControllerBase
     private readonly ShippingPortalDbContext _db;
     private readonly DemurrageStorageService _demurrageService;
     private readonly ClearanceScheduleService _scheduleService;
+    private readonly LogisticsDispatchService _dispatchService;
 
-    public DemurrageAnalysisController(ShippingPortalDbContext db, DemurrageStorageService demurrageService, ClearanceScheduleService scheduleService)
+    public DemurrageAnalysisController(ShippingPortalDbContext db, DemurrageStorageService demurrageService, ClearanceScheduleService scheduleService, LogisticsDispatchService dispatchService)
     {
         _db = db;
         _demurrageService = demurrageService;
         _scheduleService = scheduleService;
+        _dispatchService = dispatchService;
     }
 
     private static DemurrageAnalysisResult EmptyResult(bool isSingleShipment) => new(
@@ -584,6 +592,33 @@ public class DemurrageAnalysisController : ControllerBase
             }
         }
 
+        // Logistics Dispatch (Route 1): own card, never added into the reconciling step table.
+        ClearanceStepGap? logisticsStep = null;
+        List<ShippingPortal.Api.Controllers.Logistics.DelayEntryDto>? logisticsDelays = null;
+        if (clearance is not null && clearance.Route == ShippingPortal.Api.Models.Clearance.ClearanceRouteType.Route1ClearAtPort)
+        {
+            var dispatchTarget = await _dispatchService.GetTargetDaysAsync();
+            var dispatchInfo = (await _dispatchService.GetForPortShipmentsAsync(new List<int> { shipmentId })).GetValueOrDefault(shipmentId);
+            if (dispatchInfo?.ReleaseDate is DateOnly releaseDate)
+            {
+                var endDate = dispatchInfo.FullyDispatchedDate ?? today;
+                var dispatchDays = Math.Max(0, ClearanceScheduleService.BusinessDaysBetween(releaseDate, endDate, holidaySet));
+                var stepLabel = dispatchInfo.FullyDispatchedDate.HasValue ? "Logistics Dispatch" : "Logistics Dispatch (ongoing)";
+                logisticsStep = new ClearanceStepGap(stepLabel, dispatchDays, dispatchTarget, dispatchDays - dispatchTarget,
+                    ProcessStepCategories.ByStep.GetValueOrDefault("Logistics Dispatch", "Logistics"));
+            }
+
+            var delayRows = await _db.LogisticsDelayLogs.Include(d => d.Reason)
+                .Where(d => d.ShipmentId == shipmentId)
+                .OrderBy(d => d.FromDate).ThenBy(d => d.Id)
+                .ToListAsync();
+            logisticsDelays = delayRows.Select(d => new ShippingPortal.Api.Controllers.Logistics.DelayEntryDto(
+                d.Id, d.ShipmentId, d.WithdrawalId, d.ReasonId, d.Reason?.Name ?? "",
+                d.FromDate, d.ToDate,
+                LogisticsDispatchService.InclusiveBusinessDays(d.FromDate, d.ToDate ?? today, holidaySet),
+                !d.ToDate.HasValue, d.Note, d.CreatedBy, d.CreatedAt)).ToList();
+        }
+
         var firstItem = shipment.LineItems.FirstOrDefault();
         var totalQty = shipment.LineItems.Sum(li => li.QtyInBl);
 
@@ -628,6 +663,7 @@ public class DemurrageAnalysisController : ControllerBase
             ForecastDemurrageSdg: charges?.ForecastDemurrageSdg, ForecastStorageSdg: charges?.ForecastStorageSdg, ForecastTotalSdg: forecastTotal,
             ActualDemurragePaidSdg: charges?.ActualDemurragePaidSdg, ActualStoragePaidSdg: charges?.ActualStoragePaidSdg, ActualTotalPaidSdg: actualPaidTotal,
             SavingsSdg: savings,
-            Warnings: demurrage.Warnings);
+            Warnings: demurrage.Warnings,
+            LogisticsStep: logisticsStep, LogisticsDelays: logisticsDelays);
     }
 }

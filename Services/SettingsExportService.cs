@@ -177,6 +177,18 @@ public class SettingsExportService
         for (int i = 0; i < warehouses.Count; i++)
             WriteRow(wsWh, 6 + i, warehouses[i].Name, warehouses[i].City?.Name, warehouses[i].ContactName, warehouses[i].ContactPhone, warehouses[i].IsActive);
 
+        var transporters = await _db.ExternalTransporters.ToListAsync();
+        var wsExt = NewSheet(wb, "ExternalTransporters", "External Transporters", "Third-party transport companies. The truck number and driver are typed per trip and are not stored here.",
+            new[] { "Name", "Phone (optional)", "IsActive (TRUE/FALSE)" }, new[] { "Nile Transport Co.", "+249911234567", "TRUE" });
+        for (int i = 0; i < transporters.Count; i++) WriteRow(wsExt, 6 + i, transporters[i].Name, transporters[i].Phone, transporters[i].IsActive);
+
+        await WriteSimpleNameActive(wb, "LogisticsDelayReasons", "Logistics Delay Reasons", "No truck available", _db.LogisticsDelayReasons.Select(x => new NameActive(x.Name, x.IsActive)));
+
+        var cityTargets = await _db.LogisticsCities.Where(c => c.TargetDeliveryDays != null).OrderBy(c => c.Name).ToListAsync();
+        var wsCityT = NewSheet(wb, "LogisticsCityTargets", "Logistics City Delivery Targets", "CityName must match a Logistics City. TargetDeliveryDays = calendar days from truck load date to actual drop-off.",
+            new[] { "CityName", "TargetDeliveryDays" }, new[] { "Khartoum", "2" });
+        for (int i = 0; i < cityTargets.Count; i++) WriteRow(wsCityT, 6 + i, cityTargets[i].Name, cityTargets[i].TargetDeliveryDays);
+
         var tenors = await _db.Tenors.ToListAsync();
         var wsTenor = NewSheet(wb, "Tenors", "Tenors", "",
             new[] { "Days", "IsActive (TRUE/FALSE)" }, new[] { "90", "TRUE" });
@@ -249,9 +261,9 @@ public class SettingsExportService
         var logisticsVis = await _db.LogisticsVisibilitySettings.FirstOrDefaultAsync();
         var wsLogVis = NewSheet(wb, "LogisticsVisibilitySettings", "Logistics Visibility (global setting)",
             "Controls what Logistics/Coordinator can see, and when — see Settings for the full explanation of each field.",
-            new[] { "ArrivalLeadTimeDays", "PreClearanceCatQtyRevealDays", "PostDeliveryRehideDays" }, new[] { "14", "7", "30" });
+            new[] { "ArrivalLeadTimeDays", "PreClearanceCatQtyRevealDays", "PostDeliveryRehideDays", "DispatchTargetBusinessDays (optional)" }, new[] { "14", "7", "30", "2" });
         if (logisticsVis is not null)
-            WriteRow(wsLogVis, 6, logisticsVis.ArrivalLeadTimeDays, logisticsVis.PreClearanceCatQtyRevealDays, logisticsVis.PostDeliveryRehideDays);
+            WriteRow(wsLogVis, 6, logisticsVis.ArrivalLeadTimeDays, logisticsVis.PreClearanceCatQtyRevealDays, logisticsVis.PostDeliveryRehideDays, logisticsVis.DispatchTargetBusinessDays);
 
         using var ms = new MemoryStream();
         wb.SaveAs(ms);

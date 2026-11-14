@@ -1278,10 +1278,11 @@ public class DataUploadService
         var trucks = await _db.Trucks.ToListAsync();
         var drivers = await _db.Drivers.ToListAsync();
         var warehouses = await _db.Warehouses.ToListAsync();
+        var transporters = await _db.ExternalTransporters.ToListAsync();
 
         for (int row = 6; row <= lastRow; row++)
         {
-            if (RowIsBlank(ws, row, 14)) continue;
+            if (RowIsBlank(ws, row, 18)) continue;
             var blAwbNo = S(ws, row, 1);
             var modelName = S(ws, row, 2);
             var ship = await FindShipmentForRow(row, blAwbNo, errors);
@@ -1311,6 +1312,36 @@ public class DataUploadService
                 if (truck is null) { errors.Add($"Row {row}: Truck with Plate No. '{plateNo}' not found."); continue; }
             }
 
+            // Cols 15-18: external (third-party) truck details. Used only when no fleet plate is given.
+            var extTransporterName = S(ws, row, 15);
+            var extTruckNo = S(ws, row, 16);
+            var extDriverName = S(ws, row, 17);
+            var extDriverPhone = S(ws, row, 18);
+            var isExternal = truck is null && extTruckNo is not null;
+            ExternalTransporter? extTransporter = null;
+            if (isExternal && extTransporterName is not null)
+            {
+                extTransporter = transporters.FirstOrDefault(t => t.Name == extTransporterName);
+                if (extTransporter is null) { errors.Add($"Row {row}: External Transporter '{extTransporterName}' not found (add it in Logistics - Settings or the ExternalTransporters sheet)."); continue; }
+            }
+            // True when this row describes a truck load (fleet or external) rather than "allocated, not yet trucked".
+            var hasTruck = truck is not null || isExternal;
+
+            void ApplyTruck(TruckLoad l, Driver? d)
+            {
+                if (isExternal)
+                {
+                    l.IsExternal = true; l.TruckId = null; l.DriverId = null;
+                    l.ExternalTransporterId = extTransporter?.Id;
+                    l.ExternalTruckNo = extTruckNo; l.ExternalDriverName = extDriverName; l.ExternalDriverPhone = extDriverPhone;
+                }
+                else
+                {
+                    l.IsExternal = false; l.TruckId = truck!.Id; l.DriverId = d?.Id;
+                    l.ExternalTransporterId = null; l.ExternalTruckNo = null; l.ExternalDriverName = null; l.ExternalDriverPhone = null;
+                }
+            }
+
             var driverName = S(ws, row, 6);
             var driver = driverName is not null ? drivers.FirstOrDefault(d => d.Name == driverName) : null;
 
@@ -1332,7 +1363,7 @@ public class DataUploadService
                 existingAllocation.ContactName = contactName;
                 existingAllocation.ContactPhone = contactPhone;
 
-                if (truck is null)
+                if (!hasTruck)
                 {
                     // This row round-trips back to "allocated, not yet
                     // trucked" — nothing here to update an existing truck
@@ -1349,7 +1380,7 @@ public class DataUploadService
                     var existingLoad = existingDrop is not null ? await _db.TruckLoads.FirstOrDefaultAsync(l => l.Id == existingDrop.TruckLoadId) : null;
 
                     if (existingDrop is not null) { existingDrop.WarehouseId = warehouse.Id; existingDrop.ExpectedDeliveryDate = Dt(ws, row, 8); existingDrop.ActualDropOffDate = Dt(ws, row, 9); }
-                    if (existingLoad is not null) { existingLoad.TruckId = truck.Id; existingLoad.DriverId = driver?.Id; existingLoad.LoadDate = loadDate; existingLoad.Notes = truckLoadNotes; }
+                    if (existingLoad is not null) { ApplyTruck(existingLoad, driver); existingLoad.LoadDate = loadDate; existingLoad.Notes = truckLoadNotes; }
                     existingItem.Qty = qty; existingItem.InHousePrice = D(ws, row, 10); existingItem.ParallelMarketPrice = D(ws, row, 11);
 
                     await _db.SaveChangesAsync();
@@ -1359,7 +1390,8 @@ public class DataUploadService
 
                 // Existing allocation had no truck chain yet, and this row
                 // now supplies one — create it against the existing allocation.
-                var newLoad = new TruckLoad { TruckId = truck.Id, DriverId = driver?.Id, LoadDate = loadDate, Notes = truckLoadNotes ?? "Migration import" };
+                var newLoad = new TruckLoad { LoadDate = loadDate, Notes = truckLoadNotes ?? "Migration import" };
+                ApplyTruck(newLoad, driver);
                 _db.TruckLoads.Add(newLoad);
                 await _db.SaveChangesAsync();
 
@@ -1381,7 +1413,7 @@ public class DataUploadService
             _db.WarehouseAllocations.Add(allocation);
             await _db.SaveChangesAsync();
 
-            if (truck is null)
+            if (!hasTruck)
             {
                 // Allocated but not yet trucked — the allocation itself is
                 // the whole of what this row has to give.
@@ -1389,7 +1421,8 @@ public class DataUploadService
                 continue;
             }
 
-            var load = new TruckLoad { TruckId = truck.Id, DriverId = driver?.Id, LoadDate = loadDate, Notes = truckLoadNotes ?? "Migration import" };
+            var load = new TruckLoad { LoadDate = loadDate, Notes = truckLoadNotes ?? "Migration import" };
+            ApplyTruck(load, driver);
             _db.TruckLoads.Add(load);
             await _db.SaveChangesAsync();
 

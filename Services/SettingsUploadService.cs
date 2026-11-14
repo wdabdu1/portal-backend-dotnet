@@ -96,6 +96,9 @@ public class SettingsUploadService
             ("Drivers", UploadDrivers),
             ("Trucks", UploadTrucks),
             ("Warehouses", UploadWarehouses),
+            ("ExternalTransporters", UploadExternalTransporters),
+            ("LogisticsDelayReasons", UploadSimpleNameActive<LogisticsDelayReason>("LogisticsDelayReasons")),
+            ("LogisticsCityTargets", UploadLogisticsCityTargets),
             ("Tenors", UploadTenors),
             ("SenderBanks", UploadSenderBanks),
             ("ReceiverBanks", UploadReceiverBanks),
@@ -503,6 +506,47 @@ public class SettingsUploadService
         return new SheetUploadResult("Drivers", created, updated, errors);
     }
 
+    private async Task<SheetUploadResult> UploadExternalTransporters(IXLWorksheet ws)
+    {
+        var errors = new List<string>(); int created = 0, updated = 0;
+        var lastRow = ws.LastRowUsed()?.RowNumber() ?? FirstDataRow - 1;
+        var existing = await _db.ExternalTransporters.ToListAsync();
+
+        for (int row = FirstDataRow; row <= lastRow; row++)
+        {
+            if (RowIsBlank(ws, row, 3)) continue;
+            var name = S(ws, row, 1);
+            if (name is null) { errors.Add($"Row {row}: Name is required."); continue; }
+            var phone = S(ws, row, 2); var active = B(ws, row, 3) ?? true;
+            var match = existing.FirstOrDefault(d => d.Name == name);
+            if (match is null) { var t = new ExternalTransporter { Name = name, Phone = phone, IsActive = active }; _db.ExternalTransporters.Add(t); existing.Add(t); created++; }
+            else { match.Phone = phone; match.IsActive = active; updated++; }
+        }
+        await _db.SaveChangesAsync();
+        return new SheetUploadResult("ExternalTransporters", created, updated, errors);
+    }
+
+    // Delivery target per Logistics City (calendar days). Cities themselves come from the LogisticsCities sheet.
+    private async Task<SheetUploadResult> UploadLogisticsCityTargets(IXLWorksheet ws)
+    {
+        var errors = new List<string>(); int created = 0, updated = 0;
+        var lastRow = ws.LastRowUsed()?.RowNumber() ?? FirstDataRow - 1;
+        var cities = await _db.LogisticsCities.ToListAsync();
+
+        for (int row = FirstDataRow; row <= lastRow; row++)
+        {
+            if (RowIsBlank(ws, row, 2)) continue;
+            var cityName = S(ws, row, 1);
+            if (cityName is null) { errors.Add($"Row {row}: CityName is required."); continue; }
+            var city = cities.FirstOrDefault(c => c.Name == cityName);
+            if (city is null) { errors.Add($"Row {row}: Logistics City '{cityName}' not found."); continue; }
+            city.TargetDeliveryDays = I(ws, row, 2);
+            updated++;
+        }
+        await _db.SaveChangesAsync();
+        return new SheetUploadResult("LogisticsCityTargets", created, updated, errors);
+    }
+
     private async Task<SheetUploadResult> UploadTrucks(IXLWorksheet ws)
     {
         var errors = new List<string>(); int created = 0, updated = 0;
@@ -882,6 +926,8 @@ public class SettingsUploadService
         setting.ArrivalLeadTimeDays = arrival.Value;
         setting.PreClearanceCatQtyRevealDays = preClearance.Value;
         setting.PostDeliveryRehideDays = postDelivery.Value;
+        var dispatchTarget = I(ws, dataRow, 4);   // optional column added with Logistics Phase B
+        if (dispatchTarget.HasValue) setting.DispatchTargetBusinessDays = Math.Max(0, dispatchTarget.Value);
         setting.UpdatedAt = DateTime.UtcNow;
 
         await _db.SaveChangesAsync();

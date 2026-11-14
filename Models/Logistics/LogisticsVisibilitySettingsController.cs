@@ -7,7 +7,7 @@ using ShippingPortal.Api.Models.Logistics;
 
 namespace ShippingPortal.Api.Controllers.Settings;
 
-public record LogisticsVisibilityUpdateRequest(int ArrivalLeadTimeDays, int PreClearanceCatQtyRevealDays, int PostDeliveryRehideDays, bool? ShowLogisticsListsInMainSettings = null);
+public record LogisticsVisibilityUpdateRequest(int ArrivalLeadTimeDays, int PreClearanceCatQtyRevealDays, int PostDeliveryRehideDays, bool? ShowLogisticsListsInMainSettings = null, int? DispatchTargetBusinessDays = null);
 
 // Moved here from Controllers/Logistics — this is a genuine Settings screen
 // (Settings > Shipping & Logistics > Logistics — Reveal Settings), not a
@@ -52,6 +52,7 @@ public class LogisticsVisibilitySettingsController : ControllerBase
         settings.PreClearanceCatQtyRevealDays = req.PreClearanceCatQtyRevealDays;
         settings.PostDeliveryRehideDays = req.PostDeliveryRehideDays;
         if (req.ShowLogisticsListsInMainSettings.HasValue) settings.ShowLogisticsListsInMainSettings = req.ShowLogisticsListsInMainSettings.Value;
+        if (req.DispatchTargetBusinessDays.HasValue) settings.DispatchTargetBusinessDays = Math.Max(0, req.DispatchTargetBusinessDays.Value);
         settings.UpdatedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync();
         return settings;

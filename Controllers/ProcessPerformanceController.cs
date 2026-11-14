@@ -51,7 +51,9 @@ public static class ProcessStepCategories
         ["MOT Certificate Delays"] = "Government",
         ["SSMO Certificate Delays"] = "Government",
         ["OS Doc Dispatch"] = "Internal",
-        ["Container Return"] = "Internal"
+        ["Container Return"] = "Internal",
+        // Logistics-owned: Clearance release (SPC Bill settlement) -> whole shipment on trucks.
+        ["Logistics Dispatch"] = "Logistics"
     };
 }
 
@@ -113,7 +115,12 @@ public record ProcessPerformanceFilterOptions(
 public class ProcessPerformanceController : ControllerBase
 {
     private readonly ShippingPortalDbContext _db;
-    public ProcessPerformanceController(ShippingPortalDbContext db) => _db = db;
+    private readonly LogisticsDispatchService _dispatch;
+    public ProcessPerformanceController(ShippingPortalDbContext db, LogisticsDispatchService dispatch)
+    {
+        _db = db;
+        _dispatch = dispatch;
+    }
 
     // Powers the shipment search box — matches on BL/AWB, Supplier, or
     // Consignee, returning enough context in each result for the user
@@ -208,10 +215,12 @@ public class ProcessPerformanceController : ControllerBase
         var holidaySet = (await _db.PublicHolidays.Where(h => h.AffectsClr).Select(h => h.Date).ToListAsync()).ToHashSet();
         var slaRows = await _db.ClearanceSlaSettings.Where(s => s.IsActive).ToListAsync();
 
+        var dispatchTarget = await _dispatch.GetTargetDaysAsync();
+
         var perShipment = new List<ProcessPerformanceResult>();
         foreach (var id in targetIds)
         {
-            var detail = await BuildSingleAsync(id, holidaySet, slaRows);
+            var detail = await BuildSingleAsync(id, holidaySet, slaRows, dispatchTarget);
             if (detail is not null) perShipment.Add(detail);
         }
 
@@ -402,7 +411,7 @@ public class ProcessPerformanceController : ControllerBase
     private static int BusinessDaysBetween(DateOnly from, DateOnly to, HashSet<DateOnly> holidays) =>
         ClearanceScheduleService.BusinessDaysBetween(from, to, holidays);
 
-    private async Task<ProcessPerformanceResult?> BuildSingleAsync(int shipmentId, HashSet<DateOnly> holidaySet, List<ClearanceSlaSetting> slaRows)
+    private async Task<ProcessPerformanceResult?> BuildSingleAsync(int shipmentId, HashSet<DateOnly> holidaySet, List<ClearanceSlaSetting> slaRows, int dispatchTarget)
     {
         var shipment = await _db.Shipments
             .Include(s => s.PurchaseOrder).ThenInclude(p => p!.BusinessUnit)
@@ -523,6 +532,19 @@ public class ProcessPerformanceController : ControllerBase
                 var actualStart = chainFrom;
                 AddStep(steps, row.GroupItem, forecastStart, forecastEnd, actualStart, actualEnd, row.TargetDays, holidaySet);
                 if (actualEnd.HasValue) chainFrom = actualEnd.Value;
+            }
+        }
+
+        // --- Logistics Dispatch (Route 1 only): Clearance release -> whole shipment on trucks ---
+        // Owned by Logistics, shown as its own step after the clearance cascade. Only appears once the
+        // SPC Bill has actually been settled (that is the moment Logistics' clock starts).
+        if (route == ClearanceRouteType.Route1ClearAtPort)
+        {
+            var dispatch = (await _dispatch.GetForPortShipmentsAsync(new List<int> { shipmentId })).GetValueOrDefault(shipmentId);
+            if (dispatch?.ReleaseDate is DateOnly release)
+            {
+                var forecastEnd = AddBusinessDays(release, dispatchTarget, holidaySet);
+                AddStep(steps, "Logistics Dispatch", release, forecastEnd, release, dispatch.FullyDispatchedDate, dispatchTarget, holidaySet);
             }
         }
 

@@ -32,5 +32,10 @@ public class LogisticsVisibilitySettings
     // Logistics - Settings (Coordinator's entry point).
     public bool ShowLogisticsListsInMainSettings { get; set; } = true;
 
+    // Logistics dispatch target (business days): from Clearance releasing the cargo
+    // (SPC Bill settlement) until the WHOLE shipment is on trucks. Feeds the
+    // Logistics Dispatch step in Process Performance / Demurrage Analysis.
+    public int DispatchTargetBusinessDays { get; set; } = 2;
+
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 }
