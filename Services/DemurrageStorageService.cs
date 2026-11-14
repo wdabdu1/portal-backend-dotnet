@@ -43,7 +43,7 @@ public class DemurrageStorageService
         _scheduleService = scheduleService;
     }
 
-    public async Task<DemurrageStorageResult> CalculateAsync(int shipmentId, bool asOfToday = false)
+    public async Task<DemurrageStorageResult> CalculateAsync(int shipmentId, bool asOfToday = false, DateOnly? forcedEnd = null)
     {
         var warnings = new List<string>();
 
@@ -100,6 +100,14 @@ public class DemurrageStorageService
             var r2 = await _db.ClearanceRoute2Details.FirstOrDefaultAsync(x => x.ClearanceId == clearance!.Id);
             storageActualEnd = r2?.TruckPortEntryPermitDate;
             demurrageActualEnd = r2?.ContainersReturnedDate;
+        }
+
+        // SLA-plan mode: ignore what actually happened and stop both clocks on the given (planned) date.
+        if (forcedEnd.HasValue)
+        {
+            projectedEnd = forcedEnd.Value;
+            storageActualEnd = null;
+            demurrageActualEnd = null;
         }
 
         var storageEnd = storageActualEnd ?? projectedEnd;

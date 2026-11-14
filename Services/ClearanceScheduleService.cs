@@ -208,6 +208,44 @@ public class ClearanceScheduleService
         return result;
     }
 
+    // The "SLA plan": where the clearance would END if every step hit its SLA target, starting from the
+    // TRUE arrival (DO Actual Arrival, else ETA - never MOT-shifted) and adding each step's target working
+    // days in sequence. Customs Lab is skipped when this Route 1 shipment does not need it. Independent of
+    // what actually happened, so it can be calculated at any time. Null when there is no applicable route
+    // (not selected / Route 3) or no arrival/ETA.
+    public async Task<DateOnly?> GetSlaPlanEndDateAsync(int shipmentId)
+    {
+        var shipment = await _db.Shipments.FirstOrDefaultAsync(s => s.Id == shipmentId);
+        if (shipment is null) return null;
+        var clearance = await _db.Clearances.FirstOrDefaultAsync(c => c.ShipmentId == shipmentId);
+        var route = clearance?.Route ?? ClearanceRouteType.NotSelected;
+        if (clearance is null || route == ClearanceRouteType.NotSelected || route == ClearanceRouteType.Route3ClearFromFz) return null;
+
+        var deliveryOrder = await _db.ClearanceDeliveryOrders.FirstOrDefaultAsync(d => d.ClearanceId == clearance.Id);
+        var anchor = deliveryOrder?.ActualArrivalDate ?? shipment.Eta;
+        if (!anchor.HasValue) return null;
+
+        var holidaySet = (await _db.PublicHolidays.Where(h => h.AffectsClr).Select(h => h.Date).ToListAsync()).ToHashSet();
+        var slaRows = await _db.ClearanceSlaSettings.Where(s => s.IsActive).OrderBy(s => s.SequenceOrder).ToListAsync();
+        var routeDivision = route == ClearanceRouteType.Route1ClearAtPort ? ClearanceDivision.Route1 : ClearanceDivision.Route2;
+
+        var rows = new List<ClearanceSlaSetting>();
+        rows.AddRange(slaRows.Where(s => s.Division == ClearanceDivision.General));
+        rows.AddRange(slaRows.Where(s => s.Division == routeDivision));
+
+        var labRequired = true;
+        if (route == ClearanceRouteType.Route1ClearAtPort)
+            labRequired = (await _db.ClearanceRoute1Details.FirstOrDefaultAsync(r => r.ClearanceId == clearance.Id))?.CustomsLabRequired ?? false;
+
+        var date = anchor.Value;
+        foreach (var row in rows)
+        {
+            if (row.GroupItem == "Customs Lab" && !labRequired) continue;
+            date = AddBusinessDays(date, (int)Math.Ceiling(row.TargetDays), holidaySet);
+        }
+        return date;
+    }
+
     public async Task<ClearanceScheduleResult> GetScheduleAsync(int shipmentId)
     {
         var shipment = await _db.Shipments.FirstOrDefaultAsync(s => s.Id == shipmentId);

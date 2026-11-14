@@ -46,7 +46,9 @@ public record ActualChargesResponse(
     // shown alongside Amount Returned from Deposit so a discrepancy
     // between what was paid and what's coming back is immediately
     // visible, not something to go hunting for in a different section.
-    decimal? DepositPaidSdg, string? Comments);
+    decimal? DepositPaidSdg, string? Comments,
+    // True only on the response of the call that just captured the forecast on its own (Save / opening the section).
+    bool ForecastAutoCaptured = false);
 
 public record ActualChargesRequest(
     decimal? ActualDemurragePaidSdg, decimal? ActualStoragePaidSdg,
@@ -90,6 +92,25 @@ public class ClearanceRouteDetailsController : ControllerBase
     // effect, so it still sees "not yet completed" and computes off the
     // SLA-projected date. That's the frozen "Planned" forecast, captured
     // once and never recalculated afterward.
+    // Forecast = what the charges WOULD have been if every clearance step had hit its SLA target, counted
+    // from the true arrival date (see ClearanceScheduleService.GetSlaPlanEndDateAsync). Because it does not
+    // depend on what actually happened, it can be (re)calculated at any time and stays comparable with
+    // Actual Paid. Returns false when there is nothing to plan against (no route / Route 3 / no arrival).
+    private async Task<bool> ApplySlaPlanForecastAsync(int shipmentId, ClearanceActualCharges charges)
+    {
+        var planEnd = await _scheduleService.GetSlaPlanEndDateAsync(shipmentId);
+        if (!planEnd.HasValue) return false;
+        var result = await _demurrageService.CalculateAsync(shipmentId, false, planEnd);
+        if (!result.Applicable) return false;
+
+        charges.PlannedCompletionDate = planEnd;
+        charges.ForecastDemurrageSdg = result.DemurrageCostSdg;
+        charges.ForecastStorageSdg = result.StorageCostSdg;
+        charges.ForecastCapturedAt = DateTime.UtcNow;
+        return true;
+    }
+
+    // Fires the first time Truck & Containers' own Actual Completion Date is saved (was null, now isn't).
     private async Task CaptureForecastIfNewlyCompletedAsync(int shipmentId, int clearanceId, DateOnly? oldCompletedDate, DateOnly? newCompletedDate)
     {
         if (oldCompletedDate.HasValue || !newCompletedDate.HasValue) return;
@@ -97,20 +118,24 @@ public class ClearanceRouteDetailsController : ControllerBase
         var charges = await _db.ClearanceActualCharges.FirstOrDefaultAsync(x => x.ClearanceId == clearanceId);
         if (charges is null) { charges = new ClearanceActualCharges { ClearanceId = clearanceId }; _db.ClearanceActualCharges.Add(charges); }
 
-        // Planned Completion Date — independent of FCL/demurrage
-        // applicability, this is the general "how did the team
-        // actually perform against the plan" figure.
-        var estimatedCompletions = await _scheduleService.GetEstimatedCompletionDatesAsync(new List<int> { shipmentId });
-        charges.PlannedCompletionDate = estimatedCompletions.GetValueOrDefault(shipmentId);
-
-        var result = await _demurrageService.CalculateAsync(shipmentId);
-        if (result.Applicable)
+        if (!await ApplySlaPlanForecastAsync(shipmentId, charges))
         {
-            charges.ForecastDemurrageSdg = result.DemurrageCostSdg;
-            charges.ForecastStorageSdg = result.StorageCostSdg;
-            charges.ForecastCapturedAt = DateTime.UtcNow;
+            // No SLA plan for this route (e.g. Route 3): keep the general "planned completion" figure only.
+            var estimatedCompletions = await _scheduleService.GetEstimatedCompletionDatesAsync(new List<int> { shipmentId });
+            charges.PlannedCompletionDate = estimatedCompletions.GetValueOrDefault(shipmentId);
         }
     }
+
+    private async Task<ActualChargesResponse> BuildChargesResponseAsync(ClearanceActualCharges charges, int clearanceId, bool autoCaptured = false)
+    {
+        var depositPaidSdg = await GetDepositPaidSdgAsync(clearanceId);
+        return new ActualChargesResponse(
+            charges.ForecastDemurrageSdg, charges.ForecastStorageSdg, charges.ForecastCapturedAt,
+            charges.ActualDemurragePaidSdg, charges.ActualStoragePaidSdg,
+            charges.ShippingLineDepositReturnDate, charges.AmountReturnedFromDeposit,
+            charges.PlannedCompletionDate, depositPaidSdg, charges.Comments, autoCaptured);
+    }
+
     private async Task<ClearanceEntity?> GetOrCreateClearanceAsync(int shipmentId)
     {
         // Direct Sales shipments never get a Clearance record — treat
@@ -392,13 +417,16 @@ public class ClearanceRouteDetailsController : ControllerBase
         var charges = await _db.ClearanceActualCharges.FirstOrDefaultAsync(x => x.ClearanceId == clearance.Id);
         if (charges is null) return Ok(null);
 
-        var depositPaidSdg = await GetDepositPaidSdgAsync(clearance.Id);
+        // Opening the section with no forecast yet: capture it now, exactly as if Recalculate Forecast
+        // had been pressed and saved, so the officer (and the Demurrage Analysis dashboard) sees it.
+        var autoCaptured = false;
+        if (charges.ForecastCapturedAt is null && await ApplySlaPlanForecastAsync(shipmentId, charges))
+        {
+            await _db.SaveChangesAsync();
+            autoCaptured = true;
+        }
 
-        return Ok(new ActualChargesResponse(
-            charges.ForecastDemurrageSdg, charges.ForecastStorageSdg, charges.ForecastCapturedAt,
-            charges.ActualDemurragePaidSdg, charges.ActualStoragePaidSdg,
-            charges.ShippingLineDepositReturnDate, charges.AmountReturnedFromDeposit,
-            charges.PlannedCompletionDate, depositPaidSdg, charges.Comments));
+        return Ok(await BuildChargesResponseAsync(charges, clearance.Id, autoCaptured));
     }
 
     // Sums the Cost Estimate's own "Ship. Line Deposit" charge type —
@@ -425,16 +453,21 @@ public class ClearanceRouteDetailsController : ControllerBase
         var charges = await _db.ClearanceActualCharges.FirstOrDefaultAsync(x => x.ClearanceId == clearance.Id);
         if (charges is null) { charges = new ClearanceActualCharges { ClearanceId = clearance.Id }; _db.ClearanceActualCharges.Add(charges); }
 
-        // Forecast fields are never touched here — only the trigger in
-        // SaveRoute1/SaveRoute2 sets them, exactly once.
+        // Forecast is normally captured when Truck & Containers completes. If it is still missing when the
+        // actuals are saved (entered first, imported, or captured before this rule existed), capture it now
+        // so Actual Paid never sits without its forecast. An existing forecast is left untouched.
         charges.ActualDemurragePaidSdg = req.ActualDemurragePaidSdg;
         charges.ActualStoragePaidSdg = req.ActualStoragePaidSdg;
         charges.ShippingLineDepositReturnDate = req.ShippingLineDepositReturnDate;
         charges.AmountReturnedFromDeposit = req.AmountReturnedFromDeposit;
         charges.Comments = req.Comments;
 
+        var autoCaptured = false;
+        if (charges.ForecastCapturedAt is null)
+            autoCaptured = await ApplySlaPlanForecastAsync(shipmentId, charges);
+
         await _db.SaveChangesAsync();
-        return Ok(charges);
+        return Ok(await BuildChargesResponseAsync(charges, clearance.Id, autoCaptured));
     }
 
     // Lets a user manually refresh the forecast if it was captured too
@@ -449,26 +482,16 @@ public class ClearanceRouteDetailsController : ControllerBase
         var clearance = await GetOrCreateClearanceAsync(shipmentId);
         if (clearance is null) return NotFound();
 
-        var result = await _demurrageService.CalculateAsync(shipmentId);
         var charges = await _db.ClearanceActualCharges.FirstOrDefaultAsync(x => x.ClearanceId == clearance.Id);
         if (charges is null) { charges = new ClearanceActualCharges { ClearanceId = clearance.Id }; _db.ClearanceActualCharges.Add(charges); }
 
-        var estimatedCompletions = await _scheduleService.GetEstimatedCompletionDatesAsync(new List<int> { shipmentId });
-        charges.PlannedCompletionDate = estimatedCompletions.GetValueOrDefault(shipmentId);
-
-        if (result.Applicable)
+        if (!await ApplySlaPlanForecastAsync(shipmentId, charges))
         {
-            charges.ForecastDemurrageSdg = result.DemurrageCostSdg;
-            charges.ForecastStorageSdg = result.StorageCostSdg;
-            charges.ForecastCapturedAt = DateTime.UtcNow;
+            var estimatedCompletions = await _scheduleService.GetEstimatedCompletionDatesAsync(new List<int> { shipmentId });
+            charges.PlannedCompletionDate = estimatedCompletions.GetValueOrDefault(shipmentId);
         }
 
         await _db.SaveChangesAsync();
-        var depositPaidSdgForRecalc = await GetDepositPaidSdgAsync(clearance.Id);
-        return Ok(new ActualChargesResponse(
-            charges.ForecastDemurrageSdg, charges.ForecastStorageSdg, charges.ForecastCapturedAt,
-            charges.ActualDemurragePaidSdg, charges.ActualStoragePaidSdg,
-            charges.ShippingLineDepositReturnDate, charges.AmountReturnedFromDeposit,
-            charges.PlannedCompletionDate, depositPaidSdgForRecalc, charges.Comments));
+        return Ok(await BuildChargesResponseAsync(charges, clearance.Id));
     }
 }

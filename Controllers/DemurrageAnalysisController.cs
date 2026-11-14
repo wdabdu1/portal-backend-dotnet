@@ -32,6 +32,26 @@ public record ClearanceStepGap(string GroupItem, int? ActualDaysTaken, decimal? 
 // steps that have actually happened / have a fixed target, so an
 // in-progress shipment doesn't understate a category just because a
 // later step hasn't landed yet.
+// ---- Timeline & charge clocks (single-shipment mode) ----
+// One line per container size actually on the shipment (or one "All containers" line for storage).
+public record ClockSizeLine(string Label, int ContainerCount, int FreeDays, int ChargeableDays);
+
+// A charge clock: demurrage runs from arrival until the containers are returned, storage runs from
+// arrival until the trucks enter the port. EndIsActual = false means the end date is still a projection.
+public record ChargeClock(
+    string Name, DateOnly? StartDate, DateOnly? EndDate, bool EndIsActual, string EndLabel,
+    int ElapsedDays, DateOnly? FreeEndsOn, List<ClockSizeLine> Lines, decimal CostSdg);
+
+// One segment of the calendar-day timeline: from the previous recorded date to this step's recorded date.
+// FreeDaysUsed + ChargeableDays = CalendarDays; CumulativeDays is the running day count at the end of the segment.
+public record AttributionRow(string Step, DateOnly From, DateOnly To, int CalendarDays, int CumulativeDays, int FreeDaysUsed, int ChargeableDays, string? Note);
+
+public record ClockAttribution(string Clock, int FreeDays, int TotalChargeableDays, List<AttributionRow> Rows);
+
+public record DemurrageTimeline(
+    DateOnly? ArrivalDate, bool ArrivalIsActual, DateOnly? ClearanceCompletedDate, DateOnly? TruckPortEntryDate, DateOnly? ContainersReturnedDate,
+    ChargeClock Demurrage, ChargeClock Storage, List<ClockAttribution> Attribution, List<string> DataGaps);
+
 public record CategoryGapRollup(string Category, int TotalActualDays, decimal TotalTargetDays, decimal TotalGapDays);
 
 public record DemurrageAnalysisResult(
@@ -83,7 +103,10 @@ public record DemurrageAnalysisResult(
     // (demurrage stops at Container Return), shown as its own card together with the logged delay
     // reasons. Empty list = nothing to show yet.
     List<ClearanceStepGap>? LogisticsSteps = null,
-    List<ShippingPortal.Api.Controllers.Logistics.DelayEntryDto>? LogisticsDelays = null);
+    List<ShippingPortal.Api.Controllers.Logistics.DelayEntryDto>? LogisticsDelays = null,
+    // Single-shipment mode: arrival / cleared / port-entry / return dates, both charge clocks, where the
+    // chargeable days came from, and dates missing from the record.
+    DemurrageTimeline? Timeline = null);
 
 // Every figure here is anchored on shipments that actually had a real
 // Demurrage or Storage payment recorded — this is a "what happened and
@@ -502,10 +525,17 @@ public class DemurrageAnalysisController : ControllerBase
             return stepComments.GetValueOrDefault(key);
         }
 
+        // Each step is measured from the LAST RECORDED date before it (not from "today" or the engine's own
+        // chain), so one blank date can never poison the steps after it: the days of an unrecorded step are
+        // simply counted in the next recorded one, and the table still reconciles to arrival -> container return.
+        var scheduleItems = schedule.Items;
+        var lastActualIndex = scheduleItems.FindLastIndex(x => x.ActualDate.HasValue);
+        var lastKnownDate = schedule.AnchorDate ?? spanStart;
         var foundCurrentStep = false;
-        foreach (var i in schedule.Items)
+        for (var idx = 0; idx < scheduleItems.Count; idx++)
         {
-            if (i.GroupItem == "Customs Lab" && !customsLabRequired && !i.ActualDaysTaken.HasValue)
+            var i = scheduleItems[idx];
+            if (i.GroupItem == "Customs Lab" && !customsLabRequired && !i.ActualDate.HasValue)
             {
                 continue;
             }
@@ -522,16 +552,22 @@ public class DemurrageAnalysisController : ControllerBase
                 stepGaps.Add(new ClearanceStepGap("MOT Certificate Delays", motDelay, null, motDelay, ProcessStepCategories.ByStep.GetValueOrDefault("MOT Certificate Delays", "Government")));
             }
 
-            if (i.ActualDaysTaken.HasValue)
+            if (i.ActualDate.HasValue)
             {
-                stepGaps.Add(new ClearanceStepGap(i.GroupItem, i.ActualDaysTaken, i.TargetDays, i.ActualDaysTaken.Value - i.TargetDays, category, CommentFor(i.GroupItem)));
+                var actualDate = i.ActualDate.Value;
+                var stepDays = actualDate > lastKnownDate ? ClearanceScheduleService.BusinessDaysBetween(lastKnownDate, actualDate, holidaySet) : 0;
+                stepGaps.Add(new ClearanceStepGap(i.GroupItem, stepDays, i.TargetDays, stepDays - i.TargetDays, category, CommentFor(i.GroupItem)));
+                if (actualDate > lastKnownDate) lastKnownDate = actualDate;
+            }
+            else if (idx < lastActualIndex)
+            {
+                // A later step already has its date, so this one is finished in reality - its date was just never entered.
+                stepGaps.Add(new ClearanceStepGap($"{i.GroupItem} (date not recorded)", null, i.TargetDays, null, category, CommentFor(i.GroupItem)));
             }
             else if (!foundCurrentStep)
             {
                 foundCurrentStep = true;
-                var wholeDays = (int)Math.Ceiling(i.TargetDays);
-                var stepStart = ClearanceScheduleService.SubtractBusinessDays(i.TargetDate, wholeDays, holidaySet);
-                var elapsedSoFar = ClearanceScheduleService.BusinessDaysBetween(stepStart, today, holidaySet);
+                var elapsedSoFar = Math.Max(0, ClearanceScheduleService.BusinessDaysBetween(lastKnownDate, today, holidaySet));
                 stepGaps.Add(new ClearanceStepGap($"{i.GroupItem} (ongoing)", elapsedSoFar, i.TargetDays, elapsedSoFar - i.TargetDays, category, CommentFor(i.GroupItem)));
             }
             else
@@ -632,16 +668,38 @@ public class DemurrageAnalysisController : ControllerBase
                 !d.ToDate.HasValue, d.Note, d.CreatedBy, d.CreatedAt)).ToList();
         }
 
+        // Timeline & charge clocks (single-shipment view only).
+        DemurrageTimeline? timeline = null;
+        if (includeLogistics && clearance is not null && demurrage.Applicable && demurrage.AnchorDate.HasValue)
+        {
+            timeline = BuildTimeline(shipment, clearance, demurrage, schedule, actualArrival.HasValue,
+                customsLabRequired,
+                clearance.Route == ShippingPortal.Api.Models.Clearance.ClearanceRouteType.Route1ClearAtPort
+                    ? (await _db.ClearanceRoute1Details.Where(r => r.ClearanceId == clearance.Id)
+                        .Select(r => new RouteDates(r.ClearanceActualCompletedDate, r.TruckPortEntryPermitDate, r.ContainersReturnedDate)).FirstOrDefaultAsync())
+                    : (await _db.ClearanceRoute2Details.Where(r => r.ClearanceId == clearance.Id)
+                        .Select(r => new RouteDates(r.ClearanceActualCompletedDate, r.TruckPortEntryPermitDate, r.ContainersReturnedDate)).FirstOrDefaultAsync()));
+        }
+
         var firstItem = shipment.LineItems.FirstOrDefault();
         var totalQty = shipment.LineItems.Sum(li => li.QtyInBl);
 
-        // Free days for the top summary — whichever charge type actually
-        // has a configured tariff for this shipment.
-        int? summaryFreeDays = demurrage.DemurrageFreeDays20 ?? demurrage.DemurrageFreeDays40 ?? (demurrage.StorageFreeDays > 0 ? demurrage.StorageFreeDays : null);
+        // Free days / chargeable days for the summary: use the container size actually on this shipment
+        // (a 40ft-only shipment must show the 40ft tariff even when a 20ft tariff is also configured).
+        var useSize20 = shipment.Fcl20Count > 0 || shipment.Fcl40Count == 0;
+        int? demFreeInt = useSize20
+            ? (demurrage.DemurrageFreeDays20 ?? demurrage.DemurrageFreeDays40)
+            : (demurrage.DemurrageFreeDays40 ?? demurrage.DemurrageFreeDays20);
+        int? demChargeableInt = useSize20
+            ? (demurrage.DemurrageChargeableDays20 ?? demurrage.DemurrageChargeableDays40)
+            : (demurrage.DemurrageChargeableDays40 ?? demurrage.DemurrageChargeableDays20);
+        int? summaryFreeDays = demFreeInt ?? (demurrage.StorageFreeDays > 0 ? demurrage.StorageFreeDays : null);
 
-        var demurrageBreakdown = demurrage.DemurrageBreakdown20.Count > 0 ? demurrage.DemurrageBreakdown20 : demurrage.DemurrageBreakdown40;
-        double? demFreeDays = demurrage.DemurrageFreeDays20 ?? demurrage.DemurrageFreeDays40;
-        double? demChargeableDays = demurrage.DemurrageChargeableDays20 ?? demurrage.DemurrageChargeableDays40;
+        var demurrageBreakdown = (useSize20 ? demurrage.DemurrageBreakdown20 : demurrage.DemurrageBreakdown40).Count > 0
+            ? (useSize20 ? demurrage.DemurrageBreakdown20 : demurrage.DemurrageBreakdown40)
+            : (demurrage.DemurrageBreakdown20.Count > 0 ? demurrage.DemurrageBreakdown20 : demurrage.DemurrageBreakdown40);
+        double? demFreeDays = demFreeInt;
+        double? demChargeableDays = demChargeableInt;
 
         // Forecast (frozen at Truck & Containers completion) vs. Actual
         // Paid (manually entered once known) vs. Savings. Null — not 0
@@ -677,6 +735,138 @@ public class DemurrageAnalysisController : ControllerBase
             ActualDemurragePaidSdg: charges?.ActualDemurragePaidSdg, ActualStoragePaidSdg: charges?.ActualStoragePaidSdg, ActualTotalPaidSdg: actualPaidTotal,
             SavingsSdg: savings,
             Warnings: demurrage.Warnings,
-            LogisticsSteps: logisticsSteps, LogisticsDelays: logisticsDelays);
+            LogisticsSteps: logisticsSteps, LogisticsDelays: logisticsDelays, Timeline: timeline);
+    }
+
+    private record RouteDates(DateOnly? Completed, DateOnly? TruckPortEntry, DateOnly? ContainersReturned);
+
+    // Where each Clearance step's date lives, so a missing date can name the exact field the officer has to fill in.
+    private static readonly Dictionary<string, string> StepDateFields = new()
+    {
+        ["Delivery Order"] = "DO Received Date",
+        ["Clearance Cost Estimate"] = "Amount Settled Date",
+        ["Customs Certificate Entry"] = "Certificate Entry Date",
+        ["Containers Move Process"] = "Bill Settlement Date",
+        ["SSMO File Process"] = "SSMO Fees Settlement Date",
+        ["Customs Examination (Form 48)"] = "Exam Completed Date",
+        ["Customs Lab"] = "Lab Result Issuance Date",
+        ["SSMO Examination"] = "SSMO Cert Issuance Date",
+        ["Customs Evaluation"] = "Release & Exit Pass Date",
+        ["SPC Bill"] = "SPC Bill Settlement Date",
+        ["FZ Deposit Request"] = "Request Approval Date",
+        ["Customs Inspection"] = "Inspection Date",
+        ["Truck & Containers"] = "Actual Completed Date"
+    };
+
+    private static DemurrageTimeline BuildTimeline(
+        ShippingPortal.Api.Models.Shipments.Shipment shipment,
+        ShippingPortal.Api.Models.Clearance.Clearance clearance,
+        DemurrageStorageResult demurrage, ClearanceScheduleResult schedule,
+        bool arrivalIsActual, bool customsLabRequired, RouteDates? route)
+    {
+        var start = demurrage.AnchorDate!.Value;
+        var gaps = new List<string>();
+
+        // --- Recorded step dates, in order, as calendar-day segments from true arrival ---
+        var items = schedule.Items;
+        var lastActualIndex = items.FindLastIndex(x => x.ActualDate.HasValue);
+        var segments = new List<(string Step, DateOnly From, DateOnly To, string? Note)>();
+        var prev = start;
+        var unrecorded = new List<string>();
+        for (var idx = 0; idx < items.Count; idx++)
+        {
+            var it = items[idx];
+            if (it.GroupItem == "Customs Lab" && !customsLabRequired && !it.ActualDate.HasValue) continue;
+            if (!it.ActualDate.HasValue)
+            {
+                if (idx < lastActualIndex)
+                {
+                    unrecorded.Add(it.GroupItem);
+                    var field = StepDateFields.GetValueOrDefault(it.GroupItem, "date");
+                    gaps.Add($"{it.GroupItem}: '{field}' is blank although later steps are done. Its days are counted inside the next recorded step.");
+                }
+                continue;
+            }
+            var date = it.ActualDate.Value;
+            if (date < prev)
+            {
+                gaps.Add($"{it.GroupItem}: its date ({date:dd MMM yyyy}) is earlier than the previous recorded step ({prev:dd MMM yyyy}) - check the dates.");
+                date = prev;
+            }
+            string? note = unrecorded.Count > 0 ? "includes unrecorded: " + string.Join(", ", unrecorded) : null;
+            segments.Add((it.GroupItem, prev, date, note));
+            prev = date;
+            unrecorded.Clear();
+        }
+        var lastRecorded = prev;
+
+        if (!arrivalIsActual)
+            gaps.Add("Actual Arrival Date is not entered, so the ETA is used as the arrival date. Every charge day below is counted from it.");
+        if (route?.Completed.HasValue == true && route.ContainersReturned is null)
+            gaps.Add("Truck & Containers is complete but 'Containers Returned' is blank - the demurrage clock is still running (end date is a projection).");
+        if (route?.Completed.HasValue == true && route.TruckPortEntry is null)
+            gaps.Add("Truck & Containers is complete but 'Truck Port Entry Permit' is blank - the storage clock is still running (end date is a projection).");
+
+        // Walks the segments for one clock: free days are used up by the earliest days, everything after is chargeable.
+        ClockAttribution BuildAttribution(string clock, int freeDays, DateOnly end, bool endIsActual, string endLabel)
+        {
+            var rows = new List<AttributionRow>();
+            var running = 0;
+            var totalChargeable = 0;
+
+            void AddRow(string step, DateOnly from, DateOnly to, string? note)
+            {
+                var days = to.DayNumber - from.DayNumber;
+                var free = Math.Max(0, Math.Min(days, freeDays - running));
+                var chargeable = days - free;
+                running += days;
+                totalChargeable += chargeable;
+                rows.Add(new AttributionRow(step, from, to, days, running, free, chargeable, note));
+            }
+
+            foreach (var seg in segments)
+            {
+                if (seg.From >= end) break;
+                // A step that finished the same day as the previous one adds nothing to the timeline (unless it carries a note).
+                if (seg.To == seg.From && seg.Note is null) continue;
+                AddRow(seg.Step, seg.From, seg.To > end ? end : seg.To, seg.Note);
+            }
+            var covered = lastRecorded < end ? lastRecorded : end;
+            if (covered < end)
+                AddRow(endIsActual ? endLabel : $"{endLabel} (projected - not yet recorded)", covered, end, null);
+
+            return new ClockAttribution(clock, freeDays, totalChargeable, rows);
+        }
+
+        // --- Clocks ---
+        var demEnd = demurrage.DemurrageEndDate ?? start;
+        var stoEnd = demurrage.StorageEndDate ?? start;
+
+        var demLines = new List<ClockSizeLine>();
+        if (shipment.Fcl20Count > 0 && demurrage.DemurrageFreeDays20.HasValue)
+            demLines.Add(new ClockSizeLine("20ft", shipment.Fcl20Count, demurrage.DemurrageFreeDays20.Value, demurrage.DemurrageChargeableDays20 ?? 0));
+        if (shipment.Fcl40Count > 0 && demurrage.DemurrageFreeDays40.HasValue)
+            demLines.Add(new ClockSizeLine("40ft", shipment.Fcl40Count, demurrage.DemurrageFreeDays40.Value, demurrage.DemurrageChargeableDays40 ?? 0));
+
+        var stoLines = new List<ClockSizeLine>
+        {
+            new("All containers", shipment.Fcl20Count + shipment.Fcl40Count, demurrage.StorageFreeDays, demurrage.StorageChargeableDays)
+        };
+
+        var demClock = new ChargeClock("Demurrage (shipping line)", start, demEnd, demurrage.DemurrageEndIsActual, "Containers Returned",
+            Math.Max(0, demEnd.DayNumber - start.DayNumber),
+            demLines.Count > 0 ? start.AddDays(demLines.Max(l => l.FreeDays)) : null, demLines, demurrage.DemurrageCostSdg);
+        var stoClock = new ChargeClock("Storage (port / SPC)", start, stoEnd, demurrage.StorageEndIsActual, "Truck Port Entry",
+            Math.Max(0, stoEnd.DayNumber - start.DayNumber),
+            start.AddDays(demurrage.StorageFreeDays), stoLines, demurrage.StorageCostSdg);
+
+        var attribution = new List<ClockAttribution>();
+        foreach (var l in demLines)
+            attribution.Add(BuildAttribution($"Demurrage - {l.Label}", l.FreeDays, demEnd, demurrage.DemurrageEndIsActual, "Container Return"));
+        attribution.Add(BuildAttribution("Storage", demurrage.StorageFreeDays, stoEnd, demurrage.StorageEndIsActual, "Truck Port Entry"));
+
+        return new DemurrageTimeline(
+            start, arrivalIsActual, route?.Completed, route?.TruckPortEntry, route?.ContainersReturned,
+            demClock, stoClock, attribution, gaps);
     }
 }
