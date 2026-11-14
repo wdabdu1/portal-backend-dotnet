@@ -154,6 +154,9 @@ public class DataUploadService
         var truckMovementsWs = wb.Worksheets.FirstOrDefault(w => w.Name == "Truck_Movements");
         if (truckMovementsWs is not null) results.Add(await ProcessTruckMovements(truckMovementsWs, uploaderUserId));
 
+        var delayLogWs = wb.Worksheets.FirstOrDefault(w => w.Name == "Logistics_Delay_Log");
+        if (delayLogWs is not null) results.Add(await ProcessLogisticsDelayLog(delayLogWs));
+
         var directSalesDuesWs = wb.Worksheets.FirstOrDefault(w => w.Name == "Direct_Sales_Customer_Dues");
         if (directSalesDuesWs is not null) results.Add(await ProcessDirectSalesCustomerDues(directSalesDuesWs));
 
@@ -1986,6 +1989,66 @@ public class DataUploadService
         }
         await _db.SaveChangesAsync();
         return new SheetUploadResult("Truck_Movements", created, updated, errors);
+    }
+
+    // ---------- Logistics Delay Log ----------
+    // Matched by (Shipment, Withdrawal, Reason, From date) so re-uploading an export updates in place.
+    private async Task<SheetUploadResult> ProcessLogisticsDelayLog(IXLWorksheet ws)
+    {
+        var errors = new List<string>(); int created = 0, updated = 0;
+        var lastRow = ws.LastRowUsed()?.RowNumber() ?? PaymentFirstDataRow - 1;
+        var reasons = await _db.LogisticsDelayReasons.ToListAsync();
+
+        for (int row = PaymentFirstDataRow; row <= lastRow; row++)
+        {
+            if (RowIsBlank(ws, row, 7)) continue;
+            var blAwbNo = S(ws, row, 1);
+            var ship = await FindShipmentForRow(row, blAwbNo, errors);
+            if (ship is null) continue;
+
+            var reasonName = S(ws, row, 3);
+            var reason = reasons.FirstOrDefault(r => r.Name == reasonName);
+            if (reason is null) { errors.Add($"Row {row}: Delay reason '{reasonName}' not found (add it under Logistics - Settings > Delay Reasons first)."); continue; }
+
+            var fromDate = Dt(ws, row, 4);
+            if (fromDate is null) { errors.Add($"Row {row}: FROM DATE is required."); continue; }
+            var toDate = Dt(ws, row, 5);
+            if (toDate.HasValue && toDate.Value < fromDate.Value) { errors.Add($"Row {row}: TO DATE is before FROM DATE."); continue; }
+
+            int? withdrawalId = null;
+            var withdrawalRef = S(ws, row, 2);
+            if (withdrawalRef is not null)
+            {
+                var wd = await _db.Withdrawals.FirstOrDefaultAsync(w => w.DepositShipmentId == ship.Id && w.WithdrawalRequestRefNo == withdrawalRef);
+                if (wd is null) { errors.Add($"Row {row}: Withdrawal '{withdrawalRef}' not found on '{blAwbNo}'."); continue; }
+                withdrawalId = wd.Id;
+            }
+
+            var note = S(ws, row, 6);
+            if (note is not null && note.Length > 500) note = note.Substring(0, 500);
+            var loggedBy = S(ws, row, 7) ?? "Migration import";
+
+            var existing = await _db.LogisticsDelayLogs.FirstOrDefaultAsync(d =>
+                d.ShipmentId == ship.Id && d.WithdrawalId == withdrawalId && d.ReasonId == reason.Id && d.FromDate == fromDate.Value);
+            if (existing is null)
+            {
+                _db.LogisticsDelayLogs.Add(new LogisticsDelayLog
+                {
+                    ShipmentId = ship.Id, WithdrawalId = withdrawalId, ReasonId = reason.Id,
+                    FromDate = fromDate.Value, ToDate = toDate, Note = note,
+                    CreatedBy = loggedBy.Length > 256 ? loggedBy.Substring(0, 256) : loggedBy, CreatedAt = DateTime.UtcNow
+                });
+                created++;
+            }
+            else
+            {
+                existing.ToDate = toDate; existing.Note = note;
+                existing.UpdatedBy = "Migration import"; existing.UpdatedAt = DateTime.UtcNow;
+                updated++;
+            }
+            await _db.SaveChangesAsync();
+        }
+        return new SheetUploadResult("Logistics_Delay_Log", created, updated, errors);
     }
 
     // ---------- Section Locks ----------

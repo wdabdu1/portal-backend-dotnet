@@ -28,7 +28,8 @@ public record DispatchRow(
     int ShipmentId, string BlAwbNo, string BusinessUnit, string Consignee,
     DateOnly ReleaseDate, DateOnly? FirstLoadDate, DateOnly? FullyDispatchedDate,
     int Days, bool Dispatched, int TargetDays, int Gap, int LoggedDays, int UnexplainedDays,
-    decimal TotalQty, decimal LoadedQty);
+    decimal TotalQty, decimal LoadedQty,
+    int? WithdrawalId = null, string? WithdrawalRef = null);
 
 // Delivery performance for the logistics operation: calendar days from truck
 // load date to actual drop-off, against the city's own target.
@@ -185,7 +186,7 @@ public class LogisticsDelayController : ControllerBase
             .OrderByDescending(r => r.Days)
             .ToList();
 
-        // --- Dispatch wait (Route 1 shipments Clearance has released) ---
+        // --- Dispatch wait: Route 1 port shipments Clearance has released + FZ withdrawals with a Release & Exit Pass ---
         var releasedClearances = await _db.ClearanceRoute1Details
             .Where(r => r.SpcBillSettlementDate != null
                 && (!from.HasValue || r.SpcBillSettlementDate >= from.Value)
@@ -193,34 +194,46 @@ public class LogisticsDelayController : ControllerBase
             .Select(r => r.ClearanceId)
             .ToListAsync();
         var shipmentIds = await _db.Clearances.Where(c => releasedClearances.Contains(c.Id)).Select(c => c.ShipmentId).ToListAsync();
-        var dispatchInfo = await _dispatch.GetForPortShipmentsAsync(shipmentIds);
+        var portInfo = await _dispatch.GetForPortShipmentsAsync(shipmentIds);
 
-        var shipmentInfo = await _db.Shipments
-            .Where(s => shipmentIds.Contains(s.Id))
-            .Select(s => new { s.Id, s.BlAwbNo, BusinessUnit = s.PurchaseOrder!.BusinessUnit!.Name, Consignee = s.PurchaseOrder!.Consignee!.Name })
+        var withdrawalIds = await _db.Withdrawals
+            .Where(w => w.ReleaseExitPassDate != null
+                && (!from.HasValue || w.ReleaseExitPassDate >= from.Value)
+                && (!to.HasValue || w.ReleaseExitPassDate <= to.Value))
+            .Select(w => w.Id)
             .ToListAsync();
+        var withdrawalInfo = await _dispatch.GetForWithdrawalsAsync(withdrawalIds);
+
+        var allInfo = portInfo.Values.Concat(withdrawalInfo.Values).Where(i => i.ReleaseDate.HasValue).ToList();
+        var infoShipmentIds = allInfo.Select(i => i.ShipmentId).Distinct().ToList();
+
+        var shipmentInfo = (await _db.Shipments
+            .Where(s => infoShipmentIds.Contains(s.Id))
+            .Select(s => new { s.Id, s.BlAwbNo, BusinessUnit = s.PurchaseOrder!.BusinessUnit!.Name, Consignee = s.PurchaseOrder!.Consignee!.Name })
+            .ToListAsync()).ToDictionary(s => s.Id);
 
         var loggedByShipment = await _db.LogisticsDelayLogs
-            .Where(d => shipmentIds.Contains(d.ShipmentId))
-            .Select(d => new { d.ShipmentId, d.FromDate, d.ToDate })
+            .Where(d => infoShipmentIds.Contains(d.ShipmentId))
+            .Select(d => new { d.ShipmentId, d.WithdrawalId, d.FromDate, d.ToDate })
             .ToListAsync();
 
         var dispatchRows = new List<DispatchRow>();
-        foreach (var s in shipmentInfo)
+        foreach (var info in allInfo)
         {
-            var info = dispatchInfo.GetValueOrDefault(s.Id);
-            if (info?.ReleaseDate is null) continue;
-            var release = info.ReleaseDate.Value;
+            if (!shipmentInfo.TryGetValue(info.ShipmentId, out var s)) continue;
+            var release = info.ReleaseDate!.Value;
             var end = info.FullyDispatchedDate ?? today;
             var days = Math.Max(0, ClearanceScheduleService.BusinessDaysBetween(release, end, holidays));
-            var logged = loggedByShipment.Where(l => l.ShipmentId == s.Id)
+            // Delay entries belong to the same clock: a withdrawal row counts that withdrawal's entries,
+            // the port row counts the entries with no withdrawal.
+            var logged = loggedByShipment.Where(l => l.ShipmentId == info.ShipmentId && l.WithdrawalId == info.WithdrawalId)
                 .Sum(l => LogisticsDispatchService.InclusiveBusinessDays(l.FromDate, l.ToDate ?? today, holidays));
             logged = Math.Min(logged, days);
             dispatchRows.Add(new DispatchRow(
                 s.Id, s.BlAwbNo, s.BusinessUnit ?? "", s.Consignee ?? "",
                 release, info.FirstLoadDate, info.FullyDispatchedDate,
                 days, info.FullyDispatchedDate.HasValue, target, days - target, logged, days - logged,
-                info.TotalQty, info.LoadedQty));
+                info.TotalQty, info.LoadedQty, info.WithdrawalId, info.WithdrawalRef));
         }
         dispatchRows = dispatchRows.OrderByDescending(r => r.Gap).ThenBy(r => r.ReleaseDate).ToList();
 

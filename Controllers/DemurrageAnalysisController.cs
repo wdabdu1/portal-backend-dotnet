@@ -77,11 +77,12 @@ public record DemurrageAnalysisResult(
     decimal? ActualDemurragePaidSdg, decimal? ActualStoragePaidSdg, decimal? ActualTotalPaidSdg,
     decimal? SavingsSdg,
     List<string> Warnings,
-    // Single-shipment mode, Route 1 only: the Logistics-owned wait AFTER clearance (SPC Bill
-    // settlement -> whole shipment on trucks). Deliberately NOT part of StepGaps / the
-    // reconciliation above (demurrage stops at Container Return), shown as its own card
-    // together with the logged delay reasons.
-    ClearanceStepGap? LogisticsStep = null,
+    // Single-shipment mode: the Logistics-owned wait AFTER clearance - port shipment (SPC Bill
+    // settlement -> whole shipment on trucks) and one line per FZ withdrawal (Release & Exit Pass ->
+    // whole withdrawal on trucks). Deliberately NOT part of StepGaps / the reconciliation above
+    // (demurrage stops at Container Return), shown as its own card together with the logged delay
+    // reasons. Empty list = nothing to show yet.
+    List<ClearanceStepGap>? LogisticsSteps = null,
     List<ShippingPortal.Api.Controllers.Logistics.DelayEntryDto>? LogisticsDelays = null);
 
 // Every figure here is anchored on shipments that actually had a real
@@ -208,7 +209,7 @@ public class DemurrageAnalysisController : ControllerBase
 
         foreach (var id in targetIds)
         {
-            var detail = await BuildSingleAsync(id, holidaySet);
+            var detail = await BuildSingleAsync(id, holidaySet, includeLogistics: shipmentId.HasValue);
             if (detail is not null) { perShipment.Add(detail); warnings.AddRange(detail.Warnings); }
         }
 
@@ -320,7 +321,7 @@ public class DemurrageAnalysisController : ControllerBase
         return cocReady > chainPoint ? ClearanceScheduleService.BusinessDaysBetween(chainPoint, cocReady, holidaySet) : 0;
     }
 
-    private async Task<DemurrageAnalysisResult?> BuildSingleAsync(int shipmentId, HashSet<DateOnly> holidaySet)
+    private async Task<DemurrageAnalysisResult?> BuildSingleAsync(int shipmentId, HashSet<DateOnly> holidaySet, bool includeLogistics = false)
     {
         var shipment = await _db.Shipments
             .Include(s => s.PurchaseOrder).ThenInclude(p => p!.BusinessUnit)
@@ -592,20 +593,32 @@ public class DemurrageAnalysisController : ControllerBase
             }
         }
 
-        // Logistics Dispatch (Route 1): own card, never added into the reconciling step table.
-        ClearanceStepGap? logisticsStep = null;
+        // Logistics Dispatch: own card, never added into the reconciling step table. Single-shipment view only.
+        List<ClearanceStepGap>? logisticsSteps = null;
         List<ShippingPortal.Api.Controllers.Logistics.DelayEntryDto>? logisticsDelays = null;
-        if (clearance is not null && clearance.Route == ShippingPortal.Api.Models.Clearance.ClearanceRouteType.Route1ClearAtPort)
+        if (includeLogistics)
         {
             var dispatchTarget = await _dispatchService.GetTargetDaysAsync();
-            var dispatchInfo = (await _dispatchService.GetForPortShipmentsAsync(new List<int> { shipmentId })).GetValueOrDefault(shipmentId);
-            if (dispatchInfo?.ReleaseDate is DateOnly releaseDate)
+            var dispatchInfos = (await _dispatchService.GetAllAsync(new List<int> { shipmentId }, includeProjectedRelease: true))
+                .GetValueOrDefault(shipmentId) ?? new List<DispatchInfo>();
+            var logisticsCategory = ProcessStepCategories.ByStep.GetValueOrDefault("Logistics Dispatch", "Logistics");
+
+            logisticsSteps = new List<ClearanceStepGap>();
+            foreach (var dp in dispatchInfos.Where(x => x.ReleaseDate.HasValue).OrderBy(x => x.ReleaseDate))
             {
-                var endDate = dispatchInfo.FullyDispatchedDate ?? today;
-                var dispatchDays = Math.Max(0, ClearanceScheduleService.BusinessDaysBetween(releaseDate, endDate, holidaySet));
-                var stepLabel = dispatchInfo.FullyDispatchedDate.HasValue ? "Logistics Dispatch" : "Logistics Dispatch (ongoing)";
-                logisticsStep = new ClearanceStepGap(stepLabel, dispatchDays, dispatchTarget, dispatchDays - dispatchTarget,
-                    ProcessStepCategories.ByStep.GetValueOrDefault("Logistics Dispatch", "Logistics"));
+                var scope = dp.WithdrawalId.HasValue
+                    ? $"Logistics Dispatch - Withdrawal {(string.IsNullOrWhiteSpace(dp.WithdrawalRef) ? "#" + dp.WithdrawalId : dp.WithdrawalRef)}"
+                    : "Logistics Dispatch";
+                if (dp.ReleaseIsForecast)
+                {
+                    // SPC Bill not settled yet: the clock has not started - show the target only.
+                    logisticsSteps.Add(new ClearanceStepGap(scope + " (waiting for SPC Bill settlement)", null, dispatchTarget, null, logisticsCategory));
+                    continue;
+                }
+                var endDate = dp.FullyDispatchedDate ?? today;
+                var dispatchDays = Math.Max(0, ClearanceScheduleService.BusinessDaysBetween(dp.ReleaseDate!.Value, endDate, holidaySet));
+                var stepLabel = dp.FullyDispatchedDate.HasValue ? scope : scope + " (ongoing)";
+                logisticsSteps.Add(new ClearanceStepGap(stepLabel, dispatchDays, dispatchTarget, dispatchDays - dispatchTarget, logisticsCategory));
             }
 
             var delayRows = await _db.LogisticsDelayLogs.Include(d => d.Reason)
@@ -664,6 +677,6 @@ public class DemurrageAnalysisController : ControllerBase
             ActualDemurragePaidSdg: charges?.ActualDemurragePaidSdg, ActualStoragePaidSdg: charges?.ActualStoragePaidSdg, ActualTotalPaidSdg: actualPaidTotal,
             SavingsSdg: savings,
             Warnings: demurrage.Warnings,
-            LogisticsStep: logisticsStep, LogisticsDelays: logisticsDelays);
+            LogisticsSteps: logisticsSteps, LogisticsDelays: logisticsDelays);
     }
 }

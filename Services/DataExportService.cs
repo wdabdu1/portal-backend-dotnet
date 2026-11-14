@@ -164,6 +164,7 @@ public class DataExportService
         BuildShipmentOffshoreErpInfoSheet(wb);
         BuildSectionLocksSheet(wb);
         BuildTruckMovementsSheet(wb);
+        BuildLogisticsDelayLogSheet(wb);
 
         using var ms = new MemoryStream();
         wb.SaveAs(ms);
@@ -1400,6 +1401,39 @@ public class DataExportService
             SetCell(ws, row, 5, m.Reason);
             SetCell(ws, row, 6, m.Value);
             SetCell(ws, row, 7, m.Notes);
+            row++;
+        }
+        ws.Columns().AdjustToContents();
+    }
+
+    private void BuildLogisticsDelayLogSheet(XLWorkbook wb)
+    {
+        var ws = wb.Worksheets.Add("Logistics_Delay_Log");
+        ws.Cell(1, 1).Value = "Logistics Delay Log";
+        ws.Cell(1, 1).Style.Font.Bold = true; ws.Cell(1, 1).Style.Font.FontSize = 13; ws.Cell(1, 1).Style.Font.FontColor = Navy;
+        ws.Cell(2, 1).Value = "REASON must match a Logistics Delay Reason (Settings). WITHDRAWAL REF is only for FZ withdrawals (leave blank for port shipments). TO DATE blank = still ongoing.";
+        var headers = new[] { "B/L NO", "WITHDRAWAL REF (optional)", "REASON", "FROM DATE", "TO DATE (blank = ongoing)", "NOTE", "LOGGED BY" };
+        for (int i = 0; i < headers.Length; i++)
+        {
+            var c = ws.Cell(4, i + 1);
+            c.Value = headers[i]; c.Style.Font.Bold = true; c.Style.Font.FontColor = XLColor.White; c.Style.Fill.BackgroundColor = Navy;
+        }
+        for (int i = 0; i < headers.Length; i++) ws.Cell(5, i + 1).Style.Fill.BackgroundColor = LegendFill;
+
+        var withdrawalRefs = _db.Withdrawals.ToDictionary(w => w.Id, w => w.WithdrawalRequestRefNo);
+        var rows = _db.LogisticsDelayLogs.Include(d => d.Shipment).Include(d => d.Reason)
+            .OrderBy(d => d.Shipment!.BlAwbNo).ThenBy(d => d.FromDate).ThenBy(d => d.Id).ToList();
+
+        int row = 6;
+        foreach (var d in rows)
+        {
+            SetCell(ws, row, 1, d.Shipment?.BlAwbNo);
+            SetCell(ws, row, 2, d.WithdrawalId.HasValue ? withdrawalRefs.GetValueOrDefault(d.WithdrawalId.Value) : null);
+            SetCell(ws, row, 3, d.Reason?.Name);
+            SetCell(ws, row, 4, d.FromDate);
+            SetCell(ws, row, 5, d.ToDate);
+            SetCell(ws, row, 6, d.Note);
+            SetCell(ws, row, 7, d.CreatedBy);
             row++;
         }
         ws.Columns().AdjustToContents();

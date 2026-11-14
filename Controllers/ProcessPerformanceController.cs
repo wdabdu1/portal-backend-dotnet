@@ -216,11 +216,13 @@ public class ProcessPerformanceController : ControllerBase
         var slaRows = await _db.ClearanceSlaSettings.Where(s => s.IsActive).ToListAsync();
 
         var dispatchTarget = await _dispatch.GetTargetDaysAsync();
+        // One batched lookup for the whole set (port clock + FZ withdrawals), not one per shipment.
+        var dispatchByShipment = await _dispatch.GetAllAsync(targetIds, includeProjectedRelease: true);
 
         var perShipment = new List<ProcessPerformanceResult>();
         foreach (var id in targetIds)
         {
-            var detail = await BuildSingleAsync(id, holidaySet, slaRows, dispatchTarget);
+            var detail = await BuildSingleAsync(id, holidaySet, slaRows, dispatchTarget, dispatchByShipment.GetValueOrDefault(id) ?? new List<DispatchInfo>());
             if (detail is not null) perShipment.Add(detail);
         }
 
@@ -411,7 +413,7 @@ public class ProcessPerformanceController : ControllerBase
     private static int BusinessDaysBetween(DateOnly from, DateOnly to, HashSet<DateOnly> holidays) =>
         ClearanceScheduleService.BusinessDaysBetween(from, to, holidays);
 
-    private async Task<ProcessPerformanceResult?> BuildSingleAsync(int shipmentId, HashSet<DateOnly> holidaySet, List<ClearanceSlaSetting> slaRows, int dispatchTarget)
+    private async Task<ProcessPerformanceResult?> BuildSingleAsync(int shipmentId, HashSet<DateOnly> holidaySet, List<ClearanceSlaSetting> slaRows, int dispatchTarget, List<DispatchInfo> dispatchInfos)
     {
         var shipment = await _db.Shipments
             .Include(s => s.PurchaseOrder).ThenInclude(p => p!.BusinessUnit)
@@ -535,17 +537,17 @@ public class ProcessPerformanceController : ControllerBase
             }
         }
 
-        // --- Logistics Dispatch (Route 1 only): Clearance release -> whole shipment on trucks ---
-        // Owned by Logistics, shown as its own step after the clearance cascade. Only appears once the
-        // SPC Bill has actually been settled (that is the moment Logistics' clock starts).
-        if (route == ClearanceRouteType.Route1ClearAtPort)
+        // --- Logistics Dispatch: Clearance release -> whole consignment on trucks ---
+        // Owned by Logistics, shown after the clearance cascade. One step for the port shipment (Route 1:
+        // clock starts at SPC Bill settlement; before that it shows the forecast from the projected SPC Bill
+        // date with no actual yet) and one per FZ withdrawal made from this shipment (clock starts at its
+        // Release & Exit Pass date). Group mode averages every instance, so each withdrawal counts once.
+        foreach (var dp in dispatchInfos.Where(x => x.ReleaseDate.HasValue).OrderBy(x => x.ReleaseDate))
         {
-            var dispatch = (await _dispatch.GetForPortShipmentsAsync(new List<int> { shipmentId })).GetValueOrDefault(shipmentId);
-            if (dispatch?.ReleaseDate is DateOnly release)
-            {
-                var forecastEnd = AddBusinessDays(release, dispatchTarget, holidaySet);
-                AddStep(steps, "Logistics Dispatch", release, forecastEnd, release, dispatch.FullyDispatchedDate, dispatchTarget, holidaySet);
-            }
+            var dispatchRelease = dp.ReleaseDate!.Value;
+            var dispatchForecastEnd = AddBusinessDays(dispatchRelease, dispatchTarget, holidaySet);
+            AddStep(steps, "Logistics Dispatch", dispatchRelease, dispatchForecastEnd,
+                dp.ReleaseIsForecast ? null : dispatchRelease, dp.FullyDispatchedDate, dispatchTarget, holidaySet);
         }
 
         // HitShipmentCount/HitShipmentAmountSdg are placeholders here (0)
