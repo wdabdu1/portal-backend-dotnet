@@ -36,6 +36,16 @@ public record ShipmentCorrectionRequest(
     DateOnly? BlAwbDate, DateOnly? Etd, DateOnly? Eta, int ShippingLineId, string? VesselName,
     int Fcl20Count, int Fcl40Count, bool Soc, int? BlFreeDays, List<ShipmentCorrectionLineRequest>? LineItems);
 
+// ---- Phase 2 (SuperUser only): identity / ownership keys ----
+public record PoIdentityResponse(
+    int Id, string PoNumber, LookupRef BusinessUnit, LookupRef Division, LookupRef Supplier, LookupRef Consignee,
+    int ShipmentCount, List<string> ShipmentBlNumbers, int PoPaymentCount, int LineItemCount);
+
+public record PoIdentityRequest(
+    string PoNumber, int BusinessUnitId, int DivisionId, int SupplierId, int ConsigneeId, string? Reason);
+
+public record BlNumberRequest(string BlAwbNo, string? Reason);
+
 public record ChangeLogRow(int Id, string FieldName, string? OldValue, string? NewValue, string ChangedByName, DateTime ChangedAt);
 
 // Phase 1 of "correct an existing PO / Shipment": only DESCRIPTIVE fields —
@@ -92,6 +102,8 @@ public class RecordCorrectionsController : ControllerBase
                 ChangedByUserId = _userId, ChangedByName = _userName, ChangedAt = _at
             });
         }
+
+        public void Note(string field, string value) => Add(field, null, value);
 
         public void Text(string field, string? oldV, string? newV, Action<string?> apply)
         {
@@ -268,6 +280,151 @@ public class RecordCorrectionsController : ControllerBase
         _db.DataChangeLogs.AddRange(c.Rows);
         await _db.SaveChangesAsync();
         return Ok(new { changed = c.Rows.Count });
+    }
+
+    // ---------- Phase 2: identity / ownership keys (SuperUser only) ----------
+    // PO number, BU, Division, Supplier, Consignee and the BL/AWB number are
+    // referenced everywhere by id (never copied as text), so changing them is
+    // safe for the data itself; the guards below protect the business rules
+    // (unique numbers, Division belongs to BU, multi-PO shipments keep one
+    // Supplier + BU + Division) and every change needs a written reason that is
+    // stored in the Change History next to the old -> new values.
+    private async Task<List<int>> ShipmentIdsOfPoAsync(int poId)
+    {
+        var viaLink = await _db.ShipmentPurchaseOrders.Where(x => x.PurchaseOrderId == poId).Select(x => x.ShipmentId).ToListAsync();
+        var primary = await _db.Shipments.Where(x => x.PurchaseOrderId == poId).Select(x => x.Id).ToListAsync();
+        return viaLink.Union(primary).Distinct().ToList();
+    }
+
+    [HttpGet("orders/{id:int}/identity")]
+    [Authorize(Roles = AppRoles.SuperUser)]
+    public async Task<ActionResult<PoIdentityResponse>> GetOrderIdentity(int id)
+    {
+        var po = await _db.PurchaseOrders
+            .Include(p => p.BusinessUnit).Include(p => p.Division).Include(p => p.Supplier).Include(p => p.Consignee)
+            .FirstOrDefaultAsync(p => p.Id == id);
+        if (po is null) return NotFound();
+
+        var shipmentIds = await ShipmentIdsOfPoAsync(id);
+        var bls = await _db.Shipments.Where(s => shipmentIds.Contains(s.Id)).OrderBy(s => s.BlAwbNo).Select(s => s.BlAwbNo).Take(15).ToListAsync();
+        var paymentCount = await _db.PurchaseOrderPayments.CountAsync(x => x.PurchaseOrderId == id);
+        var lineCount = await _db.PurchaseOrderLineItems.CountAsync(x => x.PurchaseOrderId == id);
+
+        return new PoIdentityResponse(
+            po.Id, po.PoNumber,
+            new LookupRef(po.BusinessUnitId, po.BusinessUnit?.Name ?? ""),
+            new LookupRef(po.DivisionId, po.Division?.Name ?? ""),
+            new LookupRef(po.SupplierId, po.Supplier?.Name ?? ""),
+            new LookupRef(po.ConsigneeId, po.Consignee?.Name ?? ""),
+            shipmentIds.Count, bls, paymentCount, lineCount);
+    }
+
+    [HttpPut("orders/{id:int}/identity")]
+    [Authorize(Roles = AppRoles.SuperUser)]
+    public async Task<IActionResult> SaveOrderIdentity(int id, PoIdentityRequest req)
+    {
+        var po = await _db.PurchaseOrders
+            .Include(p => p.BusinessUnit).Include(p => p.Division).Include(p => p.Supplier).Include(p => p.Consignee)
+            .FirstOrDefaultAsync(p => p.Id == id);
+        if (po is null) return NotFound();
+
+        var newNo = Norm(req.PoNumber);
+        if (newNo is null) return BadRequest(new { message = "PO number is required." });
+        if (newNo.Length > 50) return BadRequest(new { message = "PO number can be at most 50 characters." });
+
+        var buChanged = req.BusinessUnitId != po.BusinessUnitId;
+        var divChanged = req.DivisionId != po.DivisionId;
+        var numberChanged = newNo != po.PoNumber;
+        var supplierChanged = req.SupplierId != po.SupplierId;
+        var consigneeChanged = req.ConsigneeId != po.ConsigneeId;
+        if (!(buChanged || divChanged || numberChanged || supplierChanged || consigneeChanged))
+            return Ok(new { changed = 0 });
+
+        var reason = Norm(req.Reason);
+        if (reason is null || reason.Length < 5)
+            return BadRequest(new { message = "Please give a short reason for the correction (at least 5 characters)." });
+
+        if (numberChanged && await _db.PurchaseOrders.AnyAsync(p => p.Id != id && p.PoNumber == newNo))
+            return Conflict(new { message = $"PO number '{newNo}' already exists." });
+
+        // Division must belong to the (new) Business Unit.
+        if ((buChanged || divChanged) &&
+            !await _db.Divisions.AnyAsync(d => d.Id == req.DivisionId && d.BusinessUnitId == req.BusinessUnitId))
+            return BadRequest(new { message = "The selected Division does not belong to the selected Business Unit." });
+
+        // A shipment that combines several POs must keep ONE Supplier + BU + Division (business rule
+        // enforced when the shipment is created) - so refuse a change that would split them.
+        if (buChanged || divChanged || supplierChanged)
+        {
+            var shipmentIds = await ShipmentIdsOfPoAsync(id);
+            if (shipmentIds.Count > 0)
+            {
+                var otherPoIds = await _db.ShipmentPurchaseOrders
+                    .Where(x => shipmentIds.Contains(x.ShipmentId) && x.PurchaseOrderId != id)
+                    .Select(x => x.PurchaseOrderId).Distinct().ToListAsync();
+                var clash = await _db.PurchaseOrders
+                    .Where(p => otherPoIds.Contains(p.Id) &&
+                        (p.SupplierId != req.SupplierId || p.BusinessUnitId != req.BusinessUnitId || p.DivisionId != req.DivisionId))
+                    .Select(p => p.PoNumber).Take(5).ToListAsync();
+                if (clash.Count > 0)
+                    return BadRequest(new
+                    {
+                        message = "This PO shares a shipment with other PO(s) (" + string.Join(", ", clash) +
+                                  ") and a shipment must keep one Supplier, BU and Division. Correct those POs to match first, or change them together."
+                    });
+            }
+        }
+
+        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "";
+        var c = new Changes("PurchaseOrder", po.Id, po.PoNumber, userId, await CurrentUserNameAsync(userId));
+
+        await c.Lookup("Business Unit", po.BusinessUnitId, po.BusinessUnit?.Name, req.BusinessUnitId,
+            i => _db.BusinessUnits.Where(x => x.Id == i).Select(x => x.Name).FirstOrDefaultAsync(), v => po.BusinessUnitId = v!.Value);
+        await c.Lookup("Division", po.DivisionId, po.Division?.Name, req.DivisionId,
+            i => _db.Divisions.Where(x => x.Id == i).Select(x => x.Name).FirstOrDefaultAsync(), v => po.DivisionId = v!.Value);
+        await c.Lookup("Supplier", po.SupplierId, po.Supplier?.Name, req.SupplierId,
+            i => _db.BusinessPartners.Where(x => x.Id == i && x.IsSupplier).Select(x => x.Name).FirstOrDefaultAsync(), v => po.SupplierId = v!.Value);
+        await c.Lookup("Consignee", po.ConsigneeId, po.Consignee?.Name, req.ConsigneeId,
+            i => _db.BusinessPartners.Where(x => x.Id == i && x.IsConsignee).Select(x => x.Name).FirstOrDefaultAsync(), v => po.ConsigneeId = v!.Value);
+        if (c.Error is not null) return BadRequest(new { message = c.Error });
+
+        c.Text("PO Number", po.PoNumber, newNo, v => po.PoNumber = v!);
+        if (c.Rows.Count == 0) return Ok(new { changed = 0 });
+
+        c.Note("Correction reason", reason.Length > 480 ? reason[..480] : reason);
+        po.UpdatedAt = DateTime.UtcNow;
+        _db.DataChangeLogs.AddRange(c.Rows);
+        await _db.SaveChangesAsync();
+        return Ok(new { changed = c.Rows.Count - 1 });
+    }
+
+    [HttpPut("shipments/{id:int}/bl-number")]
+    [Authorize(Roles = AppRoles.SuperUser)]
+    public async Task<IActionResult> SaveBlNumber(int id, BlNumberRequest req)
+    {
+        var s = await _db.Shipments.FirstOrDefaultAsync(x => x.Id == id);
+        if (s is null) return NotFound();
+
+        var newNo = Norm(req.BlAwbNo);
+        if (newNo is null) return BadRequest(new { message = "BL/AWB number is required." });
+        if (newNo.Length > 50) return BadRequest(new { message = "BL/AWB number can be at most 50 characters." });
+        if (newNo == s.BlAwbNo) return Ok(new { changed = 0 });
+
+        var reason = Norm(req.Reason);
+        if (reason is null || reason.Length < 5)
+            return BadRequest(new { message = "Please give a short reason for the correction (at least 5 characters)." });
+        if (await _db.Shipments.AnyAsync(x => x.Id != id && x.BlAwbNo == newNo))
+            return Conflict(new { message = $"BL/AWB number '{newNo}' already exists." });
+
+        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "";
+        var c = new Changes("Shipment", s.Id, s.BlAwbNo, userId, await CurrentUserNameAsync(userId));
+        c.Text("BL/AWB Number", s.BlAwbNo, newNo, v => s.BlAwbNo = v!);
+        c.Note("Correction reason", reason.Length > 480 ? reason[..480] : reason);
+
+        s.UpdatedAt = DateTime.UtcNow;
+        _db.DataChangeLogs.AddRange(c.Rows);
+        await _db.SaveChangesAsync();
+        return Ok(new { changed = 1 });
     }
 
     // ---------- History ----------
