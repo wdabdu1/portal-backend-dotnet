@@ -44,6 +44,17 @@ public class ShipmentDraftDocuments
     public DateOnly? InitialDraftReceivedDate { get; set; }
     public DateOnly? FinalDraftReceivedDate { get; set; }
     public DateOnly? FinalDraftConfirmedDate { get; set; }
+
+    // Supplier Documents — BL / COO. Mapping of the three original columns (kept for data continuity):
+    //   InitialDraftReceivedDate  = BL Initial Draft Received
+    //   FinalDraftReceivedDate    = BL Revised Draft Sent
+    //   FinalDraftConfirmedDate   = BL Final SWB / OBL Received
+    // COO has its own columns below. CooNotRequired = shipment has no Certificate of Origin, so
+    // COO does not hold the "supplier documents complete" check.
+    public DateOnly? CooInitialDraftReceivedDate { get; set; }
+    public DateOnly? CooRevisedDraftSentDate { get; set; }
+    public DateOnly? CooFinalStampedCopyDate { get; set; }
+    public bool CooNotRequired { get; set; }
 }
 
 public class ShipmentSsmo

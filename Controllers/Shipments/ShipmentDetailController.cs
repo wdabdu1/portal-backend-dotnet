@@ -11,7 +11,8 @@ namespace ShippingPortal.Api.Controllers.Shipments;
 
 public record ShipmentForwarderRequest(int? ForwarderId, decimal? ActualShippingCost, int? CurrencyId, decimal? AmountSaved, bool MarineInsurance);
 public record ShipmentAcdRequest(DateOnly? ProcessDate, DateOnly? CostSettledDate, string? RefNumber);
-public record ShipmentDraftDocumentsRequest(DateOnly? InitialDraftReceivedDate, DateOnly? FinalDraftReceivedDate, DateOnly? FinalDraftConfirmedDate);
+public record ShipmentDraftDocumentsRequest(DateOnly? InitialDraftReceivedDate, DateOnly? FinalDraftReceivedDate, DateOnly? FinalDraftConfirmedDate,
+    DateOnly? CooInitialDraftReceivedDate = null, DateOnly? CooRevisedDraftSentDate = null, DateOnly? CooFinalStampedCopyDate = null, bool? CooNotRequired = null);
 public record ShipmentSsmoRequest(bool? CocRequired, bool? CocAvailable, DateOnly? ApplicationDate, decimal? Cost, DateOnly? CostSettledDate, string? RefNumber, DateOnly? ApprovalDate);
 public record ShipmentMotRequest(DateOnly? ProcessDate, decimal? Cost, DateOnly? CostSettledDate, string? RefNumber, DateOnly? ApprovalDate, string? OffshoreApprovedPiNumber);
 public record ShipmentSupplierFullSetRequest(string? SupplierInvoiceNo, DateOnly? SupplierInvoiceDate, DateOnly? FsDispatchDate, int? FsDispatchedViaId, string? FsTrackingNumber, DateOnly? FsReceivedDate);
@@ -239,6 +240,10 @@ public class ShipmentDetailController : ControllerBase
         entity.InitialDraftReceivedDate = req.InitialDraftReceivedDate;
         entity.FinalDraftReceivedDate = req.FinalDraftReceivedDate;
         entity.FinalDraftConfirmedDate = req.FinalDraftConfirmedDate;
+        entity.CooInitialDraftReceivedDate = req.CooInitialDraftReceivedDate;
+        entity.CooRevisedDraftSentDate = req.CooRevisedDraftSentDate;
+        entity.CooFinalStampedCopyDate = req.CooFinalStampedCopyDate;
+        entity.CooNotRequired = req.CooNotRequired ?? false;
 
         await _db.SaveChangesAsync();
         return Ok(entity);

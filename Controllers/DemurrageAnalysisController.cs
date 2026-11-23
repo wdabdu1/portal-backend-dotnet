@@ -415,7 +415,7 @@ public class DemurrageAnalysisController : ControllerBase
                 : (int?)null;
             decimal? gap = (actualDays.HasValue && targetDays.HasValue) ? actualDays.Value - targetDays.Value : null;
             var category = ProcessStepCategories.ByStep.GetValueOrDefault(name, "Internal");
-            documentChainSteps.Add(new ClearanceStepGap(name, actualDays, targetDays, gap, category));
+            documentChainSteps.Add(new ClearanceStepGap(ProcessStepCategories.DisplayName(name), actualDays, targetDays, gap, category));
             if (actualEnd.HasValue) chainActual = actualEnd;
         }
 

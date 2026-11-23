@@ -26,10 +26,19 @@ namespace ShippingPortal.Api.Controllers;
 // line's side are the more common cause.
 public static class ProcessStepCategories
 {
+    // Raw SLA GroupItem keys must never be renamed (they are stored in Settings → Clearance SLA);
+    // this maps them to the Supplier Documents wording used on screen.
+    public static readonly Dictionary<string, string> DocStepLabels = new()
+    {
+        ["Final Draft Received"] = "Final BL Confirmed",
+        ["Final Draft Confirmed"] = "Final SWB / OBL Received",
+    };
+    public static string DisplayName(string raw) => DocStepLabels.GetValueOrDefault(raw, raw);
+
     public static readonly Dictionary<string, string> ByStep = new()
     {
         ["Final Draft Received"] = "Supplier",
-        ["Final Draft Confirmed"] = "Internal",
+        ["Final Draft Confirmed"] = "Supplier", // Final SWB / OBL Received — we wait on the supplier/line for it
         ["FS Received"] = "Supplier",
         ["Original Shipment Set Received"] = "Bank",
         ["MOT Approval"] = "Government",
@@ -631,6 +640,6 @@ public class ProcessPerformanceController : ControllerBase
         decimal? gap = actualDaysTaken.HasValue ? actualDaysTaken.Value - targetDays : null;
 
         var category = ProcessStepCategories.ByStep.GetValueOrDefault(name, "Internal");
-        steps.Add(new ProcessStepDetail(name, category, forecastStart, forecastEnd, actualStart, actualEnd, actualDaysTaken, targetDays, gap));
+        steps.Add(new ProcessStepDetail(ProcessStepCategories.DisplayName(name), category, forecastStart, forecastEnd, actualStart, actualEnd, actualDaysTaken, targetDays, gap));
     }
 }

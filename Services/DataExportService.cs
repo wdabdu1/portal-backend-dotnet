@@ -123,6 +123,10 @@ public class DataExportService
         ("DOCS","FINAL DRAFT RECEIVED DATE"),
         ("DOCS","FULL SET DISPATCHED VIA (Courier Name)"),
         ("OFFSHORE","C PRICING CATEGORY"),("OFFSHORE","C PRICING TYPE"),
+        // Appended (cols 115-118) — Supplier Documents: COO side (BL reuses cols 44, 45 and 112:
+        // 44 = BL Initial Draft Received, 112 = BL Revised Draft Sent, 45 = BL Final SWB/OBL Received).
+        ("DOCS","COO INITIAL DRAFT RECEIVED DATE"),("DOCS","COO REVISED DRAFT SENT DATE"),
+        ("DOCS","COO FINAL STAMPED COPY DATE"),("DOCS","COO NOT REQUIRED (TRUE/FALSE)"),
     };
     private static void SetCell(IXLWorksheet ws, int row, int col, object? value)
     {
@@ -453,6 +457,12 @@ public class DataExportService
         SetCell(ws, row, c++, fullSet?.FsDispatchedVia?.Name);
         SetCell(ws, row, c++, offshoreItem?.CPricingCategory?.Name);
         SetCell(ws, row, c++, offshoreItem?.CPricingType?.Name);
+
+        // Appended (cols 115-118) — Supplier Documents: COO.
+        SetCell(ws, row, c++, docs?.CooInitialDraftReceivedDate);
+        SetCell(ws, row, c++, docs?.CooRevisedDraftSentDate);
+        SetCell(ws, row, c++, docs?.CooFinalStampedCopyDate);
+        SetCell(ws, row, c++, docs?.CooNotRequired);
     }
 
     // Direct Sales' "Customer Agreed Payment" schedule (ShipmentCustomerDue)

@@ -615,13 +615,23 @@ public class DataUploadService
         var draftDate = Dt(ws, row, 44);
         var finalConfirmedDate = Dt(ws, row, 45);
         var finalReceivedDate = Dt(ws, row, 112);
-        if (draftDate.HasValue || finalConfirmedDate.HasValue || finalReceivedDate.HasValue)
+        // Cols 115-118 appended: Supplier Documents — COO (BL = cols 44 / 112 / 45).
+        var cooInitialDate = Dt(ws, row, 115);
+        var cooRevisedDate = Dt(ws, row, 116);
+        var cooFinalDate = Dt(ws, row, 117);
+        var cooNotRequired = B(ws, row, 118) ?? false;
+        if (draftDate.HasValue || finalConfirmedDate.HasValue || finalReceivedDate.HasValue
+            || cooInitialDate.HasValue || cooRevisedDate.HasValue || cooFinalDate.HasValue || cooNotRequired)
         {
             var docs = await _db.ShipmentDraftDocuments.FirstOrDefaultAsync(d => d.ShipmentId == shipmentId) ?? new ShipmentDraftDocuments { ShipmentId = shipmentId };
             if (docs.Id == 0) _db.ShipmentDraftDocuments.Add(docs);
             docs.InitialDraftReceivedDate = draftDate;
             docs.FinalDraftReceivedDate = finalReceivedDate;
             docs.FinalDraftConfirmedDate = finalConfirmedDate;
+            docs.CooInitialDraftReceivedDate = cooInitialDate;
+            docs.CooRevisedDraftSentDate = cooRevisedDate;
+            docs.CooFinalStampedCopyDate = cooFinalDate;
+            docs.CooNotRequired = cooNotRequired;
         }
 
         var supplierInvoiceNo = S(ws, row, 46);

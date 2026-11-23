@@ -223,7 +223,7 @@ public class PreClearanceReadinessService
             {
                 var shouldBeDoneBy = etaTargets[i] < etdTargets[i] ? etaTargets[i] : etdTargets[i];
                 var actual = ActualFor(docsRows[i].GroupItem);
-                docItems.Add(BuildItem(docsRows[i].GroupItem, shouldBeDoneBy, actual, today, holidaySet));
+                docItems.Add(BuildItem(ShippingPortal.Api.Controllers.ProcessStepCategories.DisplayName(docsRows[i].GroupItem), shouldBeDoneBy, actual, today, holidaySet));
             }
 
             // Last document-chain step's live-projected date — used below
@@ -232,6 +232,24 @@ public class PreClearanceReadinessService
             var lastDocTarget = docItems.Count > 0 ? docItems[^1].ShouldBeDoneBy : eta;
             var lastDocActual = docItems.Count > 0 ? docItems[^1].ActualDate : null;
             var lastDocProjected = lastDocActual ?? (today > lastDocTarget ? today : lastDocTarget);
+
+            // --- Supplier Documents: COO must be finalised alongside the BL ---
+            // A full set is not clearance-ready until BOTH the BL (Final SWB / OBL) and the COO
+            // (Final Stamped Copy) are final, so COO is a gating item at the end of the Document
+            // Chain, due when the last chain step is due. It is left out entirely when the user
+            // ticked "COO not required", and for legacy shipments whose Original Shipment Set is
+            // already received with no COO data recorded (the documents were evidently complete).
+            var cooOsSetDone = clearance?.OriginalShipmentSetReceivedDate.HasValue == true;
+            var cooApplicable = dd?.CooNotRequired != true
+                && !(cooOsSetDone && dd?.CooFinalStampedCopyDate is null
+                     && dd?.CooInitialDraftReceivedDate is null && dd?.CooRevisedDraftSentDate is null);
+            DateOnly cooProjected = lastDocProjected;
+            if (cooApplicable)
+            {
+                var cooActual = dd?.CooFinalStampedCopyDate;
+                docItems.Add(BuildItem("Final Stamped COO Received", lastDocTarget, cooActual, today, holidaySet));
+                cooProjected = cooActual ?? (today > lastDocTarget ? today : lastDocTarget);
+            }
 
             // --- MOT / SSMO — independent, backward from ETA ---
             mots.TryGetValue(shipment.Id, out var mot);
@@ -282,6 +300,7 @@ public class PreClearanceReadinessService
             var motNotReadyAtArrival = hasArrived && !motApproved;
             var isRed = (hasArrived && !osSetDone)
                 || lastDocProjected > arrivalReference
+                || cooProjected > arrivalReference
                 || (doItem.ActualDate is null && doItem.Light == "Red")
                 || motNotReadyAtArrival;
 

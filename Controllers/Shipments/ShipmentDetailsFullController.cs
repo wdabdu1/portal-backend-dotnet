@@ -82,7 +82,7 @@ public class ShipmentDetailsFullController : ControllerBase
         if (!isClearance)
         {
             var draftDocs = await _db.ShipmentDraftDocuments.FirstOrDefaultAsync(x => x.ShipmentId == id);
-            draftDto = draftDocs is null ? null : new { draftDocs.InitialDraftReceivedDate, draftDocs.FinalDraftReceivedDate, draftDocs.FinalDraftConfirmedDate };
+            draftDto = draftDocs is null ? null : new { draftDocs.InitialDraftReceivedDate, draftDocs.FinalDraftReceivedDate, draftDocs.FinalDraftConfirmedDate, draftDocs.CooInitialDraftReceivedDate, draftDocs.CooRevisedDraftSentDate, draftDocs.CooFinalStampedCopyDate, draftDocs.CooNotRequired };
         }
 
         // --- SSMO — Clearance sees only Date + Reference No. ---
